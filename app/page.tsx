@@ -474,14 +474,33 @@ function MarketWatchTicker() {
 function TickerRow({ items, direction, className }: { items: TickerItem[]; direction: "left" | "right"; className?: string }) {
   const doubled = [...items, ...items];
   return (
-    <div className={`flex w-full overflow-hidden whitespace-nowrap ${className ?? ""}`}>
+    // pl-4 lives here, on the non-animated overflow-hidden wrapper, NOT
+    // on the translating row below — it used to be on the row itself,
+    // which made row.scrollWidth asymmetric (16px of padding before the
+    // first copy, none after the second) and broke the "translate by
+    // exactly -50%" seamless-loop assumption. That was only HALF the bug
+    // though (see below).
+    <div className={`flex w-full overflow-hidden whitespace-nowrap pl-4 ${className ?? ""}`}>
+      {/* No `gap-*` on this row — flex `gap` only inserts spacing BETWEEN
+          elements (n-1 gaps for n items), which is inherently asymmetric
+          once you duplicate the list for the loop: two copies of 3 items
+          share just ONE "seam" gap between them, not the two gaps a
+          symmetric 50%/50% split needs, so `-50%` always lands short of
+          the true repeat point (measured ~20px short live, not guessed —
+          via getAnimations()/getBoundingClientRect() before fixing).
+          Every item instead carries its OWN trailing spacer (pr-20 below,
+          doubled from the old pr-10 to keep the same visible gap now that
+          gap-10 is gone) — including the last item of each copy — so each
+          copy is a fully self-contained, gap-free repeat unit and
+          `scrollWidth / 2` is exactly one copy's width. Reported live as
+          "lag when the ticker finishes." */}
       <div
-        className={`flex shrink-0 items-center gap-10 whitespace-nowrap py-1.5 pl-4 ${
+        className={`flex shrink-0 items-center whitespace-nowrap py-1.5 ${
           direction === "left" ? "animate-marquee-left" : "animate-marquee-right"
         }`}
       >
         {doubled.map((item, i) => (
-          <span key={i} className="flex items-center gap-1.5 pr-10">
+          <span key={i} className="flex items-center gap-1.5 pr-20">
             <span className="text-zinc-500">{item.label}</span>
             <span className="font-semibold text-emerald-400">
               {item.value} <span aria-hidden>▼</span>
