@@ -1,0 +1,1957 @@
+"use client";
+
+import { Suspense, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import {
+  Loader2,
+  CheckCircle2,
+  MessageCircle,
+  Zap,
+  Gauge,
+  Wallet,
+  ArrowRight,
+  ShieldCheck,
+  Sun,
+  Wrench,
+  BadgeCheck,
+  ChevronLeft,
+  ChevronDown,
+  Download,
+  Sparkles,
+  Upload,
+  FileText,
+  X,
+  SlidersHorizontal,
+  PanelsTopLeft,
+  AlertTriangle,
+  Receipt,
+} from "lucide-react";
+
+// ============================================================================
+// Types & constants
+// ============================================================================
+
+type Sector = "RESIDENTIAL" | "COMMERCIAL" | "INDUSTRIAL";
+type ServiceType = "HYBRID_BATTERY" | "ONGRID_ZERO_EXPORT";
+// Provenance of the bill amount — mirrors Prisma's BillSource enum.
+type BillSource = "MANUAL" | "UPLOADED_PDF" | "UPLOADED_IMAGE";
+type UploadState = "idle" | "uploading" | "success" | "error";
+// Master toggle at the top of the calculator — "Complete Solar System" is
+// the full sizing/pricing flow below; the other two are lightweight
+// WhatsApp inquiry forms with no backend persistence (no pricing/data
+// model specified for either — same reasoning as the old AddOnInquiryForm
+// this replaces).
+type MasterService = "COMPLETE_SOLAR" | "EV_CHARGER" | "SYSTEM_UPGRADES";
+type FormStatus = "idle" | "loading" | "success";
+
+/** Mirrors app/api/bill-upload's UploadedBillDetails. */
+interface UploadedBillDetails {
+  source: "uploaded_pdf" | "uploaded_image";
+  fileUrl: string | null;
+  currentBillPKR: number;
+  unitsConsumed: number | null;
+  consumerId: string | null;
+  consumerName: string | null;
+  address: string | null;
+  tariffCategory: string | null;
+  sanctionedLoadKw: number | null;
+  billingMonth: string | null;
+  readingDate: string | null;
+  issueDate: string | null;
+  dueDate: string | null;
+  arrearsPKR: number;
+  totalPayablePKR: number | null;
+  lpSurchargePKR: number | null;
+  payableAfterDueDatePKR: number | null;
+}
+
+interface QuoteTier {
+  systemKw: number;
+  totalClientPricePKR: number;
+  estimatedMonthlySavingsPKR: number;
+  paybackYears: number | null;
+  offsetPct: number;
+}
+
+/** Mirrors lib/db/admin.ts's ItemizedBreakdown — already-marked-up,
+ *  client-facing PKR lines (never raw vendor cost) that sum to exactly
+ *  `totalClientPricePKR`. */
+interface ItemizedBreakdown {
+  panelsPKR: number;
+  inverterPKR: number;
+  batteryPKR: number;
+  cablingAndProtectionPKR: number;
+  structurePKR: number;
+  installationPKR: number;
+}
+
+interface QuoteResult {
+  quoteId: string;
+  systemKw: number;
+  serviceType: ServiceType;
+  totalClientPricePKR: number;
+  estimatedMonthlySavingsPKR: number;
+  paybackYears: number | null;
+  offsetPct: number;
+  daysToDeploy: number;
+  billSource: BillSource;
+  monthlyBillPKR: number;
+  nearZeroBillTier: QuoteTier | null;
+  breakdown: ItemizedBreakdown;
+  /** True when any Custom Builder selection was "Other / Specific
+   *  Requirement" — the price uses a placeholder cost for that slot until
+   *  engineering sources real pricing. See lib/db/admin.ts's OTHER_CODE. */
+  hasCustomRequirements: boolean;
+}
+
+// ----------------------------------------------------------------------
+// Dual Customization Paths — Recommended vs Custom Equipment Builder
+// ----------------------------------------------------------------------
+
+type CustomizationPath = "RECOMMENDED" | "CUSTOM";
+
+/** Mirrors Prisma's ComponentType enum — only the values the Custom
+ *  Builder renders pickers for (or reads AC_CABLE costs by convention
+ *  from the DC_CABLE picker, per prisma/seed.ts). */
+type ComponentType = "SOLAR_PANEL" | "INVERTER" | "BATTERY" | "DC_CABLE" | "AC_CABLE" | "BREAKERS" | "MOUNTING_STRUCTURE";
+
+/** Mirrors GET /api/equipment-options's per-row shape. Cost-free by
+ *  design — this is the public catalog, never the confidential
+ *  RawVendorCost rows. */
+interface EquipmentOptionDTO {
+  id: string;
+  componentType: ComponentType;
+  code: string;
+  label: string;
+  brand: string | null;
+  specValue: number | null;
+  applicableServiceType: ServiceType | null;
+  isOtherOption: boolean;
+}
+
+type EquipmentOptionsByType = Partial<Record<ComponentType, EquipmentOptionDTO[]>>;
+
+/** Mirrors calculateSystemPricing's EquipmentSelections param in
+ *  lib/db/admin.ts. Sent to the API only when the Custom path is active. */
+interface EquipmentSelections {
+  panelCode?: string;
+  inverterCode?: string;
+  batteryCode?: string;
+  batteryCapacityKwh?: number;
+  dcCableCode?: string;
+  acCableCode?: string;
+  breakersCode?: string;
+  structureCode?: string;
+}
+
+interface EquipmentSummaryLine {
+  component: string;
+  selection: string;
+  isCustom: boolean;
+}
+
+// Reserved code for "Other / Specific Requirement" — must match OTHER_CODE
+// in lib/db/admin.ts and prisma/seed.ts exactly.
+const OTHER_CODE = "OTHER";
+
+// Large visual sector cards (top of the calculator) — illustration +
+// label + short description. Order is display order; Residential is the
+// default-active sector, matching DEFAULT_SECTOR below.
+const SECTOR_CARDS: { value: Sector; label: string; description: string }[] = [
+  { value: "RESIDENTIAL", label: "Residential", description: "For homes — hybrid battery backup, 24/7 power security." },
+  { value: "COMMERCIAL", label: "Commercial", description: "For offices & retail — flexible Hybrid or On-Grid." },
+  { value: "INDUSTRIAL", label: "Industrial", description: "For factories & heavy load — high-capacity On-Grid." },
+];
+const DEFAULT_SECTOR: Sector = "RESIDENTIAL";
+const SECTOR_LABEL: Record<Sector, string> = {
+  RESIDENTIAL: "Residential",
+  COMMERCIAL: "Commercial",
+  INDUSTRIAL: "Industrial",
+};
+
+const SERVICE_TYPE_LABEL: Record<ServiceType, string> = {
+  HYBRID_BATTERY: "Hybrid + Battery Backup",
+  ONGRID_ZERO_EXPORT: "On-Grid Zero-Export",
+};
+
+// Market-reality constraint (2026, revised): Industrial is locked to
+// On-Grid exclusively — battery economics don't work at that load scale
+// — enforced server-side too (resolveServiceType() in
+// app/api/quote/calculate), never trust the client for that part.
+// Residential/Commercial are genuinely the customer's choice; Residential
+// just defaults to Hybrid and shows a warning if they opt into On-Grid
+// instead (see RESIDENTIAL_ONGRID_WARNING below).
+const LOCKED_SERVICE_TYPE_BY_SECTOR: Partial<Record<Sector, ServiceType>> = {
+  INDUSTRIAL: "ONGRID_ZERO_EXPORT",
+};
+
+const RESIDENTIAL_ONGRID_WARNING =
+  "On-Grid inverters shut down during power outages. For 24/7 uninterrupted power, a Hybrid System is strongly recommended.";
+
+// Not collected in the form — sensible sector defaults for what share of
+// consumption falls in daylight hours, since the sizing math needs it.
+const DAYTIME_USAGE_PCT_BY_SECTOR: Record<Sector, number> = {
+  RESIDENTIAL: 0.35,
+  COMMERCIAL: 0.75,
+  INDUSTRIAL: 0.85,
+};
+
+// Master toggle at the very top of the calculator (see MasterService).
+const MASTER_SERVICES: { value: MasterService; label: string; icon: typeof Sun }[] = [
+  { value: "COMPLETE_SOLAR", label: "Complete Solar System", icon: Sun },
+  { value: "EV_CHARGER", label: "EV Charger", icon: Zap },
+  { value: "SYSTEM_UPGRADES", label: "System Upgrades & Washing", icon: Wrench },
+];
+const MASTER_SERVICE_DESCRIPTION: Record<Exclude<MasterService, "COMPLETE_SOLAR">, string> = {
+  EV_CHARGER: "Tell us about your vehicle and charging needs — we'll follow up on WhatsApp with options and pricing.",
+  SYSTEM_UPGRADES: "Panel washing, inverter servicing, capacity upgrades, and more — describe what you need below.",
+};
+
+const WHATSAPP_BUSINESS_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_BUSINESS_NUMBER || "923000000000";
+
+const pkr = new Intl.NumberFormat("en-PK", {
+  style: "currency",
+  currency: "PKR",
+  maximumFractionDigits: 0,
+});
+const formatPKR = (n: number) => pkr.format(n);
+/** Compact form for chart/tile labels where the full currency string
+ *  would crowd — "Rs 1.2M" instead of "PKR 1,234,567". */
+function formatPKRCompact(n: number): string {
+  if (n >= 1_000_000) return `Rs ${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1_000) return `Rs ${Math.round(n / 1000)}K`;
+  return formatPKR(n);
+}
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-PK", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// ============================================================================
+// Page
+// ============================================================================
+
+export default function Page() {
+  return (
+    <main className="min-h-dvh bg-stone-50">
+      <Header />
+      <Hero />
+      <FeaturesSection />
+      <Footer />
+    </main>
+  );
+}
+
+// ============================================================================
+// Header
+// ============================================================================
+
+function Header() {
+  function scrollToCalculator() {
+    document.getElementById("calculator")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  return (
+    <header className="safe-top sticky top-0 z-20 px-3 pt-3 print:hidden sm:px-5">
+      <div className="mx-auto flex max-w-4xl items-center justify-between gap-2 rounded-full border border-stone-200 bg-white/90 py-2 pl-4 pr-2 shadow-sm shadow-stone-200/50 backdrop-blur-md sm:pl-5 sm:pr-2.5">
+        <div className="flex items-center gap-2">
+          <span className="text-base font-semibold tracking-tight text-stone-900 sm:text-lg">Solar Pixel</span>
+          <span className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 sm:inline-block">
+            Zero-Export
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <a
+            href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden min-h-9 items-center gap-1.5 rounded-full border border-stone-200 px-3.5 text-xs font-medium text-stone-600 transition-colors duration-200 hover:border-stone-300 hover:text-stone-900 sm:flex"
+          >
+            <MessageCircle className="h-3.5 w-3.5" />
+            Chat with us
+          </a>
+          <button
+            type="button"
+            onClick={scrollToCalculator}
+            className="flex min-h-9 items-center gap-1.5 rounded-full bg-stone-900 px-3.5 text-xs font-semibold text-white transition-colors duration-200 hover:bg-stone-800 sm:px-4"
+          >
+            <span className="sm:hidden">Get Quote</span>
+            <span className="hidden sm:inline">Get Instant Quote</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// ============================================================================
+// Hero + Calculator
+// ============================================================================
+
+function Hero() {
+  return (
+    <section className="dot-grid relative overflow-hidden px-5 pb-16 pt-10 sm:pt-16 print:p-0">
+      {/* Ambient glow, purely decorative — two soft, low-opacity washes
+          instead of one saturated blob, for a calmer first impression. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-[-160px] h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-violet-200/20 blur-[130px] print:hidden"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute right-[-80px] top-[40px] h-[280px] w-[280px] rounded-full bg-emerald-200/15 blur-[110px] print:hidden"
+      />
+
+      <div className="relative mx-auto max-w-2xl text-center print:hidden">
+        <h1 className="text-balance text-[2.1rem] font-bold leading-[1.15] tracking-tight text-stone-900 sm:text-5xl sm:leading-[1.1]">
+          Skip the WAPDA Red Tape. Slash Your Daytime Electricity Bill by{" "}
+          <span className="text-violet-600">Up to 80%</span>.
+        </h1>
+        <p className="mt-4 text-base text-stone-600 sm:text-lg">
+          Zero-Export Smart Solar. <span className="font-medium text-emerald-600">Live in 48 hours.</span>
+        </p>
+      </div>
+
+      <div id="calculator" className="relative mx-auto mt-8 max-w-md scroll-mt-24 sm:mt-10 print:mt-0 print:max-w-none">
+        {/* useSearchParams() (for the report-step/back-button sync — see
+            CalculatorCard) requires a Suspense boundary so the rest of
+            this static page isn't forced fully dynamic. */}
+        <Suspense fallback={<CalculatorCardSkeleton />}>
+          <CalculatorCard />
+        </Suspense>
+      </div>
+    </section>
+  );
+}
+
+function CalculatorCardSkeleton() {
+  return (
+    <div
+      aria-hidden
+      className="animate-pulse rounded-3xl border border-stone-200/80 bg-white p-4 shadow-xl shadow-stone-200/50 sm:p-5"
+    >
+      <div className="h-10 rounded-xl bg-stone-100" />
+      <div className="mt-3 space-y-2.5">
+        <div className="h-16 rounded-2xl bg-stone-100" />
+        <div className="h-16 rounded-2xl bg-stone-100" />
+        <div className="h-16 rounded-2xl bg-stone-100" />
+      </div>
+      <div className="mt-3 h-11 rounded-xl bg-stone-100" />
+      <div className="mt-4 h-12 rounded-xl bg-stone-100" />
+    </div>
+  );
+}
+
+// ============================================================================
+// Sector illustrations — minimal line-art (thin stroke, no fill) matching
+// the corner-bracket/editorial style used across the page, rather than
+// photographic images. Keeps the sector cards fully self-contained (no
+// external image hosting/CDN dependency) and visually consistent with
+// the rest of the site.
+// ============================================================================
+
+function SectorIllustration({ sector, className }: { sector: Sector; className?: string }) {
+  const common = { viewBox: "0 0 64 48", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+
+  if (sector === "RESIDENTIAL") {
+    return (
+      <svg {...common} className={className} aria-hidden>
+        {/* Roof + solar panel */}
+        <path d="M6 24 L32 6 L58 24" />
+        <path d="M18 15.5 L30 7 L38 7 L26 15.5 Z" opacity={0.5} />
+        {/* Walls */}
+        <path d="M13 21 V41 H51 V21" />
+        {/* Door */}
+        <path d="M27 41 V29 H37 V41" />
+        {/* Windows */}
+        <rect x="18" y="26" width="6" height="6" rx="1" />
+        <rect x="40" y="26" width="6" height="6" rx="1" />
+      </svg>
+    );
+  }
+
+  if (sector === "COMMERCIAL") {
+    return (
+      <svg {...common} className={className} aria-hidden>
+        {/* Two-building plaza */}
+        <path d="M7 42 V16 H26 V42" />
+        <path d="M30 42 V8 H55 V42" />
+        <path d="M7 42 H55" />
+        {/* Window grids */}
+        <path d="M11 21 H22 M11 27 H22 M11 33 H22 M11 39 H22" />
+        <path d="M35 13 H51 M35 19 H51 M35 25 H51 M35 31 H51 M35 37 H51" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...common} className={className} aria-hidden>
+      {/* Factory: sawtooth roof + chimney + panel array */}
+      <path d="M6 42 V26 L14 18 L22 26 L30 18 L38 26 V42" />
+      <path d="M42 42 V12 H50 V42" />
+      <path d="M42 16 H50" />
+      <path d="M6 42 H50" />
+      {/* Ground-mount solar array */}
+      <path d="M9 37 L16 33 L23 37 Z" opacity={0.5} />
+      <path d="M25 37 L32 33 L39 37 Z" opacity={0.5} />
+    </svg>
+  );
+}
+
+function CalculatorCard() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const reportStep = searchParams.get("step") === "report";
+
+  // Master toggle — "Complete Solar System" shows the full flow below;
+  // the other two swap in a stripped description+contact form (see the
+  // masterService !== "COMPLETE_SOLAR" branch further down). Not synced
+  // to the URL — only the report step is (see the effect below), per the
+  // back-button requirement being specifically about the report screen.
+  const [masterService, setMasterService] = useState<MasterService>("COMPLETE_SOLAR");
+  const [addOnDescription, setAddOnDescription] = useState("");
+  const [addOnError, setAddOnError] = useState<string | null>(null);
+  const [addOnSent, setAddOnSent] = useState(false);
+
+  const [sector, setSector] = useState<Sector>(DEFAULT_SECTOR);
+  // Residential defaults to Hybrid (recommended); Commercial defaults to
+  // On-Grid — both are genuinely interactive/customer choice now, only
+  // Industrial stays hard-locked. See LOCKED_SERVICE_TYPE_BY_SECTOR.
+  const [residentialServiceType, setResidentialServiceType] = useState<ServiceType>("HYBRID_BATTERY");
+  const [commercialServiceType, setCommercialServiceType] = useState<ServiceType>("ONGRID_ZERO_EXPORT");
+
+  const [billAmountInput, setBillAmountInput] = useState("");
+  const [billSource, setBillSource] = useState<BillSource>("MANUAL");
+  const [billFileUrl, setBillFileUrl] = useState<string | null>(null);
+  const [billDetails, setBillDetails] = useState<UploadedBillDetails | null>(null);
+
+  const [uploadState, setUploadState] = useState<UploadState>("idle");
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadFileName, setUploadFileName] = useState<string | null>(null);
+
+  const [fullName, setFullName] = useState("");
+  const [whatsappPhone, setWhatsappPhone] = useState("");
+  const [status, setStatus] = useState<FormStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [result, setResult] = useState<QuoteResult | null>(null);
+
+  // Browser Back (or Forward) changing the URL is the source of truth for
+  // whether the report should be showing — this effect just reconciles
+  // local `status` to match whenever ?step=report disappears (hardware
+  // Back) or reappears (Forward). Pushing/removing the param itself
+  // happens in handleSolarSubmit / handleEditInputs below. This is
+  // exactly the "subscribe to an external system" case the
+  // set-state-in-effect rule carves out (browser history isn't
+  // React-owned state) — `status` has to stay a separate, synchronous
+  // local value rather than a pure derivation of searchParams, or a
+  // successful submit would flash the form again for one frame while
+  // waiting on router.push to actually update the URL.
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect -- syncing to the
+       browser's own history/searchParams, not deriving from React state;
+       see the comment block above. */
+    if (!reportStep && status === "success") {
+      setStatus("idle");
+    } else if (reportStep && status === "idle" && result) {
+      setStatus("success");
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [reportStep, status, result]);
+
+  // ---- Dual Customization Paths ----
+  const [customizationPath, setCustomizationPath] = useState<CustomizationPath>("RECOMMENDED");
+  const [equipmentOptions, setEquipmentOptions] = useState<EquipmentOptionsByType | null>(null);
+  const [equipmentOptionsError, setEquipmentOptionsError] = useState<string | null>(null);
+  // Loading is derived, not tracked separately: it's true exactly while
+  // we're on the Custom path with neither a result nor an error yet.
+  const equipmentOptionsLoading = customizationPath === "CUSTOM" && !equipmentOptions && !equipmentOptionsError;
+
+  // Raw state holds only the user's explicit picks (null = "no override
+  // yet"). The Recommended-default fallback is computed during render
+  // below (effective*Code) rather than written back via an effect, so a
+  // switch to Custom or a serviceType change never needs a setState-in-effect.
+  const [panelCode, setPanelCode] = useState<string | null>(null);
+  const [inverterCode, setInverterCode] = useState<string | null>(null);
+  const [batteryCode, setBatteryCode] = useState<string | null>(null);
+  const [batteryCapacityKwh, setBatteryCapacityKwh] = useState("");
+  const [cableCode, setCableCode] = useState<string | null>(null);
+  const [breakersCode, setBreakersCode] = useState<string | null>(null);
+  const [structureCode, setStructureCode] = useState<string | null>(null);
+
+  const serviceType: ServiceType =
+    LOCKED_SERVICE_TYPE_BY_SECTOR[sector] ?? (sector === "RESIDENTIAL" ? residentialServiceType : commercialServiceType);
+  const resolvedBillPKR = billAmountInput.trim() === "" ? null : Number(billAmountInput);
+
+  // Lazily fetch the equipment catalog the first time the Custom path is
+  // opened. Every setState call here lives inside a promise callback, not
+  // synchronously in the effect body — "loading" is derived above instead.
+  useEffect(() => {
+    if (customizationPath !== "CUSTOM" || equipmentOptions || equipmentOptionsError) return;
+    let cancelled = false;
+    fetch("/api/equipment-options")
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error ?? "Failed to load equipment options");
+        if (!cancelled) setEquipmentOptions(data.options ?? {});
+      })
+      .catch(() => {
+        if (!cancelled) setEquipmentOptionsError("Couldn't load equipment options. Please try again.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customizationPath, equipmentOptions, equipmentOptionsError]);
+
+  function firstNonOther(list?: EquipmentOptionDTO[]): string | null {
+    return list?.find((o) => !o.isOtherOption)?.code ?? null;
+  }
+
+  // Inverter options are filtered by serviceType (On-Grid vs Hybrid).
+  const inverterOptionsForServiceType = (equipmentOptions?.INVERTER ?? []).filter(
+    (o) => o.isOtherOption || o.applicableServiceType === serviceType,
+  );
+  const batteryOptions = equipmentOptions?.BATTERY ?? [];
+
+  // Effective selection = the user's explicit pick, if still valid for the
+  // current serviceType — otherwise the Recommended default for that slot.
+  const effectivePanelCode = panelCode ?? firstNonOther(equipmentOptions?.SOLAR_PANEL);
+  const effectiveInverterCode =
+    inverterCode && inverterOptionsForServiceType.some((o) => o.code === inverterCode)
+      ? inverterCode
+      : firstNonOther(inverterOptionsForServiceType);
+  const effectiveBatteryCode =
+    serviceType !== "HYBRID_BATTERY"
+      ? null
+      : batteryCode && batteryOptions.some((o) => o.code === batteryCode)
+        ? batteryCode
+        : firstNonOther(batteryOptions);
+  const effectiveCableCode = cableCode ?? firstNonOther(equipmentOptions?.DC_CABLE);
+  const effectiveBreakersCode = breakersCode ?? firstNonOther(equipmentOptions?.BREAKERS);
+  const effectiveStructureCode = structureCode ?? firstNonOther(equipmentOptions?.MOUNTING_STRUCTURE);
+
+  const hasCustomSelection =
+    customizationPath === "CUSTOM" &&
+    [
+      effectivePanelCode,
+      effectiveInverterCode,
+      effectiveBatteryCode,
+      effectiveCableCode,
+      effectiveBreakersCode,
+      effectiveStructureCode,
+    ].includes(OTHER_CODE);
+
+  const equipmentSelections: EquipmentSelections | undefined =
+    customizationPath === "CUSTOM"
+      ? {
+          panelCode: effectivePanelCode ?? undefined,
+          inverterCode: effectiveInverterCode ?? undefined,
+          batteryCode: effectiveBatteryCode ?? undefined,
+          batteryCapacityKwh:
+            serviceType === "HYBRID_BATTERY" && batteryCapacityKwh.trim() !== "" ? Number(batteryCapacityKwh) : undefined,
+          dcCableCode: effectiveCableCode ?? undefined,
+          acCableCode: effectiveCableCode ?? undefined,
+          breakersCode: effectiveBreakersCode ?? undefined,
+          structureCode: effectiveStructureCode ?? undefined,
+        }
+      : undefined;
+
+  // Human-readable summary of what was picked — used for the result screen,
+  // the WhatsApp message, and the printable report. Null on the Recommended path.
+  const equipmentSummary: EquipmentSummaryLine[] | null =
+    customizationPath === "CUSTOM" && equipmentOptions
+      ? buildEquipmentSummary({
+          equipmentOptions,
+          serviceType,
+          panelCode: effectivePanelCode,
+          inverterCode: effectiveInverterCode,
+          batteryCode: effectiveBatteryCode,
+          batteryCapacityKwh,
+          cableCode: effectiveCableCode,
+          breakersCode: effectiveBreakersCode,
+          structureCode: effectiveStructureCode,
+        })
+      : null;
+
+  function handleBillAmountChange(raw: string) {
+    setBillAmountInput(raw);
+    // Editing the amount by hand after an upload means we can no longer
+    // vouch for it being exactly what the document said.
+    if (billSource !== "MANUAL") {
+      setBillSource("MANUAL");
+      setBillDetails(null);
+    }
+  }
+
+  async function handleFileUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+
+    setUploadState("uploading");
+    setUploadError(null);
+    setUploadFileName(file.name);
+
+    try {
+      const formData = new FormData();
+      formData.set("file", file);
+      const res = await fetch("/api/bill-upload", { method: "POST", body: formData });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setUploadState("error");
+        setUploadError(data?.error ?? "Couldn't read that file. Enter your bill amount manually.");
+        return;
+      }
+
+      const details = data as UploadedBillDetails;
+      setBillDetails(details);
+      setBillAmountInput(String(details.currentBillPKR));
+      setBillSource(details.source === "uploaded_pdf" ? "UPLOADED_PDF" : "UPLOADED_IMAGE");
+      setBillFileUrl(details.fileUrl);
+      setUploadState("success");
+    } catch {
+      setUploadState("error");
+      setUploadError("Network error while uploading. Enter your bill amount manually.");
+    }
+  }
+
+  function clearUpload() {
+    setUploadState("idle");
+    setUploadError(null);
+    setUploadFileName(null);
+    setBillDetails(null);
+    setBillSource("MANUAL");
+    setBillFileUrl(null);
+  }
+
+  async function handleSolarSubmit() {
+    setErrorMessage(null);
+
+    if (resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0) {
+      setErrorMessage("Enter your monthly electricity bill amount.");
+      return;
+    }
+
+    setStatus("loading");
+    try {
+      const res = await fetch("/api/quote/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          monthlyBillPKR: resolvedBillPKR,
+          sector,
+          // Industrial is server-forced regardless — omit rather than send
+          // a value that would just be ignored. See resolveServiceType().
+          serviceType: sector === "INDUSTRIAL" ? undefined : serviceType,
+          daytimeUsagePct: DAYTIME_USAGE_PCT_BY_SECTOR[sector],
+          fullName,
+          whatsappPhone,
+          billSource,
+          billFileUrl: billFileUrl ?? undefined,
+          equipmentSelections,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setErrorMessage(data?.error ?? "Something went wrong. Please try again.");
+        setStatus("idle");
+        return;
+      }
+
+      setResult(data as QuoteResult);
+      setStatus("success");
+      // Push a real history entry so the hardware Back button has
+      // something to land on — the effect above reconciles `status` back
+      // to "idle" the moment this param disappears from the URL.
+      router.push(`${pathname}?step=report`, { scroll: false });
+    } catch {
+      setErrorMessage("Network error — please check your connection and try again.");
+      setStatus("idle");
+    }
+  }
+
+  function handleEditInputs() {
+    setStatus("idle");
+    router.push(pathname, { scroll: false });
+  }
+
+  function handleAddOnSubmit() {
+    setAddOnError(null);
+    if (!fullName.trim() || !whatsappPhone.trim()) {
+      setAddOnError("Enter your name and WhatsApp number.");
+      return;
+    }
+    const serviceLabel = MASTER_SERVICES.find((s) => s.value === masterService)?.label ?? "";
+    const message = `Hi Solar Pixel! I'm ${fullName} and I'd like to request: ${serviceLabel}.${
+      addOnDescription.trim() ? ` Details: ${addOnDescription.trim()}` : ""
+    }`;
+    window.open(`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+    setAddOnSent(true);
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (masterService === "COMPLETE_SOLAR") {
+      void handleSolarSubmit();
+    } else {
+      handleAddOnSubmit();
+    }
+  }
+
+  if (status === "success" && result) {
+    return <ResultSummary result={result} billDetails={billDetails} equipmentSummary={equipmentSummary} onEdit={handleEditInputs} />;
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="animate-fade-up rounded-3xl border border-stone-200/80 bg-white p-4 shadow-xl shadow-stone-200/50 sm:p-5 print:hidden"
+    >
+      {/* Master toggle — always first, per the redesign brief */}
+      <div className="grid grid-cols-3 gap-1 rounded-xl border border-stone-200 bg-stone-50 p-1">
+        {MASTER_SERVICES.map(({ value, label, icon: Icon }) => {
+          const active = masterService === value;
+          return (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setMasterService(value)}
+              aria-pressed={active}
+              className={`flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-center text-[10px] font-semibold leading-tight transition-colors duration-200 sm:text-[11px] ${
+                active ? "bg-white text-violet-700 shadow-sm" : "text-stone-500 hover:text-stone-700"
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0" />
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {masterService === "COMPLETE_SOLAR" ? (
+        <>
+          {/* Sector cards — large horizontal visual cards */}
+          <fieldset className="mt-3">
+            <legend className="mb-2 text-sm font-medium text-stone-600">Property Type</legend>
+            <div className="space-y-2">
+              {SECTOR_CARDS.map(({ value, label, description }) => {
+                const active = sector === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setSector(value)}
+                    aria-pressed={active}
+                    className={`relative flex w-full items-center gap-3 overflow-hidden rounded-2xl border p-2.5 text-left transition-colors duration-200 ${
+                      active ? "border-violet-300 bg-violet-50/40" : "border-stone-200 bg-white hover:border-stone-300"
+                    }`}
+                  >
+                    {active && <CornerBrackets />}
+                    <span
+                      className={`flex h-14 w-16 shrink-0 items-center justify-center rounded-xl border sm:h-16 sm:w-20 ${
+                        active ? "border-violet-200 bg-white text-violet-600" : "border-stone-200 bg-stone-50 text-stone-400"
+                      }`}
+                    >
+                      <SectorIllustration sector={value} className="h-9 w-12 sm:h-10 sm:w-14" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className={`block text-sm font-semibold ${active ? "text-violet-700" : "text-stone-900"}`}>
+                        {label}
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-snug text-stone-500">{description}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          {/* Dual Customization Path toggle */}
+          <div className="mt-3">
+            <PathToggle path={customizationPath} onChange={setCustomizationPath} />
+          </div>
+
+          {/* Service type — locked for Industrial, interactive (with a
+              Residential outage warning) everywhere else */}
+          <div className="mt-3">
+            <p className="mb-2 text-sm font-medium text-stone-600">Inverter Type</p>
+            {sector === "INDUSTRIAL" ? (
+              <div className="flex items-center gap-2 rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2.5">
+                <Sun className="h-4 w-4 shrink-0 text-violet-500" />
+                <span className="text-xs font-medium text-stone-700">{SERVICE_TYPE_LABEL[serviceType]}</span>
+                <span className="ml-auto shrink-0 text-[10px] font-medium text-stone-500">
+                  Locked for {SECTOR_LABEL[sector]}
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["HYBRID_BATTERY", "ONGRID_ZERO_EXPORT"] as ServiceType[]).map((st) => {
+                    const active = serviceType === st;
+                    const onSelect = sector === "RESIDENTIAL" ? setResidentialServiceType : setCommercialServiceType;
+                    return (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => onSelect(st)}
+                        aria-pressed={active}
+                        className={`rounded-xl border px-3 py-2.5 text-left text-xs font-medium leading-tight transition-colors duration-200 ${
+                          active ? "border-violet-300 bg-violet-50/70 text-violet-700" : "border-stone-200 bg-stone-50 text-stone-500"
+                        }`}
+                      >
+                        {SERVICE_TYPE_LABEL[st]}
+                      </button>
+                    );
+                  })}
+                </div>
+                {sector === "RESIDENTIAL" && serviceType === "ONGRID_ZERO_EXPORT" && (
+                  <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs leading-relaxed text-amber-800">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                    <p>
+                      <span className="font-semibold">Note for Residential:</span> {RESIDENTIAL_ONGRID_WARNING}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Custom Equipment Builder — Path 2 only */}
+          {customizationPath === "CUSTOM" && (
+            <div className="mt-3 rounded-2xl border border-stone-200 bg-stone-50/60 p-3.5">
+              <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-stone-700">
+                <PanelsTopLeft className="h-3.5 w-3.5 text-violet-500" />
+                Custom Equipment Builder
+              </p>
+
+              {equipmentOptionsLoading && (
+                <div className="flex items-center gap-2 py-2 text-xs text-stone-500">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" />
+                  Loading equipment options…
+                </div>
+              )}
+              {equipmentOptionsError && (
+                <p role="alert" className="text-xs text-red-500">
+                  {equipmentOptionsError}
+                </p>
+              )}
+
+              {equipmentOptions && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <EquipmentSelect
+                    label="Solar Panel Brand & Wattage"
+                    options={equipmentOptions.SOLAR_PANEL ?? []}
+                    value={effectivePanelCode}
+                    onChange={setPanelCode}
+                  />
+                  <EquipmentSelect
+                    label={`Inverter — ${SERVICE_TYPE_LABEL[serviceType]}`}
+                    options={inverterOptionsForServiceType}
+                    value={effectiveInverterCode}
+                    onChange={setInverterCode}
+                  />
+
+                  {serviceType === "HYBRID_BATTERY" && (
+                    <>
+                      <EquipmentSelect
+                        label="Lithium Battery Brand"
+                        options={batteryOptions}
+                        value={effectiveBatteryCode}
+                        onChange={setBatteryCode}
+                      />
+                      <div>
+                        <label htmlFor="batteryCapacity" className="mb-1.5 block text-xs font-medium text-stone-600">
+                          Battery Capacity (kWh)
+                        </label>
+                        <input
+                          id="batteryCapacity"
+                          type="text"
+                          inputMode="decimal"
+                          value={batteryCapacityKwh}
+                          onChange={(e) => setBatteryCapacityKwh(e.target.value.replace(/[^\d.]/g, ""))}
+                          placeholder="Auto-sized to your system"
+                          className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-xs font-medium text-stone-900 placeholder:text-stone-500 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <EquipmentSelect
+                    label="Cable Brand"
+                    options={equipmentOptions.DC_CABLE ?? []}
+                    value={effectiveCableCode}
+                    onChange={setCableCode}
+                  />
+                  <EquipmentSelect
+                    label="Protection & Breakers"
+                    options={equipmentOptions.BREAKERS ?? []}
+                    value={effectiveBreakersCode}
+                    onChange={setBreakersCode}
+                  />
+                  <EquipmentSelect
+                    label="Structure Choice"
+                    options={equipmentOptions.MOUNTING_STRUCTURE ?? []}
+                    value={effectiveStructureCode}
+                    onChange={setStructureCode}
+                  />
+                </div>
+              )}
+
+              {hasCustomSelection && (
+                <div className="mt-3">
+                  <CustomRequirementNotice />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Bill amount + optional upload */}
+          <div className="mt-3">
+            <label htmlFor="billAmount" className="mb-1.5 block text-sm font-medium text-stone-600">
+              Average Monthly Bill (PKR)
+            </label>
+            <div className="relative">
+              <input
+                id="billAmount"
+                type="text"
+                inputMode="numeric"
+                required
+                value={billAmountInput}
+                onChange={(e) => handleBillAmountChange(e.target.value.replace(/[^\d]/g, ""))}
+                placeholder="e.g. 25000"
+                className="w-full rounded-xl border border-stone-200 bg-stone-50 px-4 py-3.5 pr-11 text-base font-medium text-stone-900 placeholder:text-stone-500 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+              />
+              {billSource !== "MANUAL" && (
+                <BadgeCheck className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-600" />
+              )}
+            </div>
+
+            {/* Optional upload dropzone */}
+            <div className="mt-2">
+              {uploadState === "uploading" ? (
+                <div className="flex items-center gap-2 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 px-4 py-4 text-xs text-stone-500">
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-violet-500" />
+                  Reading {uploadFileName}…
+                </div>
+              ) : uploadState === "success" && billDetails ? (
+                <div className="flex items-center justify-between rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50 px-4 py-3.5">
+                  <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-emerald-700">
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{uploadFileName}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearUpload}
+                    className="-mr-1.5 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-emerald-700/70 transition-colors duration-200 hover:text-emerald-900"
+                    aria-label="Remove uploaded file"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex cursor-pointer flex-col items-center gap-1.5 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 px-4 py-4 text-center transition-colors duration-200 hover:border-violet-300 hover:bg-violet-50/40">
+                  <Upload className="h-5 w-5 text-stone-400" />
+                  <span className="text-xs font-medium leading-relaxed text-stone-600">
+                    Optional: Upload your recent electricity bill (PDF or Image) for a 100% accurate engineering audit.
+                  </span>
+                  <input type="file" accept="application/pdf,image/*" className="hidden" onChange={handleFileUpload} />
+                </label>
+              )}
+              {uploadState === "error" && uploadError && (
+                <p role="alert" className="mt-1.5 text-xs text-red-500">
+                  {uploadError}
+                </p>
+              )}
+            </div>
+
+            {billDetails && billSource !== "MANUAL" && <BillDetailsPanel details={billDetails} source={billSource} />}
+          </div>
+        </>
+      ) : (
+        /* EV Charger / System Upgrades & Washing — stripped inquiry form */
+        <div className="mt-3">
+          <h3 className="text-sm font-semibold text-stone-900">
+            {MASTER_SERVICES.find((s) => s.value === masterService)?.label}
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-stone-500">{MASTER_SERVICE_DESCRIPTION[masterService]}</p>
+          <div className="mt-3">
+            <label htmlFor="addOnDescription" className="mb-1.5 block text-sm font-medium text-stone-600">
+              Tell us what you need
+            </label>
+            <textarea
+              id="addOnDescription"
+              rows={3}
+              value={addOnDescription}
+              onChange={(e) => setAddOnDescription(e.target.value)}
+              placeholder={
+                masterService === "EV_CHARGER"
+                  ? "e.g. Vehicle model, home or office install…"
+                  : "e.g. Panel washing frequency, existing system details…"
+              }
+              className="w-full resize-none rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2.5 text-sm text-stone-900 placeholder:text-stone-500 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Contact details — 2-column, shared by both flows */}
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <div>
+          <label htmlFor="fullName" className="mb-1.5 block text-sm font-medium text-stone-600">
+            Full Name
+          </label>
+          <input
+            id="fullName"
+            type="text"
+            required
+            minLength={2}
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="Ahmed Khan"
+            className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2.5 text-sm text-stone-900 placeholder:text-stone-500 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+          />
+        </div>
+        <div>
+          <label htmlFor="whatsappPhone" className="mb-1.5 block text-sm font-medium text-stone-600">
+            WhatsApp Number
+          </label>
+          <input
+            id="whatsappPhone"
+            type="tel"
+            required
+            pattern="^\+?[0-9]{10,15}$"
+            value={whatsappPhone}
+            onChange={(e) => setWhatsappPhone(e.target.value)}
+            placeholder="+92 3XX XXXXXXX"
+            className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2.5 text-sm text-stone-900 placeholder:text-stone-500 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+          />
+        </div>
+      </div>
+
+      {masterService === "COMPLETE_SOLAR" && errorMessage && (
+        <p role="alert" className="mt-3 text-sm text-red-500">
+          {errorMessage}
+        </p>
+      )}
+      {masterService !== "COMPLETE_SOLAR" && addOnError && (
+        <p role="alert" className="mt-3 text-sm text-red-500">
+          {addOnError}
+        </p>
+      )}
+      {masterService !== "COMPLETE_SOLAR" && addOnSent && (
+        <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+          <CheckCircle2 className="h-3.5 w-3.5" /> Opening WhatsApp — send the message to reach us.
+        </p>
+      )}
+
+      <button
+        type="submit"
+        disabled={status === "loading"}
+        className="glow-cta mt-4 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 py-3.5 text-sm font-semibold text-stone-900 transition-all duration-200 hover:from-amber-500 hover:to-amber-600 disabled:cursor-not-allowed disabled:opacity-70"
+      >
+        {masterService === "COMPLETE_SOLAR" ? (
+          status === "loading" ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Calculating…
+            </>
+          ) : (
+            "Calculate Instant ROI ⚡"
+          )
+        ) : (
+          <>
+            <MessageCircle className="h-4 w-4" />
+            Send via WhatsApp
+          </>
+        )}
+      </button>
+
+      {masterService === "COMPLETE_SOLAR" && (
+        <p className="mt-2.5 flex items-center justify-center gap-1.5 text-center text-[11px] text-stone-500">
+          <ShieldCheck className="h-3.5 w-3.5" />
+          No WAPDA net-metering paperwork. Ever.
+        </p>
+      )}
+
+      <PrintableReport billDetails={billDetails} billSource={billSource} result={null} equipmentSummary={null} />
+    </form>
+  );
+}
+
+// ============================================================================
+// Dual Customization Paths — Recommended vs Custom Equipment Builder
+// ============================================================================
+
+function PathToggle({ path, onChange }: { path: CustomizationPath; onChange: (path: CustomizationPath) => void }) {
+  const options: { value: CustomizationPath; label: string; icon: typeof Sparkles }[] = [
+    { value: "RECOMMENDED", label: "Solar Pixel Recommended", icon: Sparkles },
+    { value: "CUSTOM", label: "Custom Equipment Builder", icon: SlidersHorizontal },
+  ];
+  return (
+    <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl border border-stone-200 bg-stone-50 p-1">
+      {options.map(({ value, label, icon: Icon }) => {
+        const active = path === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            onClick={() => onChange(value)}
+            aria-pressed={active}
+            className={`flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-[11px] font-semibold leading-tight transition-colors duration-200 sm:text-xs ${
+              active ? "bg-white text-violet-700 shadow-sm" : "text-stone-500 hover:text-stone-700"
+            }`}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function EquipmentSelect({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: EquipmentOptionDTO[];
+  value: string | null;
+  onChange: (code: string) => void;
+}) {
+  return (
+    <div>
+      <label className="mb-1.5 block text-xs font-medium text-stone-600">{label}</label>
+      <select
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-xs font-medium text-stone-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+      >
+        {options.length === 0 && <option value="">—</option>}
+        {options.map((o) => (
+          <option key={o.code} value={o.code}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function CustomRequirementNotice() {
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3.5 py-3 text-left text-xs leading-relaxed text-violet-800">
+      <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500" />
+      <p>
+        <span className="font-semibold">⚡ Custom Requirement Noted:</span> Our senior engineering team will source
+        pricing for your specific equipment request and include it in your final WhatsApp BOQ.
+      </p>
+    </div>
+  );
+}
+
+/** Builds the human-readable equipment list shown on the result screen, in
+ *  the WhatsApp message, and in the printable report. Returns null on the
+ *  Recommended path — the whole summary block just doesn't render then. */
+function buildEquipmentSummary({
+  equipmentOptions,
+  serviceType,
+  panelCode,
+  inverterCode,
+  batteryCode,
+  batteryCapacityKwh,
+  cableCode,
+  breakersCode,
+  structureCode,
+}: {
+  equipmentOptions: EquipmentOptionsByType;
+  serviceType: ServiceType;
+  panelCode: string | null;
+  inverterCode: string | null;
+  batteryCode: string | null;
+  batteryCapacityKwh: string;
+  cableCode: string | null;
+  breakersCode: string | null;
+  structureCode: string | null;
+}): EquipmentSummaryLine[] {
+  const OTHER_LABEL = "Custom / Specific Requirement";
+
+  function line(component: string, list: EquipmentOptionDTO[] | undefined, code: string | null, suffix?: string): EquipmentSummaryLine | null {
+    if (!code) return null;
+    const option = list?.find((o) => o.code === code);
+    if (!option) return null;
+    const selection = option.isOtherOption ? OTHER_LABEL : `${option.label}${suffix ?? ""}`;
+    return { component, selection, isCustom: option.isOtherOption };
+  }
+
+  const lines: EquipmentSummaryLine[] = [];
+  const panel = line("Solar Panel", equipmentOptions.SOLAR_PANEL, panelCode);
+  if (panel) lines.push(panel);
+  const inverter = line("Inverter", equipmentOptions.INVERTER, inverterCode);
+  if (inverter) lines.push(inverter);
+  if (serviceType === "HYBRID_BATTERY") {
+    const capacitySuffix = batteryCapacityKwh.trim() !== "" ? ` (${batteryCapacityKwh} kWh)` : "";
+    const battery = line("Battery", equipmentOptions.BATTERY, batteryCode, capacitySuffix);
+    if (battery) lines.push(battery);
+  }
+  const cable = line("Cable", equipmentOptions.DC_CABLE, cableCode);
+  if (cable) lines.push(cable);
+  const breakers = line("Protection & Breakers", equipmentOptions.BREAKERS, breakersCode);
+  if (breakers) lines.push(breakers);
+  const structure = line("Structure", equipmentOptions.MOUNTING_STRUCTURE, structureCode);
+  if (structure) lines.push(structure);
+
+  return lines;
+}
+
+// ============================================================================
+// Bill Details panel (pre-submit) — shown right after a successful
+// upload. Nulls render as "—", never fabricated: OCR/PDF-text extraction
+// is best-effort, and we'd rather admit uncertainty than guess.
+// ============================================================================
+
+const BILL_SOURCE_LABEL: Record<Exclude<BillSource, "MANUAL">, string> = {
+  UPLOADED_PDF: "From Your PDF",
+  UPLOADED_IMAGE: "From Your Photo",
+};
+
+function BillDetailsPanel({ details, source }: { details: UploadedBillDetails; source: BillSource }) {
+  const rows: [string, string][] = [
+    ["Consumer", details.consumerName ?? "—"],
+    ["Consumer ID", details.consumerId ?? "—"],
+    ["Tariff Category", details.tariffCategory ?? "—"],
+    ["Billing Month", details.billingMonth ?? "—"],
+    ["Units Consumed", details.unitsConsumed !== null ? `${details.unitsConsumed} units` : "—"],
+    ["Sanctioned Load", details.sanctionedLoadKw !== null ? `${details.sanctionedLoadKw} kW` : "—"],
+    ["Issue Date", formatDate(details.issueDate)],
+    ["Due Date", formatDate(details.dueDate)],
+  ];
+
+  return (
+    <div className="mt-3 rounded-2xl border border-stone-200 bg-stone-50 p-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-stone-700">Bill Details</p>
+        <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+          <BadgeCheck className="h-3 w-3" /> {source === "MANUAL" ? "" : BILL_SOURCE_LABEL[source]}
+        </span>
+      </div>
+      <p className="mt-1 text-[10px] text-stone-500">
+        Extracted automatically — please double-check the numbers below against your bill.
+      </p>
+
+      {details.address && <p className="mt-1.5 text-[11px] text-stone-500">{details.address}</p>}
+
+      <dl className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+        {rows.map(([label, value]) => (
+          <DetailRow key={label} label={label} value={value} />
+        ))}
+      </dl>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 border-t border-stone-200 pt-3">
+        <div>
+          <p className="text-[10px] text-stone-500">Current Bill</p>
+          <p className="text-sm font-bold text-stone-900">{formatPKR(details.currentBillPKR)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-stone-500">
+            Total Payable{details.arrearsPKR > 0 ? " (incl. arrears)" : ""}
+          </p>
+          <p className="text-sm font-bold text-stone-900">
+            {details.totalPayablePKR !== null ? formatPKR(details.totalPayablePKR) : "—"}
+          </p>
+        </div>
+        {details.payableAfterDueDatePKR !== null && (
+          <div className="col-span-2">
+            <p className="text-[10px] text-stone-500">Payable After Due Date (incl. surcharge)</p>
+            <p className="text-sm font-bold text-stone-900">{formatPKR(details.payableAfterDueDatePKR)}</p>
+          </div>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => window.print()}
+        className="mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-stone-300 bg-white py-2 text-xs font-medium text-stone-600 transition-colors duration-200 hover:border-violet-300 hover:text-violet-700"
+      >
+        <Download className="h-3.5 w-3.5" /> Download Bill Summary
+      </button>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <dt className="text-stone-500">{label}</dt>
+      <dd className="text-right font-medium text-stone-700">{value}</dd>
+    </>
+  );
+}
+
+// ============================================================================
+// Result — "Custom Solar Report" with analytics & ROI
+// ============================================================================
+
+function ResultSummary({
+  result,
+  billDetails,
+  equipmentSummary,
+  onEdit,
+}: {
+  result: QuoteResult;
+  billDetails: UploadedBillDetails | null;
+  equipmentSummary: EquipmentSummaryLine[] | null;
+  onEdit: () => void;
+}) {
+  const equipmentText =
+    equipmentSummary && equipmentSummary.length > 0
+      ? `\n\nSelected Equipment:\n${equipmentSummary.map((l) => `• ${l.component}: ${l.selection}`).join("\n")}`
+      : "";
+  const customNote = result.hasCustomRequirements
+    ? "\n\n⚡ Note: includes custom/specific equipment requests — please confirm final pricing for those items."
+    : "";
+  const waMessage = `Hi Solar Pixel! I'd like to lock in my Custom Solar Report (Quote ${result.quoteId}) — ${result.systemKw}kW ${SERVICE_TYPE_LABEL[result.serviceType]} system, ${formatPKR(result.totalClientPricePKR)}.${equipmentText}${customNote}\n\nPlease book my free site survey.`;
+  const waHref = `https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(waMessage)}`;
+
+  return (
+    <div className="animate-fade-up rounded-3xl border border-stone-200/80 bg-white p-6 text-center shadow-xl shadow-stone-200/50 print:hidden">
+      {/* Prominent, always-visible edit affordance — the browser Back
+          button does the same thing (see the searchParams effect in
+          CalculatorCard), this is just a discoverable on-screen version. */}
+      <button
+        type="button"
+        onClick={onEdit}
+        className="-ml-1 -mt-1 mb-2 flex min-h-11 items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3.5 text-xs font-semibold text-violet-700 transition-colors duration-200 hover:border-violet-300 hover:bg-violet-100"
+      >
+        <ChevronLeft className="h-3.5 w-3.5" /> Edit Inputs &amp; Customize
+      </button>
+
+      {result.billSource !== "MANUAL" && (
+        <span className="mx-auto mb-3 flex w-fit items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+          <BadgeCheck className="h-3.5 w-3.5" /> From Your Uploaded Bill
+        </span>
+      )}
+
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-violet-50">
+        <CheckCircle2 className="h-6 w-6 text-violet-500" />
+      </div>
+      <h3 className="mt-3 text-lg font-semibold text-stone-900">Your Custom Solar Report</h3>
+      <p className="text-xs text-stone-500">
+        {SERVICE_TYPE_LABEL[result.serviceType]} · Quote #{result.quoteId.slice(0, 10).toUpperCase()}
+      </p>
+
+      <div className="mt-5 grid grid-cols-2 gap-3">
+        <Stat label="System Size" value={`${result.systemKw} kW`} />
+        <Stat label="Live In" value={`${result.daysToDeploy} Days`} />
+        <div className="col-span-2 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-4">
+          <p className="text-xs text-stone-500">Estimated Turnkey Cost</p>
+          <p className="mt-1 text-2xl font-bold text-emerald-600">{formatPKR(result.totalClientPricePKR)}</p>
+        </div>
+        <div className="col-span-2 text-left">
+          <CostBreakdownAccordion breakdown={result.breakdown} totalClientPricePKR={result.totalClientPricePKR} />
+        </div>
+        <div className="col-span-2 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3">
+          <p className="text-xs text-stone-500">Monthly Savings</p>
+          <p className="mt-0.5 text-lg font-bold text-stone-900">{formatPKR(result.estimatedMonthlySavingsPKR)}</p>
+        </div>
+      </div>
+
+      {/* Bill offset */}
+      <div className="mt-5 text-left">
+        <OffsetMeter pct={result.offsetPct} />
+      </div>
+
+      {/* Path to a near-zero bill — upsell comparison, not a guarantee */}
+      {result.nearZeroBillTier && <NearZeroBillCard current={result} tier={result.nearZeroBillTier} />}
+
+      {/* 25-year ROI chart */}
+      <div className="mt-5 rounded-2xl border border-stone-200 bg-white p-4 text-left">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-stone-700">
+          <Sparkles className="h-3.5 w-3.5 text-violet-500" /> 25-Year Savings Projection
+        </p>
+        <div className="mt-3">
+          <SavingsGrowthChart
+            monthlySavingsPKR={result.estimatedMonthlySavingsPKR}
+            investmentPKR={result.totalClientPricePKR}
+            paybackYears={result.paybackYears}
+          />
+        </div>
+        <p className="mt-2 text-[10px] leading-relaxed text-stone-500">
+          Simplified straight-line projection at today&apos;s savings rate — doesn&apos;t account for future tariff
+          inflation (which would increase real savings) or panel output degradation (~0.5%/year). Not a guarantee.
+        </p>
+      </div>
+
+      {billDetails && result.billSource !== "MANUAL" && (
+        <div className="mt-5 text-left">
+          <BillDetailsPanel details={billDetails} source={result.billSource} />
+        </div>
+      )}
+
+      {equipmentSummary && equipmentSummary.length > 0 && (
+        <div className="mt-5 rounded-2xl border border-stone-200 bg-stone-50 p-4 text-left">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-stone-700">
+            <PanelsTopLeft className="h-3.5 w-3.5 text-violet-500" /> Your Selected Equipment
+          </p>
+          <dl className="mt-2.5 space-y-1.5 text-[11px]">
+            {equipmentSummary.map((l) => (
+              <div key={l.component} className="flex items-center justify-between gap-3">
+                <dt className="text-stone-500">{l.component}</dt>
+                <dd className={`text-right font-medium ${l.isCustom ? "text-violet-700" : "text-stone-800"}`}>{l.selection}</dd>
+              </div>
+            ))}
+          </dl>
+          {result.hasCustomRequirements && (
+            <div className="mt-3">
+              <CustomRequirementNotice />
+            </div>
+          )}
+        </div>
+      )}
+
+      <a
+        href={waHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="glow-cta mt-5 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 py-4 text-sm font-bold text-stone-900 transition-all duration-200 hover:from-amber-500 hover:to-amber-600"
+      >
+        <MessageCircle className="h-4 w-4" />
+        Lock In Price &amp; Book Free Site Survey via WhatsApp
+      </a>
+
+      <button
+        type="button"
+        onClick={() => window.print()}
+        className="mt-2.5 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-stone-300 bg-white py-3 text-sm font-medium text-stone-600 transition-colors duration-200 hover:border-violet-300 hover:text-violet-700"
+      >
+        <Download className="h-4 w-4" /> Download Full Report
+      </button>
+
+      <p className="mt-3 text-[11px] text-stone-500">
+        Instant estimate — your exact price is confirmed after a free on-site survey.
+      </p>
+
+      <PrintableReport
+        billDetails={billDetails}
+        billSource={result.billSource}
+        result={result}
+        equipmentSummary={equipmentSummary}
+      />
+    </div>
+  );
+}
+
+/** Shared between the on-screen accordion and PrintableReport so the
+ *  downloaded PDF always matches what's on screen exactly — one source
+ *  of truth for which lines render and in what order. Filters out the
+ *  battery line entirely for On-Grid systems (0 PKR, not a real line
+ *  item) rather than showing a zero. */
+function buildBreakdownLines(breakdown: ItemizedBreakdown): { label: string; valuePKR: number }[] {
+  return [
+    { label: "Solar Panels", valuePKR: breakdown.panelsPKR },
+    { label: "Inverter", valuePKR: breakdown.inverterPKR },
+    ...(breakdown.batteryPKR > 0 ? [{ label: "Battery", valuePKR: breakdown.batteryPKR }] : []),
+    { label: "Cabling & Protection", valuePKR: breakdown.cablingAndProtectionPKR },
+    { label: "Structure & Mounting", valuePKR: breakdown.structurePKR },
+    { label: "Installation & Labor", valuePKR: breakdown.installationPKR },
+  ];
+}
+
+function CostBreakdownAccordion({
+  breakdown,
+  totalClientPricePKR,
+}: {
+  breakdown: ItemizedBreakdown;
+  totalClientPricePKR: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const lines = buildBreakdownLines(breakdown);
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex min-h-11 w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors duration-200 hover:bg-stone-50"
+      >
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-stone-700">
+          <Receipt className="h-3.5 w-3.5 text-violet-500" />
+          Itemized Cost Breakdown
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-stone-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="border-t border-stone-200 px-4 py-3">
+          <dl className="space-y-1.5 text-xs">
+            {lines.map((line) => (
+              <div key={line.label} className="flex items-center justify-between gap-3">
+                <dt className="text-stone-500">{line.label}</dt>
+                <dd className="font-medium text-stone-800">{formatPKR(line.valuePKR)}</dd>
+              </div>
+            ))}
+          </dl>
+          <div className="mt-2 flex items-center justify-between border-t border-stone-200 pt-2 text-xs font-semibold text-stone-900">
+            <span>Total</span>
+            <span>{formatPKR(totalClientPricePKR)}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3">
+      <p className="text-[11px] text-stone-500">{label}</p>
+      <p className="mt-0.5 text-lg font-bold text-stone-900">{value}</p>
+    </div>
+  );
+}
+
+function OffsetMeter({ pct }: { pct: number }) {
+  const percent = Math.round(pct * 100);
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-medium text-stone-600">Bill Offset</span>
+        <span className="font-bold text-stone-900">{percent}%</span>
+      </div>
+      <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-stone-100">
+        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(percent, 100)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function NearZeroBillCard({ current, tier }: { current: QuoteResult; tier: QuoteTier }) {
+  return (
+    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 text-left">
+      <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+        <Sparkles className="h-3.5 w-3.5" /> Path to a Near-Zero Bill
+      </p>
+      <p className="mt-1 text-xs text-stone-600">
+        Your recommended system offsets ~{Math.round(current.offsetPct * 100)}% of your usage. Sizing up to a{" "}
+        {tier.systemKw}kW system gets you to ~{Math.round(tier.offsetPct * 100)}% instead.
+      </p>
+      <div className="mt-2.5 grid grid-cols-3 gap-2 text-center">
+        <div>
+          <p className="text-[10px] text-stone-500">System</p>
+          <p className="text-sm font-bold text-stone-900">{tier.systemKw} kW</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-stone-500">Cost</p>
+          <p className="text-sm font-bold text-stone-900">{formatPKRCompact(tier.totalClientPricePKR)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-stone-500">Payback</p>
+          <p className="text-sm font-bold text-stone-900">{tier.paybackYears ?? "—"} yrs</p>
+        </div>
+      </div>
+      <p className="mt-2 text-[10px] text-stone-500">
+        &ldquo;Near-zero,&rdquo; not zero — actual bills still vary with weather and usage. Ask your Solar Pixel
+        advisor for the exact numbers.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * 25-year cumulative-savings-vs-investment chart. Two series, one hue
+ * family (emerald, split by lightness for pre/post break-even — not a
+ * second competing hue) plus a neutral dashed reference line for the
+ * investment, so identity reads from shape+label, never color alone.
+ * Static with a few direct labels rather than hover tooltips: this chart
+ * also has to render cleanly in the printed report, where hover doesn't
+ * exist.
+ */
+function SavingsGrowthChart({
+  monthlySavingsPKR,
+  investmentPKR,
+  paybackYears,
+}: {
+  monthlySavingsPKR: number;
+  investmentPKR: number;
+  paybackYears: number | null;
+}) {
+  const milestoneYears = [1, 5, 10, 15, 20, 25];
+  const data = milestoneYears.map((year) => ({ year, cumulative: monthlySavingsPKR * 12 * year }));
+
+  const width = 600;
+  const height = 220;
+  const paddingLeft = 6;
+  const paddingRight = 6;
+  const paddingTop = 26;
+  const paddingBottom = 26;
+  const chartWidth = width - paddingLeft - paddingRight;
+  const chartHeight = height - paddingTop - paddingBottom;
+  const barGap = 14;
+  const barWidth = (chartWidth - barGap * (data.length - 1)) / data.length;
+
+  const maxValue = Math.max(investmentPKR, data[data.length - 1].cumulative) * 1.12;
+  const yToPx = (v: number) => paddingTop + chartHeight - (v / maxValue) * chartHeight;
+  const investmentY = yToPx(investmentPKR);
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-stone-500">
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Cumulative Savings
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-0 w-3 border-t-2 border-dashed border-stone-400" /> Your Investment (
+          {formatPKRCompact(investmentPKR)})
+        </span>
+      </div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full"
+        role="img"
+        aria-label={`Projected cumulative savings over 25 years, compared to a ${formatPKR(investmentPKR)} system investment`}
+      >
+        <line
+          x1={paddingLeft}
+          y1={investmentY}
+          x2={width - paddingRight}
+          y2={investmentY}
+          stroke="#a8a29e"
+          strokeWidth={2}
+          strokeDasharray="5 4"
+        />
+        {data.map((d, i) => {
+          const x = paddingLeft + i * (barWidth + barGap);
+          const y = yToPx(d.cumulative);
+          const barHeight = Math.max(chartHeight - (y - paddingTop), 0);
+          const brokeEven = paybackYears !== null && d.year >= paybackYears;
+          return (
+            <g key={d.year}>
+              <rect x={x} y={y} width={barWidth} height={barHeight} rx={4} fill={brokeEven ? "#059669" : "#6ee7b7"} />
+              <text x={x + barWidth / 2} y={Math.max(y - 6, 12)} textAnchor="middle" fontSize="11" fontWeight="700" className="fill-stone-700">
+                {formatPKRCompact(d.cumulative)}
+              </text>
+              <text x={x + barWidth / 2} y={height - 8} textAnchor="middle" fontSize="11" className="fill-stone-400">
+                Yr {d.year}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      {paybackYears !== null && (
+        <p className="mt-1 text-center text-[11px] text-stone-500">
+          Break-even around year {paybackYears} — darker bars from that point on are net profit.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Printable report — hidden on screen, shown only for window.print().
+// Covers both "Download Bill" (billDetails only, pre-submit) and
+// "Download Full Report" (billDetails + result, post-submit).
+// ============================================================================
+
+function PrintableReport({
+  billDetails,
+  billSource,
+  result,
+  equipmentSummary,
+}: {
+  billDetails: UploadedBillDetails | null;
+  billSource: BillSource;
+  result: QuoteResult | null;
+  equipmentSummary: EquipmentSummaryLine[] | null;
+}) {
+  if (!billDetails && !result) return null;
+  const today = new Date().toLocaleDateString("en-PK", { day: "numeric", month: "long", year: "numeric" });
+
+  return (
+    <div className="hidden print:block print:text-black">
+      <div className="flex items-center justify-between border-b border-stone-300 pb-3">
+        <div>
+          <p className="text-xl font-bold">Solar Pixel</p>
+          <p className="text-xs text-stone-500">Zero-Export Smart Solar</p>
+        </div>
+        <p className="text-xs text-stone-500">Generated {today}</p>
+      </div>
+
+      {billDetails && billSource !== "MANUAL" && (
+        <section className="mt-5">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-stone-500">Bill Summary</h2>
+          <p className="mt-1 text-[10px] text-stone-500">{BILL_SOURCE_LABEL[billSource]} — please verify against your original bill.</p>
+          <table className="mt-2 w-full border-collapse text-xs">
+            <tbody>
+              <PrintRow label="Consumer" value={billDetails.consumerName ?? "—"} />
+              <PrintRow label="Consumer ID" value={billDetails.consumerId ?? "—"} />
+              <PrintRow label="Address" value={billDetails.address ?? "—"} />
+              <PrintRow label="Tariff Category" value={billDetails.tariffCategory ?? "—"} />
+              <PrintRow label="Billing Month" value={billDetails.billingMonth ?? "—"} />
+              <PrintRow
+                label="Units Consumed"
+                value={billDetails.unitsConsumed !== null ? `${billDetails.unitsConsumed} units` : "—"}
+              />
+              <PrintRow label="Current Bill" value={formatPKR(billDetails.currentBillPKR)} />
+              {billDetails.arrearsPKR > 0 && <PrintRow label="Arrears" value={formatPKR(billDetails.arrearsPKR)} />}
+              <PrintRow
+                label="Total Payable"
+                value={billDetails.totalPayablePKR !== null ? formatPKR(billDetails.totalPayablePKR) : "—"}
+              />
+              {billDetails.payableAfterDueDatePKR !== null && (
+                <PrintRow label="Payable After Due Date" value={formatPKR(billDetails.payableAfterDueDatePKR)} />
+              )}
+              <PrintRow label="Issue Date" value={formatDate(billDetails.issueDate)} />
+              <PrintRow label="Due Date" value={formatDate(billDetails.dueDate)} />
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {result && (
+        <section className="mt-6">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-stone-500">
+            Your Solar Quotation — #{result.quoteId.slice(0, 10).toUpperCase()}
+          </h2>
+          <table className="mt-2 w-full border-collapse text-xs">
+            <tbody>
+              <PrintRow label="Service Type" value={SERVICE_TYPE_LABEL[result.serviceType]} />
+              <PrintRow
+                label="Recommended System"
+                value={`${result.systemKw} kW (offsets ~${Math.round(result.offsetPct * 100)}% of usage)`}
+              />
+              <PrintRow label="Estimated Turnkey Cost" value={formatPKR(result.totalClientPricePKR)} />
+              <PrintRow label="Estimated Monthly Savings" value={formatPKR(result.estimatedMonthlySavingsPKR)} />
+              <PrintRow label="Payback Period" value={result.paybackYears !== null ? `${result.paybackYears} years` : "—"} />
+              <PrintRow label="Estimated Live-In Time" value={`${result.daysToDeploy} days after site survey`} />
+            </tbody>
+          </table>
+
+          <h3 className="mt-4 text-xs font-bold uppercase tracking-wide text-stone-500">Itemized Cost Breakdown</h3>
+          <table className="mt-1 w-full border-collapse text-xs">
+            <tbody>
+              {buildBreakdownLines(result.breakdown).map((line) => (
+                <PrintRow key={line.label} label={line.label} value={formatPKR(line.valuePKR)} />
+              ))}
+              <PrintRow label="Total" value={formatPKR(result.totalClientPricePKR)} />
+            </tbody>
+          </table>
+
+          {equipmentSummary && equipmentSummary.length > 0 && (
+            <>
+              <h3 className="mt-4 text-xs font-bold uppercase tracking-wide text-stone-500">Selected Equipment</h3>
+              <table className="mt-1 w-full border-collapse text-xs">
+                <tbody>
+                  {equipmentSummary.map((l) => (
+                    <PrintRow key={l.component} label={l.component} value={l.selection} />
+                  ))}
+                </tbody>
+              </table>
+              {result.hasCustomRequirements && (
+                <p className="mt-1 text-[9px] text-stone-500">
+                  Includes custom/specific equipment requests — final pricing for those items to be confirmed by our
+                  engineering team.
+                </p>
+              )}
+            </>
+          )}
+
+          {result.nearZeroBillTier && (
+            <>
+              <h3 className="mt-4 text-xs font-bold uppercase tracking-wide text-stone-500">Near-Zero Bill Option</h3>
+              <table className="mt-1 w-full border-collapse text-xs">
+                <tbody>
+                  <PrintRow
+                    label="System"
+                    value={`${result.nearZeroBillTier.systemKw} kW (offsets ~${Math.round(result.nearZeroBillTier.offsetPct * 100)}%)`}
+                  />
+                  <PrintRow label="Cost" value={formatPKR(result.nearZeroBillTier.totalClientPricePKR)} />
+                  <PrintRow
+                    label="Payback"
+                    value={result.nearZeroBillTier.paybackYears !== null ? `${result.nearZeroBillTier.paybackYears} years` : "—"}
+                  />
+                </tbody>
+              </table>
+            </>
+          )}
+
+          <h3 className="mt-4 text-xs font-bold uppercase tracking-wide text-stone-500">
+            25-Year Savings Projection (simplified, straight-line)
+          </h3>
+          <table className="mt-1 w-full border-collapse text-xs">
+            <thead>
+              <tr>
+                {[1, 5, 10, 15, 20, 25].map((y) => (
+                  <th key={y} className="border border-stone-300 p-1 text-left font-medium">
+                    Year {y}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                {[1, 5, 10, 15, 20, 25].map((y) => (
+                  <td key={y} className="border border-stone-300 p-1">
+                    {formatPKR(result.estimatedMonthlySavingsPKR * 12 * y)}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+          <p className="mt-1 text-[9px] text-stone-500">
+            Simplified straight-line projection at today&apos;s savings rate — does not account for future tariff
+            inflation (which would increase real savings) or panel output degradation (~0.5%/year, which would
+            slightly reduce it). Not a guarantee.
+          </p>
+        </section>
+      )}
+
+      <p className="mt-6 text-[9px] text-stone-500">
+        This is an instant, indicative estimate. Final pricing is confirmed after a free on-site engineering survey.
+        Solar Pixel — Zero-Export Smart Solar systems for Residential, Commercial &amp; Industrial.
+      </p>
+    </div>
+  );
+}
+
+function PrintRow({ label, value }: { label: string; value: string }) {
+  return (
+    <tr>
+      <td className="border border-stone-300 bg-stone-50 p-1.5 font-medium">{label}</td>
+      <td className="border border-stone-300 p-1.5">{value}</td>
+    </tr>
+  );
+}
+
+// Add-on inquiries (EV Charger / System Upgrades & Washing) are now
+// handled inline in CalculatorCard via the master toggle — see
+// handleAddOnSubmit there. No backend persistence for either: neither
+// has a specified pricing model or data shape (unlike the solar
+// calculator), so submitting just opens a prefilled WhatsApp chat, same
+// as before this redesign — no Lead/Quote row gets created.
+
+// ============================================================================
+// Features
+// ============================================================================
+
+const FEATURES = [
+  {
+    icon: Zap,
+    title: "Zero Wait Times",
+    body: "No NEPRA net-metering approvals, no WAPDA queues. Most Zero-Export systems go from survey to switched-on within 48 hours.",
+  },
+  {
+    icon: Gauge,
+    title: "Maximum Daytime Offloading",
+    body: "Every system is sized around your actual daytime load — so you offset the expensive peak-tariff units first, not just any units.",
+  },
+  {
+    icon: Wallet,
+    title: "Lower Upfront Cost",
+    body: "No export-rated inverters, no bi-directional meters, no NEPRA paperwork fees — hardware and approval costs you simply never pay.",
+  },
+] as const;
+
+function FeaturesSection() {
+  return (
+    <section className="border-t border-stone-200 px-5 py-16 sm:py-20 print:hidden">
+      <div className="mx-auto max-w-5xl">
+        <p className="mb-8 text-center text-xs font-semibold uppercase tracking-[0.2em] text-violet-600 sm:mb-10">
+          Why Solar Pixel
+        </p>
+        <div className="grid gap-5 sm:grid-cols-3">
+          {FEATURES.map(({ icon: Icon, title, body }, i) => (
+            <Reveal key={title} delayMs={i * 100}>
+              <div className="relative rounded-2xl border border-stone-200 bg-white p-6">
+                <CornerBrackets />
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-stone-200 bg-stone-50">
+                  <Icon className="h-5 w-5 text-violet-600" />
+                </div>
+                <h3 className="mt-4 text-sm font-semibold text-stone-900">{title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-stone-600">{body}</p>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Small L-shaped marks framing each corner of a relatively-positioned
+ *  parent — a "viewfinder"/registration-mark accent used across the
+ *  Features grid. Purely decorative. */
+function CornerBrackets() {
+  const base = "pointer-events-none absolute h-3 w-3 border-violet-300";
+  return (
+    <span aria-hidden className="contents">
+      <span className={`${base} left-0 top-0 rounded-tl-md border-l-2 border-t-2`} />
+      <span className={`${base} right-0 top-0 rounded-tr-md border-r-2 border-t-2`} />
+      <span className={`${base} bottom-0 left-0 rounded-bl-md border-b-2 border-l-2`} />
+      <span className={`${base} bottom-0 right-0 rounded-br-md border-b-2 border-r-2`} />
+    </span>
+  );
+}
+
+/** Fades/slides a card into place the first time it scrolls into view.
+ *  Uses IntersectionObserver directly (no library) and disconnects
+ *  after the first reveal — this never re-hides content, so there's no
+ *  risk of a card vanishing if the user scrolls back past it. Respects
+ *  prefers-reduced-motion via the .reveal CSS in globals.css. */
+function Reveal({ children, delayMs = 0 }: { children: React.ReactNode; delayMs?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.15 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref} className={`reveal ${visible ? "is-visible" : ""}`} style={{ transitionDelay: visible ? `${delayMs}ms` : "0ms" }}>
+      {children}
+    </div>
+  );
+}
+
+// ============================================================================
+// Footer
+// ============================================================================
+
+function Footer() {
+  return (
+    <footer className="border-t border-stone-200 px-5 py-8 print:hidden">
+      <div className="mx-auto flex max-w-5xl flex-col items-center gap-2 text-center">
+        <span className="text-sm font-semibold text-stone-900">Solar Pixel</span>
+        <p className="max-w-md text-xs text-stone-500">
+          Zero-Export Smart Solar for Residential, Commercial &amp; Industrial. No net billing, no green meters —
+          just a system that goes live fast.
+        </p>
+        <p className="mt-3 text-[11px] text-stone-500">
+          © {new Date().getFullYear()} Solar Pixel. Estimates are indicative and confirmed after a free site
+          survey.
+        </p>
+      </div>
+    </footer>
+  );
+}

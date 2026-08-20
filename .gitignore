@@ -1,0 +1,37 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# env files (never commit secrets)
+.env
+.env*.local
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# prisma
+/prisma/generated
+
+# tesseract.js OCR language model — auto-downloaded to the project root
+# the first time /api/bill-upload's OCR path runs locally (see
+# app/api/bill-upload/route.ts); a ~5MB regenerable cache file, not
+# source, and not needed by anyone who hasn't run OCR yet either.
+*.traineddata
+
+# dev-only local file uploads (lib/storage/local.ts) — never commit
+# customer site photos; swap this module for real object storage before
+# production, see its doc comment.
+/public/uploads/*
+!/public/uploads/.gitkeep

@@ -1,0 +1,257 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   Solar Pixel — dark, high-end theme tokens
+   slate/black background · amber CTAs · neon-green savings highlights
+   ============================================================================ */
+@theme {
+  --color-bg: #05070c;
+  --color-bg-elevated: #0b0f18;
+  --color-surface: #10141f;
+  --color-surface-2: #161c2c;
+  --color-border: #232b3d;
+  --color-border-strong: #303a52;
+
+  --color-ink: #e9edf5;
+  --color-ink-muted: #97a1b8;
+  --color-ink-faint: #5c667e;
+
+  --color-amber: #fbbf24;
+  --color-amber-strong: #f59e0b;
+  --color-amber-ink: #1a1102;
+
+  --color-neon: #35f2a0;
+  --color-neon-dim: #1c9d6c;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+/* app/page.tsx (public, high-conversion) is light-themed; /maker and
+   /admin/checker (internal tools) stay dark via the --color-* tokens
+   above, applied directly on their own root elements. No single global
+   color-scheme is correct for both anymore, so each dark page opts in
+   itself (style={{ colorScheme: "dark" }} on its root <main>) instead of
+   this file forcing it everywhere. */
+body {
+  background-color: #fafaf9;
+  color: #0f172a;
+  /* Removes the 300ms tap delay and the gray flash-on-tap box that make
+     mobile taps feel laggy/cheap — the public page is tap-heavy (pills,
+     toggles, dropdowns), so this is felt on every interaction. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  /* Hero's decorative glow circles are deliberately positioned to bleed
+     past their section's edges (e.g. right-[-80px]) — this used to be
+     contained with `overflow-hidden` on that section, but ANY non-visible
+     overflow on an ancestor (even just one axis) breaks position:sticky
+     for descendants, which is exactly what was pinning the dashboard's
+     right-column live-summary card in place. Clipping horizontal bleed
+     here at the body level instead is the standard fix: it stops the
+     page from ever getting a horizontal scrollbar without constraining
+     any intermediate ancestor's scroll box, so sticky descendants keep
+     sticking relative to the real page scroll. */
+  overflow-x: hidden;
+}
+
+/* Mobile: force form controls to >=16px so Safari never auto-zooms the
+   viewport on focus. Only touches the CLOSED-state value text of
+   <select> (mobile browsers render the open dropdown at native size
+   regardless), so this is a safe, low-visual-impact fix. */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Amber CTA glow for the /wizard-styled components (components/wizard/**,
+   ported from a v0.dev design) — literal oklch() values copied verbatim
+   from the source (not a var()), so this has zero dependency on any
+   --color-* theme token and can't collide with the --color-amber below
+   (a different, already-in-use design system for /maker and
+   /admin/checker). Named distinctly from .glow-cta/glow-pulse for the
+   same reason. */
+@keyframes amber-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 oklch(0.769 0.164 70.08 / 0.5),
+      0 8px 24px -8px oklch(0.769 0.164 70.08 / 0.6);
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px oklch(0.769 0.164 70.08 / 0),
+      0 12px 32px -6px oklch(0.769 0.164 70.08 / 0.75);
+  }
+}
+.glow-amber {
+  animation: amber-glow 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .glow-amber {
+    animation: none;
+    box-shadow: 0 8px 24px -8px oklch(0.769 0.164 70.08 / 0.6);
+  }
+}
+
+/* Amber CTA glow — pulses gently so the primary action always reads
+   first, without feeling neon or jittery. Kept subtle: smaller shadow
+   swing, slower cycle, softer peak opacity than a typical "attention"
+   pulse. */
+@keyframes glow-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(217, 119, 6, 0.22),
+      0 0 16px 1px rgba(217, 119, 6, 0.16);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px rgba(217, 119, 6, 0.05),
+      0 0 26px 6px rgba(217, 119, 6, 0.26);
+  }
+}
+.glow-cta {
+  animation: glow-pulse 3.2s ease-in-out infinite;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-up {
+  animation: fade-up 0.45s ease-out both;
+}
+
+/* Lead Detail Drawer (app/admin/leads) — slides in from the right rather
+   than just appearing, so it reads as a panel sliding over the grid
+   instead of a jarring pop-in. */
+@keyframes drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.animate-drawer-in {
+  animation: drawer-in 0.25s ease-out both;
+}
+
+/* Market Watch ticker — two infinite marquee rows (app/page.tsx's
+   MarketWatchTicker). The row's item list is rendered twice back-to-back
+   and translated by exactly -50%/+50% — always precisely one copy's
+   width no matter the actual pixel width, so the loop never stutters or
+   visibly jumps at the seam the way a fixed-px translateX would.
+   translate3d (not translateX) promotes the row to its own GPU-composited
+   layer — on mobile Safari/Chrome, a plain 2D translateX animation can
+   get dropped/frozen by the browser while the user's finger is actively
+   scrolling the page (the animation and the scroll gesture end up
+   fighting over the same main-thread paint), which is exactly the
+   "ticker freezes on touch scroll" bug this fixes. */
+@keyframes marquee-left {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+@keyframes marquee-right {
+  from {
+    transform: translate3d(-50%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+.animate-marquee-left,
+.animate-marquee-right {
+  /* Hints the browser to composite this element on its own layer ahead
+     of time rather than promoting it mid-scroll, the other half of the
+     mobile-freeze fix above. */
+  will-change: transform;
+}
+.animate-marquee-left {
+  animation: marquee-left 32s linear infinite;
+}
+.animate-marquee-right {
+  animation: marquee-right 36s linear infinite;
+}
+
+/* Respect the user's OS-level motion preference — the pulsing CTA glow,
+   the card fade-up, and the ticker marquees are all decorative, not
+   load-bearing, so they just settle into a static end state immediately
+   when reduced motion is on. */
+@media (prefers-reduced-motion: reduce) {
+  .glow-cta {
+    animation: none;
+    box-shadow: 0 0 16px 1px rgba(217, 119, 6, 0.18);
+  }
+  .animate-fade-up {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .animate-drawer-in {
+    animation: none;
+    transform: none;
+  }
+  .animate-marquee-left,
+  .animate-marquee-right {
+    animation: none;
+  }
+}
+
+/* Safe-area padding for the sticky header on notched/Dynamic-Island
+   phones — keeps the logo clear of the status bar / hardware cutout
+   when the page is scrolled to the very top. Kept generous (a 1rem
+   minimum even where env() resolves to 0) since the header pill wants
+   breathing room above it regardless of notch. */
+.safe-top {
+  padding-top: max(env(safe-area-inset-top), 1rem);
+}
+
+/* Same idea, but for the thin Market Watch ticker (now the topmost sticky
+   element, above the header) — a dense one-line marquee bar shouldn't get
+   an artificial 1rem of empty dark space on every non-notched device the
+   way the airy header pill wants; only actually reserve space where a
+   real notch/Dynamic Island requires it. */
+.safe-top-thin {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* Hero background texture — a faint dot grid (graph-paper feel) behind
+   the headline/calculator, low-opacity so it never competes with
+   content or fails contrast for anything drawn on top of it. */
+.dot-grid {
+  background-image: radial-gradient(circle, rgba(41, 37, 36, 0.09) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+@media print {
+  .dot-grid {
+    background-image: none;
+  }
+}
+
+/* "Download Bill" / "Download Full Report" on app/page.tsx use the
+   browser's native print-to-PDF (window.print()) rather than a PDF
+   library — the interactive UI hides itself (print:hidden throughout
+   app/page.tsx) and each PrintableReport block (hidden print:block)
+   becomes the only thing on the page. */
+@media print {
+  @page {
+    margin: 14mm;
+  }
+  body {
+    background: #ffffff;
+  }
+}
+
