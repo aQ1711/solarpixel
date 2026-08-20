@@ -65,7 +65,19 @@ const createMaterialSchema = z.object({
 const updateGlobalRulesSchema = z.object({
   type: z.literal("UPDATE_GLOBAL_RULES"),
   structureCostPerWatt: z.number().positive().max(1000).optional(),
-  sectorMargins: z.record(z.nativeEnum(Sector), z.number().min(0).max(99)).optional(),
+  // z.record() with an enum key schema is EXHAUSTIVE in Zod 4 — it
+  // requires every Sector key to be present, not just the ones supplied.
+  // That silently broke every single-sector margin save from
+  // /admin/pricing (KpiCard's per-sector InlineEditableNumber always
+  // PATCHes one sector at a time, e.g. { RESIDENTIAL: 25 }), which
+  // always 400'd with "expected number, received undefined" for the two
+  // omitted sectors. z.partialRecord() is Zod's actual partial-record
+  // primitive for enum/literal keys, matching what
+  // UpdateGlobalRulesInput.sectorMargins's own doc comment already
+  // promised ("Partial — only the sectors present are changed") and what
+  // updateGlobalPricingRule() in lib/db/admin.ts already implements
+  // (loops ALL_SECTORS, `if (percent === undefined) continue`).
+  sectorMargins: z.partialRecord(z.nativeEnum(Sector), z.number().min(0).max(99)).optional(),
   updatedById: z.string().min(1, "updatedById is required"),
 });
 
