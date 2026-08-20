@@ -736,6 +736,17 @@ model GlobalPricingSettings {
   evChargerInstallationFee           Decimal @db.Decimal(12, 2)
   washingCostPerPanel                Decimal @db.Decimal(10, 2)
 
+  // "Site Works" add-ons (2026-08-20) — same flat-rate shape as
+  // evChargerInstallationFee/washingCostPerPanel above: no brand/model
+  // catalog entry, just an admin-set Rs rate the customer's own picked
+  // quantity multiplies against (see calculateSystemPricing's siteWorksPKR
+  // in lib/db/admin.ts). Sector-agnostic on purpose — civil/earthing/
+  // lightning-protection work doesn't price differently by sector the way
+  // installation labor does.
+  civilWorkCostPerBlock        Decimal @db.Decimal(10, 2)
+  earthingCostPerBore          Decimal @db.Decimal(10, 2)
+  lightningArrestorCostPerUnit Decimal @db.Decimal(10, 2)
+
   updatedById String
   updatedBy   User   @relation("GlobalPricingSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
 

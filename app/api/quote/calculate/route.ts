@@ -11,6 +11,7 @@ import {
   type EquipmentSelections,
   type ItemizedBreakdown,
   type ResolvedEquipment,
+  type SiteWorksQuantities,
 } from "@/lib/db/admin";
 import { DAYS_TO_DEPLOY_DEFAULT } from "@/lib/constants";
 
@@ -77,6 +78,12 @@ const equipmentSelectionsSchema = z.object({
   acCableCode: z.string().trim().min(1).max(60).optional(),
   breakersCode: z.string().trim().min(1).max(60).optional(),
   structureCode: z.string().trim().min(1).max(60).optional(),
+  // "Site Works" quantities (2026-08-20) — customer-adjustable counts,
+  // not brand/model codes. int() + nonnegative (0 is valid — "I don't
+  // need this item"), capped generously against a fat-fingered entry.
+  civilBlockQty: z.number().int().min(0).max(500).optional(),
+  earthingBoreQty: z.number().int().min(0).max(500).optional(),
+  lightningArrestorQty: z.number().int().min(0).max(500).optional(),
 });
 
 // Which "kind" of request this is — omitted entirely = "SOLAR", so every
@@ -280,6 +287,7 @@ interface PricedTier {
   hasCustomRequirements: boolean;
   breakdown: ItemizedBreakdown;
   resolvedEquipment: ResolvedEquipment;
+  siteWorks: SiteWorksQuantities;
 }
 
 /** Sizes + prices one tier end-to-end (used for both the recommended
@@ -296,7 +304,7 @@ async function priceTier(
   selections: EquipmentSelections | undefined
 ): Promise<PricedTier> {
   const { requiredDailyDaytimeUnits, rawKwRequired, systemKw } = calculateSystemSize(monthlyBillPKR, offsetPct);
-  const { totalClientPricePKR, hasCustomRequirements, breakdown, resolvedEquipment } = await calculateSystemPricing(
+  const { totalClientPricePKR, hasCustomRequirements, breakdown, resolvedEquipment, siteWorks } = await calculateSystemPricing(
     systemKw,
     sector,
     serviceType,
@@ -316,6 +324,7 @@ async function priceTier(
     hasCustomRequirements,
     breakdown,
     resolvedEquipment,
+    siteWorks,
   };
 }
 
@@ -503,6 +512,7 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
     hasCustomRequirements: recommended.hasCustomRequirements,
     breakdown: recommended.breakdown,
     equipment: recommended.resolvedEquipment,
+    siteWorks: recommended.siteWorks,
     nearZeroBillTier: nearZeroBillTier && {
       systemKw: nearZeroBillTier.systemKw,
       totalClientPricePKR: nearZeroBillTier.totalClientPricePKR,

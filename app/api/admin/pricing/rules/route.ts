@@ -20,6 +20,9 @@ const updateRulesSchema = z.object({
   installationCostPerWattIndustrial: z.number().positive().max(1000).optional(),
   evChargerInstallationFee: z.number().positive().max(1_000_000).optional(),
   washingCostPerPanel: z.number().positive().max(50_000).optional(),
+  civilWorkCostPerBlock: z.number().positive().max(200_000).optional(),
+  earthingCostPerBore: z.number().positive().max(200_000).optional(),
+  lightningArrestorCostPerUnit: z.number().positive().max(200_000).optional(),
   updatedById: z.string().min(1, "updatedById is required"),
 });
 

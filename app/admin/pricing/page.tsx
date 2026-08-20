@@ -79,6 +79,9 @@ interface GlobalRules {
   installationCostPerWattIndustrial: number;
   evChargerInstallationFee: number;
   washingCostPerPanel: number;
+  civilWorkCostPerBlock: number;
+  earthingCostPerBore: number;
+  lightningArrestorCostPerUnit: number;
   sectorMargins: Record<Sector, number>;
 }
 
@@ -248,6 +251,9 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
     installationCostPerWattIndustrial?: number;
     evChargerInstallationFee?: number;
     washingCostPerPanel?: number;
+    civilWorkCostPerBlock?: number;
+    earthingCostPerBore?: number;
+    lightningArrestorCostPerUnit?: number;
   }) {
     if (!actingAdminId) {
       pushError("Select an admin identity before saving.");
@@ -407,6 +413,9 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
             onSaveInstallationIndustrial={(v) => saveGlobalPricingRates({ installationCostPerWattIndustrial: v })}
             onSaveEvChargerFee={(v) => saveGlobalPricingRates({ evChargerInstallationFee: v })}
             onSaveWashingRate={(v) => saveGlobalPricingRates({ washingCostPerPanel: v })}
+            onSaveCivilBlockRate={(v) => saveGlobalPricingRates({ civilWorkCostPerBlock: v })}
+            onSaveEarthingBoreRate={(v) => saveGlobalPricingRates({ earthingCostPerBore: v })}
+            onSaveLightningArrestorRate={(v) => saveGlobalPricingRates({ lightningArrestorCostPerUnit: v })}
           />
         )}
 
@@ -503,6 +512,9 @@ function KpiBanner({
   onSaveInstallationIndustrial,
   onSaveEvChargerFee,
   onSaveWashingRate,
+  onSaveCivilBlockRate,
+  onSaveEarthingBoreRate,
+  onSaveLightningArrestorRate,
 }: {
   globalRules: GlobalRules;
   onSaveStructure: (v: number) => Promise<boolean>;
@@ -512,6 +524,9 @@ function KpiBanner({
   onSaveInstallationIndustrial: (v: number) => Promise<boolean>;
   onSaveEvChargerFee: (v: number) => Promise<boolean>;
   onSaveWashingRate: (v: number) => Promise<boolean>;
+  onSaveCivilBlockRate: (v: number) => Promise<boolean>;
+  onSaveEarthingBoreRate: (v: number) => Promise<boolean>;
+  onSaveLightningArrestorRate: (v: number) => Promise<boolean>;
 }) {
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -572,6 +587,27 @@ function KpiBanner({
       </KpiCard>
       <KpiCard label="Panel Washing Rate" suffix="/panel">
         <InlineEditableNumber value={globalRules.washingCostPerPanel} prefix="Rs " suffix="/panel" onSave={onSaveWashingRate} />
+      </KpiCard>
+      <KpiCard label="Site Works Rates">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-stone-500">Civil Block</span>
+            <InlineEditableNumber value={globalRules.civilWorkCostPerBlock} prefix="Rs " compact onSave={onSaveCivilBlockRate} />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-stone-500">Earthing Bore</span>
+            <InlineEditableNumber value={globalRules.earthingCostPerBore} prefix="Rs " compact onSave={onSaveEarthingBoreRate} />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-stone-500">Lightning Arrestor</span>
+            <InlineEditableNumber
+              value={globalRules.lightningArrestorCostPerUnit}
+              prefix="Rs "
+              compact
+              onSave={onSaveLightningArrestorRate}
+            />
+          </div>
+        </div>
       </KpiCard>
     </div>
   );

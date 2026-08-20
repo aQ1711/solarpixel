@@ -64,6 +64,12 @@ export interface ItemizedBreakdown {
   cablingAndProtectionPKR: number;
   structurePKR: number;
   installationPKR: number;
+  /** Civil blocks + earthing/boring + lightning arrestor combined into
+   *  one line — same "flat admin rate x customer-picked quantity"
+   *  reasoning as cablingAndProtectionPKR grouping DC/AC cable +
+   *  breakers, and 0 whenever every quantity is 0. See EquipmentSelections'
+   *  civilBlockQty/earthingBoreQty/lightningArrestorQty doc comments. */
+  siteWorksPKR: number;
 }
 
 /** One resolved catalog item — the ACTUAL EquipmentOption a slot priced
@@ -107,6 +113,17 @@ export interface SystemPricingResult {
    *  defaulted to," which used to be a client-side guess — see
    *  app/page.tsx's Brand-Aligned Quotation update in project memory. */
   resolvedEquipment: ResolvedEquipment;
+  /** The exact "Site Works" quantities this quote priced (see
+   *  EquipmentSelections.civilBlockQty and friends) — same "let the
+   *  client render this from the real resolved value, never re-guess
+   *  the default" reasoning as resolvedEquipment above. */
+  siteWorks: SiteWorksQuantities;
+}
+
+export interface SiteWorksQuantities {
+  civilBlockQty: number;
+  earthingBoreQty: number;
+  lightningArrestorQty: number;
 }
 
 /** Equipment Builder selections (Custom path) — each field is an
@@ -135,6 +152,16 @@ export interface EquipmentSelections {
   /** Must match a MOUNTING_STRUCTURE RawVendorCost.itemName, e.g.
    *  "STANDARD_L1_L2". Omitted defaults to DEFAULT_STRUCTURE_CODE. */
   structureCode?: string;
+  /** "Site Works" quantities (2026-08-20) — each x its flat admin rate
+   *  (GlobalPricingSettings) makes up siteWorksPKR. Not a brand/model
+   *  pick like everything else here, just a customer-adjustable count;
+   *  0 is valid (customer doesn't need that item at all). Omitted
+   *  defaults to DEFAULT_CIVIL_BLOCK_QTY/DEFAULT_EARTHING_BORE_QTY/
+   *  DEFAULT_LIGHTNING_ARRESTOR_QTY below — same "omitted -> Recommended
+   *  default" convention as every other slot in this interface. */
+  civilBlockQty?: number;
+  earthingBoreQty?: number;
+  lightningArrestorQty?: number;
 }
 
 /** Safely narrows `Quote.equipmentSelections` (a Prisma `Json?` column)
@@ -189,6 +216,15 @@ const OTHER_CODE = "OTHER";
  *  itself. See the Custom Equipment Builder's "No Battery" swap card in
  *  app/page.tsx. */
 const NONE_CODE = "NONE";
+
+// "Site Works" default quantities (2026-08-20) — earthing/lightning
+// defaults per explicit spec; civil blocks has no specified default so 1
+// was chosen as the least-surprising "customer needs at least one" floor
+// (flag to product if a different default is wanted). All three are
+// still fully customer-adjustable, including down to 0.
+const DEFAULT_CIVIL_BLOCK_QTY = 1;
+const DEFAULT_EARTHING_BORE_QTY = 2;
+const DEFAULT_LIGHTNING_ARRESTOR_QTY = 1;
 
 /** The pre-survey web estimate for battery capacity — same fallback chain
  *  `calculateAdminBoqPricing`/`calculateSystemPricing` use before a
@@ -358,6 +394,11 @@ export async function calculateSystemPricing(
   const batteryCapacityKwh =
     needsBattery && !batteryOptedOut ? (selections?.batteryCapacityKwh ?? systemKw * DEFAULT_BATTERY_KWH_PER_SYSTEM_KW) : 0;
 
+  // "Site Works" quantities — see resolveQty's doc comment below.
+  const civilBlockQty = resolveQty(selections?.civilBlockQty, DEFAULT_CIVIL_BLOCK_QTY);
+  const earthingBoreQty = resolveQty(selections?.earthingBoreQty, DEFAULT_EARTHING_BORE_QTY);
+  const lightningArrestorQty = resolveQty(selections?.lightningArrestorQty, DEFAULT_LIGHTNING_ARRESTOR_QTY);
+
   const [panel, inverter, dcCable, acCable, breakers, structure, settings, battery, marginRule, panelOption, inverterOption, batteryOption] =
     await Promise.all([
       adminPrisma.rawVendorCost.findFirst({
@@ -449,6 +490,10 @@ export async function calculateSystemPricing(
   const rawStructurePKR = structure!.unitCostRs.toNumber() * watts;
   const rawInstallationPKR = installationRateForSector(settings, sector) * watts;
   const rawBatteryPKR = needsBattery && battery ? battery.unitCostRs.toNumber() * batteryCapacityKwh : 0;
+  const rawSiteWorksPKR =
+    civilBlockQty * settings.civilWorkCostPerBlock +
+    earthingBoreQty * settings.earthingCostPerBore +
+    lightningArrestorQty * settings.lightningArrestorCostPerUnit;
 
   // Gross-margin convention: margin% = (price - cost) / price
   //                       => price = cost / (1 - margin%)
@@ -471,6 +516,10 @@ export async function calculateSystemPricing(
     // Installation is a flat admin-set sector rate now, not a RawVendorCost
     // row — no per-item override concept, so just the sector default margin.
     installationPKR: Math.round(markUp(rawInstallationPKR, sectorDefaultMarginPercent)),
+    // Site Works: same reasoning as installationPKR above — a flat admin
+    // rate (GlobalPricingSettings), not a RawVendorCost row, so no
+    // per-item override, just the sector default margin.
+    siteWorksPKR: Math.round(markUp(rawSiteWorksPKR, sectorDefaultMarginPercent)),
   };
 
   // Total is the SUM of the (already-rounded) breakdown lines, not a
@@ -483,7 +532,8 @@ export async function calculateSystemPricing(
     breakdown.batteryPKR +
     breakdown.cablingAndProtectionPKR +
     breakdown.structurePKR +
-    breakdown.installationPKR;
+    breakdown.installationPKR +
+    breakdown.siteWorksPKR;
 
   const resolvedEquipment: ResolvedEquipment = {
     panel: {
@@ -510,7 +560,13 @@ export async function calculateSystemPricing(
         : null,
   };
 
-  return { totalClientPricePKR, hasCustomRequirements, breakdown, resolvedEquipment };
+  return {
+    totalClientPricePKR,
+    hasCustomRequirements,
+    breakdown,
+    resolvedEquipment,
+    siteWorks: { civilBlockQty, earthingBoreQty, lightningArrestorQty },
+  };
 }
 
 // ============================================================================
@@ -569,6 +625,9 @@ interface AdminBoqPricingBreakdown {
   acCablePKR: number;
   dataCablePKR: number;
   dbUpgradePKR: number;
+  /** Civil blocks + earthing/boring + lightning arrestor combined — see
+   *  ItemizedBreakdown.siteWorksPKR's doc comment in calculateSystemPricing. */
+  siteWorksPKR: number;
 }
 
 export interface AdminBoqPricingResult {
@@ -594,6 +653,11 @@ export interface AdminBoqPricingResult {
    *  pre-populate an editable field with — and whether to show it at
    *  all — without re-deriving the same fallback logic. */
   batteryCapacityKwh: number | null;
+  /** The Site Works quantities actually priced — same resolution chain
+   *  (equipmentSelections, then the DEFAULT_* constants) calculateSystemPricing
+   *  uses, since there's no separate site-survey re-measurement step for
+   *  these the way there is for cables/structure/battery capacity. */
+  siteWorks: SiteWorksQuantities;
 }
 
 /**
@@ -646,6 +710,14 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
   if (needsBattery && !batteryOptedOut && (!Number.isFinite(batteryCapacityKwh) || batteryCapacityKwh <= 0)) {
     throw new PricingConfigurationError(`Invalid battery capacity (${batteryCapacityKwh} kWh) for sector=${sector}.`);
   }
+
+  // Same "Site Works" quantities the instant estimate resolved — no
+  // separate site-survey re-measurement step for these (unlike
+  // dcCableMeters/acCableMeters/structureChoice above), so the Checker's
+  // exact BOQ just re-resolves from the original equipmentSelections.
+  const civilBlockQty = resolveQty(selections?.civilBlockQty, DEFAULT_CIVIL_BLOCK_QTY);
+  const earthingBoreQty = resolveQty(selections?.earthingBoreQty, DEFAULT_EARTHING_BORE_QTY);
+  const lightningArrestorQty = resolveQty(selections?.lightningArrestorQty, DEFAULT_LIGHTNING_ARRESTOR_QTY);
 
   const activeCostFilter = (componentType: ComponentType, itemName?: string) => ({
     componentType,
@@ -732,6 +804,12 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
   // cost, unaffected by margin, same as before this pass: it's what the
   // Checker uses to audit true spend vs. price (Business Rule #3), not
   // what a customer is quoted. See markedUpBreakdown below for that.
+  const rawSiteWorksPKR = round2(
+    civilBlockQty * settings.civilWorkCostPerBlock +
+      earthingBoreQty * settings.earthingCostPerBore +
+      lightningArrestorQty * settings.lightningArrestorCostPerUnit
+  );
+
   const breakdown: AdminBoqPricingBreakdown = {
     panelPKR: round2(p.unitCostRs.toNumber() * watts),
     inverterPKR: round2(inv.unitCostRs.toNumber() * watts),
@@ -743,6 +821,7 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     acCablePKR: round2(ac.unitCostRs.toNumber() * acCableMeters),
     dataCablePKR: round2(data.unitCostRs.toNumber() * dataCableMeters),
     dbUpgradePKR: requiresDbUpgrade && dbUpgrade ? round2(dbUpgrade.unitCostRs.toNumber()) : 0,
+    siteWorksPKR: rawSiteWorksPKR,
   };
 
   const exactRawCostPKR = round2(Object.values(breakdown).reduce((sum, n) => sum + n, 0));
@@ -769,6 +848,10 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     dataCablePKR: round2(markUp(breakdown.dataCablePKR, effectiveMarginPercent(data, sectorDefaultMarginPercent))),
     dbUpgradePKR:
       requiresDbUpgrade && dbUpgrade ? round2(markUp(breakdown.dbUpgradePKR, effectiveMarginPercent(dbUpgrade, sectorDefaultMarginPercent))) : 0,
+    // Flat admin rate (GlobalPricingSettings), not a RawVendorCost row —
+    // no per-item override, just the sector default margin (same as
+    // installationPKR above and calculateSystemPricing's siteWorksPKR).
+    siteWorksPKR: round2(markUp(breakdown.siteWorksPKR, sectorDefaultMarginPercent)),
   };
 
   const exactClientPricePKR = Math.round(Object.values(markedUpBreakdown).reduce((sum, n) => sum + n, 0));
@@ -783,6 +866,7 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     breakdown,
     markedUpBreakdown,
     batteryCapacityKwh: needsBattery && !batteryOptedOut ? batteryCapacityKwh : null,
+    siteWorks: { civilBlockQty, earthingBoreQty, lightningArrestorQty },
   };
 }
 
@@ -879,6 +963,11 @@ export interface GlobalPricingRules {
   installationCostPerWattIndustrial: number;
   evChargerInstallationFee: number;
   washingCostPerPanel: number;
+  /** "Site Works" add-on rates (2026-08-20) — see siteWorksPKR's doc
+   *  comment below and GlobalPricingSettings in schema.prisma. */
+  civilWorkCostPerBlock: number;
+  earthingCostPerBore: number;
+  lightningArrestorCostPerUnit: number;
   sectorMargins: Record<Sector, number>;
 }
 
@@ -888,6 +977,9 @@ export interface GlobalPricingSettingsDTO {
   installationCostPerWattIndustrial: number;
   evChargerInstallationFee: number;
   washingCostPerPanel: number;
+  civilWorkCostPerBlock: number;
+  earthingCostPerBore: number;
+  lightningArrestorCostPerUnit: number;
 }
 
 // Matches the seed migration's own values — pricing (and the admin UI)
@@ -900,6 +992,9 @@ const FALLBACK_GLOBAL_PRICING_SETTINGS: GlobalPricingSettingsDTO = {
   installationCostPerWattIndustrial: 12,
   evChargerInstallationFee: 25000,
   washingCostPerPanel: 500,
+  civilWorkCostPerBlock: 3000,
+  earthingCostPerBore: 5000,
+  lightningArrestorCostPerUnit: 8000,
 };
 
 /** The one GlobalPricingSettings row — see its doc comment in
@@ -915,6 +1010,9 @@ export async function getGlobalPricingSettings(): Promise<GlobalPricingSettingsD
     installationCostPerWattIndustrial: row.installationCostPerWattIndustrial.toNumber(),
     evChargerInstallationFee: row.evChargerInstallationFee.toNumber(),
     washingCostPerPanel: row.washingCostPerPanel.toNumber(),
+    civilWorkCostPerBlock: row.civilWorkCostPerBlock.toNumber(),
+    earthingCostPerBore: row.earthingCostPerBore.toNumber(),
+    lightningArrestorCostPerUnit: row.lightningArrestorCostPerUnit.toNumber(),
   };
 }
 
@@ -927,6 +1025,20 @@ function installationRateForSector(settings: GlobalPricingSettingsDTO, sector: S
   if (sector === "RESIDENTIAL") return settings.installationCostPerWattResidential;
   if (sector === "COMMERCIAL") return settings.installationCostPerWattCommercial;
   return settings.installationCostPerWattIndustrial;
+}
+
+/** "Site Works" quantity resolution — a customer-adjustable count, not a
+ *  brand/model pick, so no OTHER_CODE/resolveSelection involved. Coerced
+ *  to a non-negative integer defensively (Zod already enforces this at
+ *  the API boundary, but calculateSystemPricing/calculateAdminBoqPricing
+ *  are the sanctioned pricing boundary itself — see the module doc
+ *  comment — so neither should trust an out-of-range caller either).
+ *  Shared by both, same "can't drift" reasoning as installationRateForSector
+ *  above. */
+function resolveQty(qty: number | undefined, defaultQty: number): number {
+  if (qty === undefined) return defaultQty;
+  if (!Number.isFinite(qty) || qty < 0) return defaultQty;
+  return Math.round(qty);
 }
 
 export interface PanelWashingQuote {
@@ -1107,6 +1219,9 @@ export async function listMaterialCatalog(): Promise<MaterialCatalogResponse> {
       installationCostPerWattIndustrial: settings.installationCostPerWattIndustrial,
       evChargerInstallationFee: settings.evChargerInstallationFee,
       washingCostPerPanel: settings.washingCostPerPanel,
+      civilWorkCostPerBlock: settings.civilWorkCostPerBlock,
+      earthingCostPerBore: settings.earthingCostPerBore,
+      lightningArrestorCostPerUnit: settings.lightningArrestorCostPerUnit,
       sectorMargins: Object.fromEntries(ALL_SECTORS.map((s) => [s, sectorMargins.get(s) ?? 0])) as Record<Sector, number>,
     },
   };
@@ -1414,6 +1529,9 @@ export async function updateGlobalPricingRule(input: UpdateGlobalRulesInput): Pr
     installationCostPerWattIndustrial: settings.installationCostPerWattIndustrial,
     evChargerInstallationFee: settings.evChargerInstallationFee,
     washingCostPerPanel: settings.washingCostPerPanel,
+    civilWorkCostPerBlock: settings.civilWorkCostPerBlock,
+    earthingCostPerBore: settings.earthingCostPerBore,
+    lightningArrestorCostPerUnit: settings.lightningArrestorCostPerUnit,
     sectorMargins: Object.fromEntries(ALL_SECTORS.map((s) => [s, sectorMargins.get(s) ?? 0])) as Record<Sector, number>,
   };
 }
@@ -1424,6 +1542,9 @@ export interface UpdateGlobalPricingSettingsInput {
   installationCostPerWattIndustrial?: number;
   evChargerInstallationFee?: number;
   washingCostPerPanel?: number;
+  civilWorkCostPerBlock?: number;
+  earthingCostPerBore?: number;
+  lightningArrestorCostPerUnit?: number;
   /** Super Admin's User.id — GlobalPricingSettings.updatedById is a
    *  required FK. */
   updatedById: string;
@@ -1442,6 +1563,9 @@ export async function updateGlobalPricingSettings(input: UpdateGlobalPricingSett
         installationCostPerWattIndustrial: existing.installationCostPerWattIndustrial.toNumber(),
         evChargerInstallationFee: existing.evChargerInstallationFee.toNumber(),
         washingCostPerPanel: existing.washingCostPerPanel.toNumber(),
+        civilWorkCostPerBlock: existing.civilWorkCostPerBlock.toNumber(),
+        earthingCostPerBore: existing.earthingCostPerBore.toNumber(),
+        lightningArrestorCostPerUnit: existing.lightningArrestorCostPerUnit.toNumber(),
       }
     : FALLBACK_GLOBAL_PRICING_SETTINGS;
 
@@ -1451,6 +1575,9 @@ export async function updateGlobalPricingSettings(input: UpdateGlobalPricingSett
     installationCostPerWattIndustrial: input.installationCostPerWattIndustrial ?? current.installationCostPerWattIndustrial,
     evChargerInstallationFee: input.evChargerInstallationFee ?? current.evChargerInstallationFee,
     washingCostPerPanel: input.washingCostPerPanel ?? current.washingCostPerPanel,
+    civilWorkCostPerBlock: input.civilWorkCostPerBlock ?? current.civilWorkCostPerBlock,
+    earthingCostPerBore: input.earthingCostPerBore ?? current.earthingCostPerBore,
+    lightningArrestorCostPerUnit: input.lightningArrestorCostPerUnit ?? current.lightningArrestorCostPerUnit,
   };
 
   if (existing) {

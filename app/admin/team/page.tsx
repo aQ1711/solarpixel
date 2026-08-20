@@ -27,6 +27,20 @@ interface AdminAccount {
   modules: AdminModule[];
 }
 
+/** Field Engineer (role: FIELD_ENGINEER) — no access code or module
+ *  grants at all, unlike AdminAccount above (see
+ *  /api/admin/team/engineers's module doc comment for why). Just enough
+ *  to populate /maker/survey's "surveyed by" dropdown and let the Super
+ *  Admin deactivate someone who's left. */
+interface EngineerAccount {
+  id: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
 const MODULE_LABELS: Record<AdminModule, string> = { LEADS: "Leads", CHECKER: "Checker" };
 const ALL_MODULES: AdminModule[] = ["LEADS", "CHECKER"];
 
@@ -47,6 +61,15 @@ function TeamDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
   // whenever the admin list reloads so it can never linger on screen.
   const [revealedCode, setRevealedCode] = useState<{ forName: string; code: string } | null>(null);
 
+  // Field Engineers — separate list/loading state from Admins above (own
+  // resource, own load function) but rendered on the same page. See
+  // EngineerAccount's doc comment for why this is a much simpler shape
+  // (no access code, no module grants).
+  const [engineers, setEngineers] = useState<EngineerAccount[] | null>(null);
+  const [engineersLoading, setEngineersLoading] = useState(true);
+  const [engineersLoadError, setEngineersLoadError] = useState<string | null>(null);
+  const [showCreateEngineerForm, setShowCreateEngineerForm] = useState(false);
+
   async function loadAdmins() {
     setLoading(true);
     setLoadError(null);
@@ -63,9 +86,29 @@ function TeamDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
     }
   }
 
+  async function loadEngineers() {
+    setEngineersLoading(true);
+    setEngineersLoadError(null);
+    try {
+      const res = await internalFetch("ADMIN", "/api/admin/team/engineers");
+      if (res.status === 401) return onUnauthorized();
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Could not load field engineers.");
+      setEngineers(data.engineers ?? []);
+    } catch (err) {
+      setEngineersLoadError(err instanceof Error ? err.message : "Network error — please try again.");
+    } finally {
+      setEngineersLoading(false);
+    }
+  }
+
   useEffect(() => {
     const id = setTimeout(loadAdmins, 0);
-    return () => clearTimeout(id);
+    const id2 = setTimeout(loadEngineers, 0);
+    return () => {
+      clearTimeout(id);
+      clearTimeout(id2);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -144,6 +187,80 @@ function TeamDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
                 onUnauthorized={onUnauthorized}
                 onUpdated={(updated) => setAdmins((prev) => prev?.map((a) => (a.id === updated.id ? updated : a)) ?? prev)}
                 onCodeRegenerated={(code) => setRevealedCode({ forName: admin.name, code })}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* ---- Field Engineers (2026-08-20) — separate section, same
+             page. Reported gap: previously the only way to add one was a
+             direct database write. ---- */}
+        <header className="mb-6 mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-stone-200 pt-8">
+          <div>
+            <p className="flex items-center gap-1.5 text-xs font-medium text-violet-600">
+              <ShieldCheck className="h-3.5 w-3.5" /> Field Engineers
+            </p>
+            <h1 className="mt-0.5 text-xl font-bold text-stone-900">Manage Field Engineers</h1>
+            <p className="mt-1 text-sm text-stone-500">
+              {engineers?.length ?? 0} field engineer{engineers?.length === 1 ? "" : "s"} · they show up in
+              /maker/survey&apos;s &quot;surveyed by&quot; dropdown, no access code of their own
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={loadEngineers}
+              disabled={engineersLoading}
+              className="flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-600 shadow-sm transition hover:text-stone-900 disabled:opacity-60"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${engineersLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCreateEngineerForm((s) => !s)}
+              className="flex items-center gap-1.5 rounded-xl bg-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New Engineer
+            </button>
+          </div>
+        </header>
+
+        {showCreateEngineerForm && (
+          <CreateEngineerForm
+            onUnauthorized={onUnauthorized}
+            onCreated={() => {
+              setShowCreateEngineerForm(false);
+              loadEngineers();
+            }}
+            onCancel={() => setShowCreateEngineerForm(false)}
+          />
+        )}
+
+        {engineersLoadError && (
+          <p role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {engineersLoadError}
+          </p>
+        )}
+
+        {engineersLoading && !engineers ? (
+          <div className="flex items-center justify-center gap-2 py-16 text-sm text-stone-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+          </div>
+        ) : engineers && engineers.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center text-sm text-stone-500">
+            <UserPlus className="mx-auto mb-2 h-6 w-6 text-stone-300" />
+            No field engineers yet — create one so they show up in the site-survey form.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {engineers?.map((engineer) => (
+              <EngineerRow
+                key={engineer.id}
+                engineer={engineer}
+                onUnauthorized={onUnauthorized}
+                onUpdated={(updated) => setEngineers((prev) => prev?.map((e) => (e.id === updated.id ? updated : e)) ?? prev)}
               />
             ))}
           </div>
@@ -460,6 +577,186 @@ function AdminRow({
             </button>
           );
         })}
+      </div>
+
+      {error && <p className="mt-2 text-[11px] text-red-600">{error}</p>}
+    </div>
+  );
+}
+
+// ============================================================================
+// Create Field Engineer form — same fields as CreateAdminForm minus
+// Module Access (Field Engineers have no module-grant concept), and no
+// access-code reveal afterward (they have no credential of their own).
+// ============================================================================
+
+function CreateEngineerForm({
+  onUnauthorized,
+  onCreated,
+  onCancel,
+}: {
+  onUnauthorized: () => void;
+  onCreated: (engineer: EngineerAccount) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim() || !phone.trim()) {
+      setError("Name and phone are required.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await internalFetch("ADMIN", "/api/admin/team/engineers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), phone: phone.trim(), email: email.trim() || undefined }),
+      });
+      if (res.status === 401) return onUnauthorized();
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data?.error ?? "Could not create this field engineer.");
+        return;
+      }
+      onCreated(data.engineer);
+    } catch {
+      setError("Network error — please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="animate-fade-up mb-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+      <p className="mb-3 text-sm font-semibold text-stone-900">New Field Engineer</p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label="Full Name">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Bilal Ahmed"
+            className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+          />
+        </Field>
+        <Field label="Phone">
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+923001234567"
+            className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+          />
+        </Field>
+        <Field label="Email (optional)">
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="bilal@solarpixel.pk"
+            className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+          />
+        </Field>
+      </div>
+
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          type="submit"
+          disabled={saving}
+          className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+          Create Engineer
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-600 transition hover:bg-stone-50"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ============================================================================
+// Existing field engineer row — much simpler than AdminRow: just
+// Deactivate/Reactivate, no access code, no module toggles.
+// ============================================================================
+
+function EngineerRow({
+  engineer,
+  onUnauthorized,
+  onUpdated,
+}: {
+  engineer: EngineerAccount;
+  onUnauthorized: () => void;
+  onUpdated: (engineer: EngineerAccount) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function toggleActive() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await internalFetch("ADMIN", `/api/admin/team/engineers/${engineer.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: !engineer.isActive }),
+      });
+      if (res.status === 401) return onUnauthorized();
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data?.error ?? "Could not update this field engineer.");
+        return;
+      }
+      onUpdated(data.engineer);
+    } catch {
+      setError("Network error — please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className={`rounded-2xl border bg-white p-4 shadow-sm transition ${engineer.isActive ? "border-stone-200" : "border-stone-200 opacity-60"}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-medium text-stone-900">
+            {engineer.name}
+            {!engineer.isActive && (
+              <span className="ml-2 rounded-full border border-stone-300 bg-stone-100 px-2 py-0.5 text-[10px] font-semibold text-stone-500">
+                DEACTIVATED
+              </span>
+            )}
+          </p>
+          <p className="text-xs text-stone-500">
+            {engineer.phone}
+            {engineer.email && ` · ${engineer.email}`}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={toggleActive}
+          disabled={busy}
+          className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition disabled:opacity-60 ${
+            engineer.isActive
+              ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          }`}
+        >
+          {engineer.isActive ? "Deactivate" : "Reactivate"}
+        </button>
       </div>
 
       {error && <p className="mt-2 text-[11px] text-red-600">{error}</p>}

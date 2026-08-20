@@ -87,6 +87,19 @@ interface ItemizedBreakdown {
   cablingAndProtectionPKR: number;
   structurePKR: number;
   installationPKR: number;
+  /** Civil blocks + earthing/boring + lightning arrestor combined — see
+   *  SiteWorksQuantities and lib/db/admin.ts's siteWorksPKR doc comment. */
+  siteWorksPKR: number;
+}
+
+/** Mirrors lib/db/admin.ts's SiteWorksQuantities — the exact "Site Works"
+ *  counts this quote actually priced, real backend-resolved values (same
+ *  "let the client render this, never re-guess the default" reasoning as
+ *  ResolvedEquipment below). */
+interface SiteWorksQuantities {
+  civilBlockQty: number;
+  earthingBoreQty: number;
+  lightningArrestorQty: number;
 }
 
 /** Mirrors lib/db/admin.ts's ResolvedEquipmentItem — the ACTUAL catalog
@@ -127,6 +140,7 @@ interface QuoteResult {
   nearZeroBillTier: QuoteTier | null;
   breakdown: ItemizedBreakdown;
   equipment: ResolvedEquipment;
+  siteWorks: SiteWorksQuantities;
   /** True when any Custom Builder selection was "Other / Specific
    *  Requirement" — the price uses a placeholder cost for that slot until
    *  engineering sources real pricing. See lib/db/admin.ts's OTHER_CODE. */
@@ -150,6 +164,7 @@ interface SolarPreviewResult {
   daysToDeploy: number;
   breakdown: ItemizedBreakdown;
   equipment: ResolvedEquipment;
+  siteWorks: SiteWorksQuantities;
   hasCustomRequirements: boolean;
 }
 
@@ -202,6 +217,12 @@ interface EquipmentSelections {
   acCableCode?: string;
   breakersCode?: string;
   structureCode?: string;
+  /** "Site Works" quantities (2026-08-20) — customer-adjustable counts,
+   *  not brand/model codes. See DEFAULT_CIVIL_BLOCK_QTY and friends for
+   *  the defaults applied when omitted. */
+  civilBlockQty?: number;
+  earthingBoreQty?: number;
+  lightningArrestorQty?: number;
 }
 
 // Reserved code for "Other / Specific Requirement" — must match OTHER_CODE
@@ -216,13 +237,20 @@ const NONE_CODE = "NONE";
 // as a fallback scale for the Battery row's price-delta math (see
 // batteryDeltaScaleKwh below), never for real pricing itself.
 const DEFAULT_BATTERY_KWH_PER_SYSTEM_KW = 1.2;
+// Mirrors lib/db/admin.ts's DEFAULT_CIVIL_BLOCK_QTY/DEFAULT_EARTHING_BORE_QTY/
+// DEFAULT_LIGHTNING_ARRESTOR_QTY — the Site Works row's initial stepper
+// values before the customer touches them. Real pricing always comes from
+// the live backend response either way (see livePreview.siteWorks).
+const DEFAULT_CIVIL_BLOCK_QTY = 1;
+const DEFAULT_EARTHING_BORE_QTY = 2;
+const DEFAULT_LIGHTNING_ARRESTOR_QTY = 1;
 
 // Custom Equipment Builder's 6 equipment slots — ALL are "Default & Swap"
 // EquipmentSwapRows now (Cable/Breakers/Structure joined Panel/Inverter/
 // Battery in that pattern — see Part 5's 2026-08-20 update), each
 // tracking its own open/close via this same key so at most one row is
 // expanded at a time.
-type EquipmentSectionKey = "PANEL" | "INVERTER" | "BATTERY" | "CABLE" | "BREAKERS" | "STRUCTURE";
+type EquipmentSectionKey = "PANEL" | "INVERTER" | "BATTERY" | "CABLE" | "BREAKERS" | "STRUCTURE" | "SITE_WORKS";
 
 // Structured battery capacity presets — replaces the old free-text kWh
 // input. Values match common LiFePO4 module sizes (2.56 kWh ≈ one
@@ -935,6 +963,14 @@ function CalculatorCard() {
   const [cableCode, setCableCode] = useState<string | null>(null);
   const [breakersCode, setBreakersCode] = useState<string | null>(null);
   const [structureCode, setStructureCode] = useState<string | null>(null);
+  // Site Works quantities — unlike every other slot above, these ARE the
+  // real value directly (no "null = no override yet, fall back at
+  // render" indirection needed): a quantity picker's own displayed value
+  // IS the selection, there's no separate "Recommended default" catalog
+  // row to fall back to.
+  const [civilBlockQty, setCivilBlockQty] = useState(DEFAULT_CIVIL_BLOCK_QTY);
+  const [earthingBoreQty, setEarthingBoreQty] = useState(DEFAULT_EARTHING_BORE_QTY);
+  const [lightningArrestorQty, setLightningArrestorQty] = useState(DEFAULT_LIGHTNING_ARRESTOR_QTY);
 
   const serviceType: ServiceType =
     LOCKED_SERVICE_TYPE_BY_SECTOR[sector] ?? (sector === "RESIDENTIAL" ? residentialServiceType : commercialServiceType);
@@ -1037,6 +1073,9 @@ function CalculatorCard() {
           acCableCode: effectiveCableCode ?? undefined,
           breakersCode: effectiveBreakersCode ?? undefined,
           structureCode: effectiveStructureCode ?? undefined,
+          civilBlockQty,
+          earthingBoreQty,
+          lightningArrestorQty,
         }
       : undefined;
 
@@ -1102,6 +1141,9 @@ function CalculatorCard() {
     effectiveCableCode,
     effectiveBreakersCode,
     effectiveStructureCode,
+    civilBlockQty,
+    earthingBoreQty,
+    lightningArrestorQty,
   ]);
 
   function handleBillAmountChange(raw: string) {
@@ -1968,6 +2010,38 @@ function CalculatorCard() {
                           ))}
                         </div>
                       </EquipmentSwapRow>
+
+                      {/* Site Works (2026-08-20) — civil blocks, earthing
+                          & boring, and lightning arrestor. Not a
+                          brand/model swap like every row above: each is
+                          just a customer-adjustable count against a flat
+                          admin rate (GlobalPricingSettings), so this row
+                          holds 3 quantity steppers instead of alternative
+                          cards. Collapsed by default (not important for
+                          the client to fuss over, but the option's here)
+                          — same EquipmentSwapRow shell as every other row
+                          for visual consistency. */}
+                      <EquipmentSwapRow
+                        title="Site Works"
+                        icon={Wrench}
+                        currentLabel={(() => {
+                          const total = civilBlockQty + earthingBoreQty + lightningArrestorQty;
+                          return total > 0 ? `${total} item${total === 1 ? "" : "s"} selected` : "No site works selected";
+                        })()}
+                        currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.siteWorksPKR) : null}
+                        isOpen={openEquipmentSection === "SITE_WORKS"}
+                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "SITE_WORKS" ? null : "SITE_WORKS"))}
+                      >
+                        <div className="space-y-2.5">
+                          <QuantityStepper label="Civil Blocks" value={civilBlockQty} onChange={setCivilBlockQty} />
+                          <QuantityStepper label="Earthing & Boring" value={earthingBoreQty} onChange={setEarthingBoreQty} />
+                          <QuantityStepper
+                            label="Lightning Arrestor"
+                            value={lightningArrestorQty}
+                            onChange={setLightningArrestorQty}
+                          />
+                        </div>
+                      </EquipmentSwapRow>
                     </div>
                   )}
 
@@ -2577,6 +2651,38 @@ function SpecCard({
   );
 }
 
+/** A +/- quantity picker — the Site Works row's alternative to
+ *  SwapOptionCard's brand-select pattern (Part "Site Works," 2026-08-20):
+ *  these 3 items aren't a brand pick, just a customer-adjustable count
+ *  against a flat admin rate. 0 is a valid, reachable value ("I don't
+ *  need this item"), never negative. */
+function QuantityStepper({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3">
+      <p className="text-sm font-semibold text-slate-900">{label}</p>
+      <div className="flex shrink-0 items-center gap-3">
+        <button
+          type="button"
+          onClick={() => onChange(Math.max(0, value - 1))}
+          aria-label={`Decrease ${label}`}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-base font-bold text-violet-700 transition-colors duration-200 hover:border-violet-300 hover:bg-violet-100"
+        >
+          −
+        </button>
+        <span className="w-4 text-center text-sm font-bold text-slate-900">{value}</span>
+        <button
+          type="button"
+          onClick={() => onChange(value + 1)}
+          aria-label={`Increase ${label}`}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-base font-bold text-violet-700 transition-colors duration-200 hover:border-violet-300 hover:bg-violet-100"
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CustomRequirementNotice() {
   return (
     <div className="flex items-start gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3.5 py-3 text-left text-xs leading-relaxed text-violet-800">
@@ -2696,6 +2802,7 @@ interface BoqRow {
  *  print-color-adjust handling the way the earlier dark version did. */
 function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => void }) {
   const { panel, inverter, battery } = result.equipment;
+  const { civilBlockQty, earthingBoreQty, lightningArrestorQty } = result.siteWorks;
 
   // Part 1: dynamic panel count — Math.ceil((systemSizeKw * 1000) /
   // panelWattage), exactly as specified. panelWattage comes straight from
@@ -2745,6 +2852,11 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
     { description: "AC Cables as per NEPRA Requirements", uom: "JOB", qty: "1" },
     { description: "AC Distribution Box & Safety Equipment", uom: "JOB", qty: "1" },
     { description: "Earthing Pits with Ground Copper Electrode & Lightning Protection", uom: "JOB", qty: "1" },
+    ...(civilBlockQty > 0 ? [{ description: "Civil Block", uom: "PCS" as const, qty: String(civilBlockQty) }] : []),
+    ...(earthingBoreQty > 0 ? [{ description: "Earthing Bore", uom: "PCS" as const, qty: String(earthingBoreQty) }] : []),
+    ...(lightningArrestorQty > 0
+      ? [{ description: "Lightning Arrestor", uom: "PCS" as const, qty: String(lightningArrestorQty) }]
+      : []),
     { description: "Transportation, Installation, Testing & Commissioning", uom: "JOB", qty: "1" },
     { description: netMeteringRowDescription, uom: "JOB", qty: "1" },
   ];
@@ -2753,6 +2865,9 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
     `Solar Panel: ${panelBrand} ${panelWattage}W × ${panelCount}`,
     `Inverter: ${inverterBrand} ${formatTrim(inverterCapacityKw)}kW`,
     ...(battery ? [`Battery: ${battery.brand ?? battery.label} ${formatTrim(battery.capacityKwh)}kWh`] : []),
+    ...(civilBlockQty > 0 ? [`Civil Blocks: ${civilBlockQty}`] : []),
+    ...(earthingBoreQty > 0 ? [`Earthing & Boring: ${earthingBoreQty} bore${earthingBoreQty === 1 ? "" : "s"}`] : []),
+    ...(lightningArrestorQty > 0 ? [`Lightning Arrestor: ${lightningArrestorQty}`] : []),
   ];
   const customNote = result.hasCustomRequirements
     ? "\n\nNote: includes custom/specific equipment requests. Please confirm final pricing for those items."
@@ -2794,6 +2909,13 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
     { label: "Galvanized Mounting Structure", valuePKR: result.breakdown.structurePKR },
     { label: "AC/DC Cables, Distribution Box & Safety Equipment", valuePKR: result.breakdown.cablingAndProtectionPKR },
     { label: "Transportation, Installation & Commissioning", valuePKR: result.breakdown.installationPKR },
+    // Civil blocks + earthing/boring + lightning arrestor combined, same
+    // grouping reasoning as the cabling line above — a customer can zero
+    // out all three (0 is a valid quantity), same "Not Included" treatment
+    // as an opted-out battery rather than a confusing "Rs 0" line.
+    result.breakdown.siteWorksPKR > 0
+      ? { label: "Site Works (Civil, Earthing & Lightning Arrestor)", valuePKR: result.breakdown.siteWorksPKR }
+      : { label: "Site Works (Civil, Earthing & Lightning Arrestor)", valuePKR: 0, displayOverride: "Not Included" },
   ];
 
   return (

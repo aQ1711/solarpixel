@@ -10,13 +10,19 @@ import { prisma } from "@/lib/db/client";
  * Clerk, no signed-in `User` with a real password check). Every internal
  * tool is protected by a bearer token sent as `x-internal-token`:
  *
- *   - Field Engineer (`/maker/*`): ONE shared secret, MAKER_ACCESS_TOKEN.
- *     Unchanged by the 2026-08-20 update below — anyone holding it can
- *     act as any Field Engineer.
+ *   - Field Engineer (`/maker/*`): ONE shared secret, MAKER_ACCESS_TOKEN —
+ *     anyone holding it can act as any Field Engineer. As of 2026-08-20,
+ *     the Super Admin's own ADMIN_ACCESS_TOKEN ALSO unlocks this (see
+ *     assertMakerAccess below) — previously the Super Admin had no way in
+ *     short of separately knowing MAKER_ACCESS_TOKEN, a real reported gap.
+ *     Submitting a survey still requires picking a real FIELD_ENGINEER
+ *     user from the form's own dropdown either way — this only changes
+ *     who can reach the PAGE, not who a submission gets attributed to.
  *   - Super Admin (`/admin/pricing/*`, and full access to `/admin/leads`
- *     + `/admin/checker`): ONE shared secret, ADMIN_ACCESS_TOKEN — there
- *     is exactly one Super Admin in practice, so a shared secret for them
- *     specifically is a deliberate, still-simple choice, not an oversight.
+ *     + `/admin/checker` + `/maker/*`): ONE shared secret, ADMIN_ACCESS_TOKEN
+ *     — there is exactly one Super Admin in practice, so a shared secret
+ *     for them specifically is a deliberate, still-simple choice, not an
+ *     oversight.
  *   - ADMIN (delegated access to `/admin/leads` and/or `/admin/checker`
  *     only, never `/admin/pricing`): a PER-USER access code, added
  *     2026-08-20 — see assertAdminModuleAccess() below. This is real
@@ -49,14 +55,20 @@ export class InternalAuthError extends Error {
 export type InternalRole = "MAKER" | "ADMIN";
 
 // ============================================================================
-// Field Engineer — unchanged shared secret.
+// Field Engineer — shared secret, now ALSO unlockable by the Super Admin's
+// own secret (2026-08-20 — the Super Admin previously had NO way into
+// /maker/survey short of separately knowing MAKER_ACCESS_TOKEN, reported
+// as a real gap). isSuperAdminSecret is defined further down this file but
+// hoisted (function declaration), so it's safe to call from here.
 // ============================================================================
 
 export function assertMakerAccess(req: NextRequest): void {
-  const expected = process.env.MAKER_ACCESS_TOKEN;
   const provided = req.headers.get("x-internal-token");
+  if (!provided) throw new InternalAuthError();
+  if (isSuperAdminSecret(provided)) return;
+  const expected = process.env.MAKER_ACCESS_TOKEN;
   // Fail closed: an unconfigured token must never mean "open access".
-  if (!expected || !provided || provided !== expected) throw new InternalAuthError();
+  if (!expected || provided !== expected) throw new InternalAuthError();
 }
 
 // ============================================================================
