@@ -424,14 +424,19 @@ export default function Page() {
 
 // ============================================================================
 // Market Watch ticker — a decorative, stock-exchange-style strip above the
-// navbar. IMPORTANT: this is illustrative "market rate" copy, NOT a live
-// feed of this app's real vendor costs — the public storefront's Prisma
-// client has zero DB access to vendor_private/RawVendorCost by design (see
-// project memory's Vendor Cost Isolation writeup), so it couldn't render
-// real internal pricing here even if asked to. If this should ever reflect
-// actual admin-configured rates, that needs a new, deliberately-scoped
-// public endpoint exposing marked-up reference prices only — never raw
-// cost — not a wire-up of this component to existing internal data.
+// navbar. UPDATE 2026-08-20: now fetches real, live, admin-configured
+// rates instead of hardcoded placeholder copy — reported live as "editing
+// pricing in /admin/pricing doesn't update the ticker" (it never had ANY
+// wiring to real data before this). Reuses the SAME public
+// GET /api/equipment-options endpoint the Custom Equipment Builder already
+// calls, rather than a new route — it already returns exactly the
+// client-safe shape needed (getPublicUnitPricesPKR's marked-up PKR/W,
+// never raw vendor cost or margin %), so there's no reason for a second,
+// parallel public pricing endpoint. Sector-agnostic on purpose — this is
+// flavor content shown above the fold before a customer has picked a
+// sector in the calculator below, so it always fetches Residential's
+// margin (same default the route itself falls back to) regardless of
+// what the calculator's own sector state is doing.
 // ============================================================================
 
 interface TickerItem {
@@ -439,23 +444,52 @@ interface TickerItem {
   value: string;
 }
 
-const PANEL_MARKET_RATES: TickerItem[] = [
-  { label: "JINKO N-Type 585W", value: "Rs 36/W" },
-  { label: "LONGI Hi-MO6 610W", value: "Rs 37/W" },
-  { label: "CANADIAN 600W", value: "Rs 36/W" },
-];
-
-const INVERTER_MARKET_RATES: TickerItem[] = [
-  { label: "HUAWEI 10kW Hybrid", value: "Rs 310,000" },
-  { label: "SOLIS 10kW", value: "Rs 275,000" },
-  { label: "INVEREX Nitrox 15kW", value: "Rs 380,000" },
-];
+/** SOLAR_PANEL and INVERTER options are both priced PER_WATT in this
+ *  catalog (see EquipmentOption's doc comment) — so both rows show a
+ *  "Rs X/W" rate, not a fabricated flat "Rs 310,000"-style unit price for
+ *  a specific inverter capacity the way the old hardcoded copy did.
+ *  Drops "Other / Specific Requirement" (no real price to show) and any
+ *  item with a null unitPricePKR (a real data-entry gap) — never shows a
+ *  made-up number, same convention as everywhere else this DTO is used. */
+function toTickerItems(options: EquipmentOptionDTO[] | undefined): TickerItem[] {
+  return (options ?? [])
+    .filter((o): o is EquipmentOptionDTO & { unitPricePKR: number } => !o.isOtherOption && o.unitPricePKR !== null)
+    .map((o) => ({ label: o.label, value: `Rs ${Math.round(o.unitPricePKR)}/W` }));
+}
 
 function MarketWatchTicker() {
+  const [panelItems, setPanelItems] = useState<TickerItem[] | null>(null);
+  const [inverterItems, setInverterItems] = useState<TickerItem[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/equipment-options?sector=RESIDENTIAL")
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        const options: EquipmentOptionsByType = data.options ?? {};
+        setPanelItems(toTickerItems(options.SOLAR_PANEL));
+        setInverterItems(toTickerItems(options.INVERTER));
+      })
+      // Purely decorative — a failed fetch just leaves the ticker empty
+      // rather than ever falling back to stale/fabricated numbers.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fixed-height placeholder while loading (or if the catalog genuinely
+  // has nothing priced yet) — same two-row height as the real ticker, so
+  // Header/Hero below never jump once real data arrives.
+  if (!panelItems?.length || !inverterItems?.length) {
+    return <div aria-hidden className="safe-top-thin w-full bg-zinc-950" style={{ height: "57px" }} />;
+  }
+
   return (
     <div aria-hidden className="safe-top-thin relative w-full overflow-hidden bg-zinc-950 font-mono text-xs">
-      <TickerRow items={PANEL_MARKET_RATES} direction="left" />
-      <TickerRow items={INVERTER_MARKET_RATES} direction="right" className="border-t border-zinc-800" />
+      <TickerRow items={panelItems} direction="left" />
+      <TickerRow items={inverterItems} direction="right" className="border-t border-zinc-800" />
     </div>
   );
 }
