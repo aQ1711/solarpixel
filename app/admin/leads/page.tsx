@@ -17,6 +17,8 @@ import {
   ChevronRight,
   ShieldCheck,
   UserCog,
+  Calculator,
+  ChevronDown,
 } from "lucide-react";
 import Link from "next/link";
 import { AccessGate } from "@/components/internal/AccessGate";
@@ -137,6 +139,42 @@ const SERVICE_TYPE_LABELS: Record<string, string> = {
   ONGRID_ZERO_EXPORT: "On-Grid",
 };
 
+// ---- Recommended System Calculator (Part below) ----
+// A what-if tool for staff fielding a call — "what would we recommend for
+// a Rs X bill?" — without creating a Lead. Calls the SAME public,
+// non-persisting SOLAR_PREVIEW endpoint the storefront's own live
+// estimate already uses (app/api/quote/calculate/route.ts), so there is
+// exactly one sizing/pricing implementation in the whole app — this tool
+// can never drift from what a real customer would actually be quoted.
+// No new auth boundary needed: SOLAR_PREVIEW returns only client-safe,
+// already-marked-up figures (same as the public storefront exposes to
+// anyone), so calling it from here adds no vendor-cost exposure.
+type CalcSector = "RESIDENTIAL" | "COMMERCIAL" | "INDUSTRIAL";
+type CalcServiceType = "HYBRID_BATTERY" | "ONGRID_ZERO_EXPORT";
+
+// Mirrors app/page.tsx's own DAYTIME_USAGE_PCT_BY_SECTOR /
+// DISPLAY_BLENDED_TARIFF_PKR_PER_UNIT / DISPLAY_DAILY_GENERATION_FACTOR —
+// see that file's doc comment for why these are necessary, real-constant
+// mirrors (not guesses) rather than a shared import: this page and the
+// storefront are separate client bundles with no shared lib for
+// display-only sizing constants today. Must stay numerically identical
+// to app/api/quote/calculate/route.ts's real BLENDED_TARIFF_PKR_PER_UNIT
+// / DAILY_GENERATION_FACTOR.
+const CALC_DAYTIME_USAGE_PCT_BY_SECTOR: Record<CalcSector, number> = {
+  RESIDENTIAL: 0.35,
+  COMMERCIAL: 0.75,
+  INDUSTRIAL: 0.85,
+};
+const CALC_BLENDED_TARIFF_PKR_PER_UNIT = 52;
+const CALC_DAILY_GENERATION_FACTOR = 4.1;
+
+interface CalcPreviewResult {
+  systemKw: number;
+  totalClientPricePKR: number;
+  estimatedMonthlySavingsPKR: number;
+  paybackYears: number | null;
+}
+
 const STATUS_CONFIG: Record<LeadStatus, { label: string; badge: string; dot: string }> = {
   NEW: { label: "New", badge: "border-slate-200 bg-slate-50 text-slate-700", dot: "bg-slate-400" },
   CONTACTED: { label: "Contacted", badge: "border-sky-200 bg-sky-50 text-sky-700", dot: "bg-sky-500" },
@@ -164,6 +202,7 @@ function LeadsDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [showCalculator, setShowCalculator] = useState(false);
 
   async function loadLeads() {
     setLoading(true);
@@ -213,6 +252,19 @@ function LeadsDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowCalculator((s) => !s)}
+              aria-expanded={showCalculator}
+              className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium shadow-sm transition ${
+                showCalculator
+                  ? "border-violet-300 bg-violet-50 text-violet-700"
+                  : "border-stone-200 bg-white text-stone-600 hover:text-stone-900"
+              }`}
+            >
+              <Calculator className="h-3.5 w-3.5" />
+              Calculator
+            </button>
             {viewer?.kind === "SUPER_ADMIN" && (
               <Link
                 href="/admin/team"
@@ -233,6 +285,8 @@ function LeadsDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
             </button>
           </div>
         </header>
+
+        {showCalculator && <RecommendedSystemCalculator />}
 
         {loadError && (
           <p role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -267,6 +321,208 @@ function LeadsDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
         />
       )}
     </main>
+  );
+}
+
+// ============================================================================
+// Recommended System Calculator — a what-if tool, no Lead created
+// ============================================================================
+
+/** Self-contained: owns its own bill/sector/service-type inputs and calls
+ *  the public SOLAR_PREVIEW endpoint directly (debounced 500ms, same
+ *  pattern app/page.tsx's own live estimate uses) — nothing here touches
+ *  the leads list or creates any database row. */
+function RecommendedSystemCalculator() {
+  const [billInput, setBillInput] = useState("");
+  const [sector, setSector] = useState<CalcSector>("RESIDENTIAL");
+  const [residentialServiceType, setResidentialServiceType] = useState<CalcServiceType>("HYBRID_BATTERY");
+  const [commercialServiceType, setCommercialServiceType] = useState<CalcServiceType>("ONGRID_ZERO_EXPORT");
+  const [preview, setPreview] = useState<CalcPreviewResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showMath, setShowMath] = useState(false);
+
+  // Industrial is hard-locked to On-Grid — same server-enforced rule as
+  // the storefront (resolveServiceType() in app/api/quote/calculate) —
+  // this is cosmetic-only here too, the request below can't override it.
+  const serviceType: CalcServiceType =
+    sector === "INDUSTRIAL" ? "ONGRID_ZERO_EXPORT" : sector === "RESIDENTIAL" ? residentialServiceType : commercialServiceType;
+
+  const billPKR = billInput.trim() === "" ? null : Number(billInput);
+
+  useEffect(() => {
+    // No synchronous reset needed for an invalid/empty bill — the render
+    // below already only shows `preview`/`error` while `billPKR` is
+    // currently valid, so a stale value here is simply never displayed
+    // (same convention app/page.tsx's own live-preview effect uses).
+    if (billPKR === null || Number.isNaN(billPKR) || billPKR <= 0) return;
+    const timeoutId = setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/quote/calculate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requestKind: "SOLAR_PREVIEW",
+            monthlyBillPKR: billPKR,
+            sector,
+            serviceType,
+            daytimeUsagePct: CALC_DAYTIME_USAGE_PCT_BY_SECTOR[sector],
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data?.error ?? "Could not calculate this bill.");
+          setPreview(null);
+          return;
+        }
+        setPreview({
+          systemKw: data.systemKw,
+          totalClientPricePKR: data.totalClientPricePKR,
+          estimatedMonthlySavingsPKR: data.estimatedMonthlySavingsPKR,
+          paybackYears: data.paybackYears,
+        });
+      } catch {
+        setError("Network error — please try again.");
+        setPreview(null);
+      } finally {
+        setLoading(false);
+      }
+    }, 500);
+    return () => clearTimeout(timeoutId);
+  }, [billPKR, sector, serviceType]);
+
+  const daytimeUsagePct = CALC_DAYTIME_USAGE_PCT_BY_SECTOR[sector];
+  const monthlyUnits = billPKR && billPKR > 0 ? billPKR / CALC_BLENDED_TARIFF_PKR_PER_UNIT : null;
+  const dailyDaytimeKwh = monthlyUnits !== null ? (monthlyUnits / 30) * daytimeUsagePct : null;
+  const dailySolarOutputKwh = preview ? preview.systemKw * CALC_DAILY_GENERATION_FACTOR : null;
+
+  return (
+    <div className="animate-fade-up mb-4 rounded-2xl border border-violet-200 bg-white p-5 shadow-sm">
+      <p className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-stone-900">
+        <Calculator className="h-4 w-4 text-violet-600" />
+        Recommended System Calculator
+      </p>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium text-stone-500">Monthly Bill (PKR)</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={billInput}
+            onChange={(e) => setBillInput(e.target.value.replace(/[^\d]/g, ""))}
+            placeholder="e.g. 50000"
+            className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium text-stone-500">Sector</span>
+          <select
+            value={sector}
+            onChange={(e) => setSector(e.target.value as CalcSector)}
+            className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+          >
+            <option value="RESIDENTIAL">Residential</option>
+            <option value="COMMERCIAL">Commercial</option>
+            <option value="INDUSTRIAL">Industrial</option>
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium text-stone-500">Service Type</span>
+          <select
+            value={serviceType}
+            disabled={sector === "INDUSTRIAL"}
+            onChange={(e) => {
+              const next = e.target.value as CalcServiceType;
+              if (sector === "RESIDENTIAL") setResidentialServiceType(next);
+              else if (sector === "COMMERCIAL") setCommercialServiceType(next);
+            }}
+            className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <option value="HYBRID_BATTERY">Hybrid + Battery</option>
+            <option value="ONGRID_ZERO_EXPORT">On-Grid</option>
+          </select>
+          {sector === "INDUSTRIAL" && <span className="mt-1 block text-[10px] text-stone-400">Locked to On-Grid for Industrial</span>}
+        </label>
+      </div>
+
+      {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
+
+      {billPKR !== null && billPKR > 0 && (
+        <div className="mt-4 border-t border-stone-100 pt-4">
+          {preview ? (
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <CalcStat label="Recommended System" value={`${preview.systemKw} kW`} />
+                <CalcStat label="Turnkey Price" value={formatPKR(preview.totalClientPricePKR)} />
+                <CalcStat label="Savings/mo" value={formatPKR(preview.estimatedMonthlySavingsPKR)} accent />
+                <CalcStat label="Payback" value={preview.paybackYears !== null ? `${preview.paybackYears} yrs` : "—"} />
+              </div>
+              {loading && (
+                <p className="mt-2 flex items-center gap-1.5 text-[11px] text-stone-400">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Recalculating…
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowMath((s) => !s)}
+                aria-expanded={showMath}
+                className="mt-3 flex items-center gap-1 text-xs text-violet-600 transition-colors duration-200 hover:text-violet-700"
+              >
+                View calculation details
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${showMath ? "rotate-180" : ""}`} />
+              </button>
+
+              {showMath && monthlyUnits !== null && dailyDaytimeKwh !== null && dailySolarOutputKwh !== null && (
+                <div className="mt-2 space-y-1.5 rounded-lg border border-stone-200 bg-stone-50 p-3.5 text-xs text-stone-700">
+                  <p>
+                    <span className="font-semibold text-stone-900">1. Monthly Consumption:</span> ~{Math.round(monthlyUnits)} units
+                    (based on Rs {CALC_BLENDED_TARIFF_PKR_PER_UNIT}/unit blended LESCO tariff)
+                  </p>
+                  <p>
+                    <span className="font-semibold text-stone-900">2. Daytime Demand:</span> ~{dailyDaytimeKwh.toFixed(1)} kWh/day (
+                    {Math.round(daytimeUsagePct * 100)}% of {SECTOR_LABELS[sector].toLowerCase()} usage typically falls during daylight
+                    hours)
+                  </p>
+                  <p>
+                    <span className="font-semibold text-stone-900">3. Solar Output:</span> A {preview.systemKw} kW system produces ~
+                    {dailySolarOutputKwh.toFixed(1)} kWh/day in Lahore — sized to cover that daytime demand.
+                  </p>
+                  {serviceType === "HYBRID_BATTERY" && (
+                    <p>
+                      <span className="font-semibold text-stone-900">4. Battery Offset:</span> Surplus daytime generation charges the
+                      battery to cover essential loads after dark.
+                    </p>
+                  )}
+                  <p className="border-t border-stone-200 pt-1.5 font-semibold text-violet-700">
+                    Result: Sized to offset ~{Math.round(daytimeUsagePct * 100)}% of the bill — the portion used during daylight hours,
+                    without exporting anything back to the grid.
+                  </p>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="flex items-center gap-1.5 text-xs text-stone-400">
+              <Loader2 className="h-3 w-3 animate-spin" /> Calculating…
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CalcStat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="rounded-lg bg-stone-50 px-3 py-2.5 text-center">
+      <p className="text-[10px] text-stone-400">{label}</p>
+      <p className={`mt-0.5 text-sm font-bold ${accent ? "text-emerald-600" : "text-stone-900"}`}>{value}</p>
+    </div>
   );
 }
 
@@ -627,7 +883,7 @@ function LeadDetailContent({
                     <p className="text-[11px] text-stone-400">Original web estimate: {formatPKR(quote.automatedEstimatePriceRs)}</p>
                     {quote.finalPriceRs !== null && (
                       <p className="text-[11px] text-stone-400">
-                        Checker-approved contract price (exact site-survey BOQ): {formatPKR(quote.finalPriceRs)}
+                        Checker-approved contract price (exact site-survey Quotation): {formatPKR(quote.finalPriceRs)}
                       </p>
                     )}
                   </dl>

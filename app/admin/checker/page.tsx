@@ -410,7 +410,7 @@ function QuoteReviewCard({
         </div>
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3.5 py-3">
           <p className="flex items-center gap-1.5 text-[11px] text-[var(--color-ink-muted)]">
-            Exact BOQ Price
+            Exact Quotation Price
             {recalculating && <Loader2 className="h-3 w-3 animate-spin" />}
           </p>
           {pricing ? (
@@ -449,7 +449,7 @@ function QuoteReviewCard({
           />
           <p className="mt-1 text-[10px] text-[var(--color-ink-faint)]">
             Confirm or override the engineer&apos;s on-site request (or the pre-survey estimate, if no survey figure
-            was given) — the BOQ price above updates automatically.
+            was given) — the Quotation price above updates automatically.
           </p>
           {recalcError && <p className="mt-1 text-[11px] text-red-400">{recalcError}</p>}
         </div>
@@ -458,7 +458,7 @@ function QuoteReviewCard({
       {/* Survey details */}
       <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3.5">
         <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-[var(--color-ink-muted)]">
-          <Building2 className="h-3.5 w-3.5" /> Measured BOQ
+          <Building2 className="h-3.5 w-3.5" /> Measured Quotation
         </p>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
           <SurveyStat label="Roof Type" value={ROOF_TYPE_LABELS[quote.survey.roofType] ?? quote.survey.roofType} />

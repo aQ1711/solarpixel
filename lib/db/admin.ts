@@ -119,9 +119,15 @@ export interface SystemPricingResult {
 export interface EquipmentSelections {
   panelCode?: string;
   inverterCode?: string;
+  /** A real BATTERY EquipmentOption.code, "OTHER", or the reserved value
+   *  NONE_CODE ("NONE") meaning the customer opted out of a battery
+   *  entirely (only meaningful when serviceType is HYBRID_BATTERY —
+   *  prices/resolves exactly like ONGRID_ZERO_EXPORT's battery-free
+   *  state). Omitted falls back to the Recommended default battery. */
   batteryCode?: string;
-  /** kWh — only meaningful when serviceType is HYBRID_BATTERY. Omitted
-   *  defaults to DEFAULT_BATTERY_KWH_PER_SYSTEM_KW × systemKw. */
+  /** kWh — only meaningful when serviceType is HYBRID_BATTERY and
+   *  batteryCode isn't NONE_CODE. Omitted defaults to
+   *  DEFAULT_BATTERY_KWH_PER_SYSTEM_KW × systemKw. */
   batteryCapacityKwh?: number;
   dcCableCode?: string;
   acCableCode?: string;
@@ -172,6 +178,17 @@ const DEFAULT_STRUCTURE_CODE = "STANDARD_L1_L2";
 const DEFAULT_BATTERY_KWH_PER_SYSTEM_KW = 1.2;
 /** Reserved EquipmentOption code for "Other / Specific Requirement". */
 const OTHER_CODE = "OTHER";
+/** Reserved `batteryCode` value meaning "the customer explicitly opted
+ *  out of a battery" — distinct from `undefined` (which means "no
+ *  preference, use the Recommended default battery"). Only meaningful
+ *  when serviceType is HYBRID_BATTERY; a HYBRID_BATTERY quote with this
+ *  selection prices/resolves battery exactly like ONGRID_ZERO_EXPORT
+ *  does (batteryPKR: 0, resolvedEquipment.battery: null) without
+ *  reclassifying the quote's serviceType — the customer still gets the
+ *  hybrid-capable inverter, they've just declined the battery hardware
+ *  itself. See the Custom Equipment Builder's "No Battery" swap card in
+ *  app/page.tsx. */
+const NONE_CODE = "NONE";
 
 /** The pre-survey web estimate for battery capacity — same fallback chain
  *  `calculateAdminBoqPricing`/`calculateSystemPricing` use before a
@@ -282,6 +299,12 @@ export async function calculateSystemPricing(
   const now = new Date();
   const watts = systemKw * 1000;
   const needsBattery = serviceType === "HYBRID_BATTERY";
+  // See NONE_CODE's doc comment — an explicit customer opt-out, distinct
+  // from "no preference." Forces batteryCode/batteryCapacityKwh to the
+  // same null/0 shape ONGRID_ZERO_EXPORT already produces below, so every
+  // downstream `needsBattery && batteryCode`/`needsBattery && battery`
+  // check already skips battery correctly with no further branching.
+  const batteryOptedOut = needsBattery && selections?.batteryCode === NONE_CODE;
 
   let hasCustomRequirements = false;
   /** "OTHER" -> flag it and fall back to the Recommended default for
@@ -320,7 +343,9 @@ export async function calculateSystemPricing(
       getDefaultCode("DC_CABLE", null, DEFAULT_CABLE_CODE),
       getDefaultCode("BREAKERS", null, DEFAULT_BREAKERS_CODE),
       getDefaultCode("MOUNTING_STRUCTURE", null, DEFAULT_STRUCTURE_CODE),
-      needsBattery ? getDefaultCode("BATTERY", serviceType, DEFAULT_BATTERY_CODE) : Promise.resolve(DEFAULT_BATTERY_CODE),
+      needsBattery && !batteryOptedOut
+        ? getDefaultCode("BATTERY", serviceType, DEFAULT_BATTERY_CODE)
+        : Promise.resolve(DEFAULT_BATTERY_CODE),
     ]);
 
   const panelCode = resolveSelection(selections?.panelCode, defaultPanelCode);
@@ -329,10 +354,9 @@ export async function calculateSystemPricing(
   const acCableCode = resolveSelection(selections?.acCableCode, defaultCableCode);
   const breakersCode = resolveSelection(selections?.breakersCode, defaultBreakersCode);
   const structureCode = resolveSelection(selections?.structureCode, defaultStructureCode);
-  const batteryCode = needsBattery ? resolveSelection(selections?.batteryCode, defaultBatteryCode) : null;
-  const batteryCapacityKwh = needsBattery
-    ? (selections?.batteryCapacityKwh ?? systemKw * DEFAULT_BATTERY_KWH_PER_SYSTEM_KW)
-    : 0;
+  const batteryCode = needsBattery && !batteryOptedOut ? resolveSelection(selections?.batteryCode, defaultBatteryCode) : null;
+  const batteryCapacityKwh =
+    needsBattery && !batteryOptedOut ? (selections?.batteryCapacityKwh ?? systemKw * DEFAULT_BATTERY_KWH_PER_SYSTEM_KW) : 0;
 
   const [panel, inverter, dcCable, acCable, breakers, structure, settings, battery, marginRule, panelOption, inverterOption, batteryOption] =
     await Promise.all([
@@ -401,7 +425,7 @@ export async function calculateSystemPricing(
     !acCable && "raw_vendor_costs(AC_CABLE)",
     !breakers && "raw_vendor_costs(BREAKERS)",
     !structure && `raw_vendor_costs(MOUNTING_STRUCTURE, itemName="${structureCode}")`,
-    needsBattery && !battery && "raw_vendor_costs(BATTERY)",
+    needsBattery && !batteryOptedOut && !battery && "raw_vendor_costs(BATTERY)",
     !marginRule && "margin_rules(default)",
   ].filter(Boolean);
   if (missing.length > 0) {
@@ -563,10 +587,12 @@ export interface AdminBoqPricingResult {
    *  THIS for anything customer-facing (WhatsApp contract, PDF), never
    *  `breakdown`. */
   markedUpBreakdown: AdminBoqPricingBreakdown;
-  /** The battery capacity actually priced — null for ONGRID_ZERO_EXPORT,
-   *  otherwise `finalBatteryCapacityKwh` if provided, else the pre-survey
-   *  estimate. Lets callers (the Checker UI) know what to pre-populate an
-   *  editable field with, without re-deriving the same fallback logic. */
+  /** The battery capacity actually priced — null for ONGRID_ZERO_EXPORT
+   *  and for a HYBRID_BATTERY quote where the customer picked NONE_CODE
+   *  (opted out), otherwise `finalBatteryCapacityKwh` if provided, else
+   *  the pre-survey estimate. Lets callers (the Checker UI) know what to
+   *  pre-populate an editable field with — and whether to show it at
+   *  all — without re-deriving the same fallback logic. */
   batteryCapacityKwh: number | null;
 }
 
@@ -586,9 +612,13 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     input;
   const needsBattery = serviceType === "HYBRID_BATTERY";
   const selections = input.equipmentSelections ?? undefined;
+  // Same reserved opt-out value calculateSystemPricing honors above (see
+  // NONE_CODE's doc comment) — the Checker's exact BOQ must respect the
+  // customer's original "no battery" pick, not silently reintroduce one.
+  const batteryOptedOut = needsBattery && selections?.batteryCode === NONE_CODE;
   // Checker's confirmed capacity wins over the pre-survey estimate when
   // provided — see AdminBoqPricingInput.finalBatteryCapacityKwh's doc comment.
-  const hasFinalCapacity = needsBattery && input.finalBatteryCapacityKwh != null;
+  const hasFinalCapacity = needsBattery && !batteryOptedOut && input.finalBatteryCapacityKwh != null;
 
   // Resolve the ACTUAL equipment codes the customer's original quote
   // selected (falling back to the admin-configured default for anything
@@ -603,14 +633,17 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     resolveEquipmentCode("SOLAR_PANEL", null, selections?.panelCode, DEFAULT_PANEL_CODE),
     resolveEquipmentCode("INVERTER", serviceType, selections?.inverterCode, DEFAULT_INVERTER_CODE_BY_SERVICE_TYPE[serviceType]),
     resolveEquipmentCode("BREAKERS", null, selections?.breakersCode, DEFAULT_BREAKERS_CODE),
-    needsBattery ? resolveEquipmentCode("BATTERY", serviceType, selections?.batteryCode, DEFAULT_BATTERY_CODE) : Promise.resolve(null),
+    needsBattery && !batteryOptedOut
+      ? resolveEquipmentCode("BATTERY", serviceType, selections?.batteryCode, DEFAULT_BATTERY_CODE)
+      : Promise.resolve(null),
   ]);
-  const batteryCapacityKwh = needsBattery
-    ? hasFinalCapacity
-      ? input.finalBatteryCapacityKwh!
-      : (selections?.batteryCapacityKwh ?? systemKw * DEFAULT_BATTERY_KWH_PER_SYSTEM_KW)
-    : 0;
-  if (needsBattery && (!Number.isFinite(batteryCapacityKwh) || batteryCapacityKwh <= 0)) {
+  const batteryCapacityKwh =
+    needsBattery && !batteryOptedOut
+      ? hasFinalCapacity
+        ? input.finalBatteryCapacityKwh!
+        : (selections?.batteryCapacityKwh ?? systemKw * DEFAULT_BATTERY_KWH_PER_SYSTEM_KW)
+      : 0;
+  if (needsBattery && !batteryOptedOut && (!Number.isFinite(batteryCapacityKwh) || batteryCapacityKwh <= 0)) {
     throw new PricingConfigurationError(`Invalid battery capacity (${batteryCapacityKwh} kWh) for sector=${sector}.`);
   }
 
@@ -663,7 +696,7 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     !panel && `raw_vendor_costs(SOLAR_PANEL, itemName="${panelCode}")`,
     !inverter && `raw_vendor_costs(INVERTER, itemName="${inverterCode}")`,
     !breakers && `raw_vendor_costs(BREAKERS, itemName="${breakersCode}")`,
-    needsBattery && !battery && `raw_vendor_costs(BATTERY, itemName="${batteryCode}")`,
+    needsBattery && !batteryOptedOut && !battery && `raw_vendor_costs(BATTERY, itemName="${batteryCode}")`,
     !structure && `raw_vendor_costs(MOUNTING_STRUCTURE, itemName="${structureChoice}")`,
     !dcCable && "raw_vendor_costs(DC_CABLE)",
     !acCable && "raw_vendor_costs(AC_CABLE)",
@@ -749,7 +782,7 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     profitPercent,
     breakdown,
     markedUpBreakdown,
-    batteryCapacityKwh: needsBattery ? batteryCapacityKwh : null,
+    batteryCapacityKwh: needsBattery && !batteryOptedOut ? batteryCapacityKwh : null,
   };
 }
 

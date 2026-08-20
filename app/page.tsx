@@ -28,6 +28,7 @@ import {
   Mail,
   Phone,
   Globe,
+  Calculator,
 } from "lucide-react";
 
 // ============================================================================
@@ -193,6 +194,8 @@ type EquipmentOptionsByType = Partial<Record<ComponentType, EquipmentOptionDTO[]
 interface EquipmentSelections {
   panelCode?: string;
   inverterCode?: string;
+  /** A real BATTERY code, "OTHER", or NONE_CODE ("NONE") — the customer
+   *  explicitly opted out of a battery. See NONE_CODE's doc comment. */
   batteryCode?: string;
   batteryCapacityKwh?: number;
   dcCableCode?: string;
@@ -204,6 +207,15 @@ interface EquipmentSelections {
 // Reserved code for "Other / Specific Requirement" — must match OTHER_CODE
 // in lib/db/admin.ts and prisma/seed.ts exactly.
 const OTHER_CODE = "OTHER";
+// Reserved code for "No Battery" (Custom Builder opt-out) — must match
+// NONE_CODE in lib/db/admin.ts exactly. Only meaningful for batteryCode;
+// prices/resolves exactly like an ONGRID_ZERO_EXPORT system's battery-free
+// state, without changing the chosen ServiceType.
+const NONE_CODE = "NONE";
+// Mirrors lib/db/admin.ts's DEFAULT_BATTERY_KWH_PER_SYSTEM_KW — used only
+// as a fallback scale for the Battery row's price-delta math (see
+// batteryDeltaScaleKwh below), never for real pricing itself.
+const DEFAULT_BATTERY_KWH_PER_SYSTEM_KW = 1.2;
 
 // Custom Equipment Builder's 6 equipment slots — ALL are "Default & Swap"
 // EquipmentSwapRows now (Cable/Breakers/Structure joined Panel/Inverter/
@@ -337,6 +349,17 @@ const DAYTIME_USAGE_PCT_BY_SECTOR: Record<Sector, number> = {
   COMMERCIAL: 0.75,
   INDUSTRIAL: 0.85,
 };
+
+// Display-only mirrors of the REAL sizing constants in
+// app/api/quote/calculate/route.ts (BLENDED_TARIFF_PKR_PER_UNIT,
+// DAILY_GENERATION_FACTOR) — used ONLY to reconstruct the "Calculation
+// Transparency" dropdown's arithmetic client-side from numbers already
+// on hand (bill amount, sector daytime %, the live-previewed systemKw),
+// with no second API round-trip. These must stay numerically identical
+// to the server's real constants or the dropdown will show wrong math —
+// if either constant ever changes server-side, update both here too.
+const DISPLAY_BLENDED_TARIFF_PKR_PER_UNIT = 52;
+const DISPLAY_DAILY_GENERATION_FACTOR = 4.1;
 
 // Master toggle at the very top of the calculator (see MasterService).
 // Icons are the custom "architectural sketch" set (Part 1) — a general
@@ -831,6 +854,10 @@ function CalculatorCard() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [reportStep, status, result, addOnResult]);
 
+  // "Calculation Transparency" dropdown under the Recommended System
+  // badge — collapsed by default, no persistence needed (just a reveal).
+  const [showCalcDetails, setShowCalcDetails] = useState(false);
+
   // ---- Dual Customization Paths ----
   const [customizationPath, setCustomizationPath] = useState<CustomizationPath>("RECOMMENDED");
   const [equipmentOptions, setEquipmentOptions] = useState<EquipmentOptionsByType | null>(null);
@@ -907,9 +934,11 @@ function CalculatorCard() {
   const effectiveBatteryCode =
     serviceType !== "HYBRID_BATTERY"
       ? null
-      : batteryCode && batteryOptions.some((o) => o.code === batteryCode)
-        ? batteryCode
-        : firstNonOther(batteryOptions);
+      : batteryCode === NONE_CODE
+        ? NONE_CODE
+        : batteryCode && batteryOptions.some((o) => o.code === batteryCode)
+          ? batteryCode
+          : firstNonOther(batteryOptions);
   const effectiveCableCode = cableCode ?? firstNonOther(equipmentOptions?.DC_CABLE);
   const effectiveBreakersCode = breakersCode ?? firstNonOther(equipmentOptions?.BREAKERS);
   const effectiveStructureCode = structureCode ?? firstNonOther(equipmentOptions?.MOUNTING_STRUCTURE);
@@ -917,6 +946,14 @@ function CalculatorCard() {
   const currentPanelOption = equipmentOptions?.SOLAR_PANEL?.find((o) => o.code === effectivePanelCode) ?? null;
   const currentInverterOption = inverterOptionsForServiceType.find((o) => o.code === effectiveInverterCode) ?? null;
   const currentBatteryOption = batteryOptions.find((o) => o.code === effectiveBatteryCode) ?? null;
+  // The active battery slot's unit price, for swapDeltaLabel's diff math
+  // in the Battery row below (Optional Battery, 2026-08-20). "No Battery"
+  // isn't a real catalog row, so currentBatteryOption is null while it's
+  // active — treat that as a real Rs 0/kWh baseline (not "no baseline, hide
+  // pricing"), so every other card in the row correctly shows the full
+  // "+ Rs X" cost of adding that battery back, instead of a generic
+  // "Enter your bill to see pricing" placeholder.
+  const currentBatteryUnitPricePKR = effectiveBatteryCode === NONE_CODE ? 0 : (currentBatteryOption?.unitPricePKR ?? null);
   // Cable/Breakers/Structure Default & Swap rows (Part 5) — same
   // "resolve the actual active catalog row" pattern as Panel/Inverter/
   // Battery above.
@@ -1304,13 +1341,23 @@ function CalculatorCard() {
   // — pillPriceHint falls back to a flat per-unit rate in that case.
   const systemWatts = (livePreview?.systemKw ?? 0) * 1000;
   const activeBatteryCapacityKwh = Number(batteryCapacityKwh) || livePreview?.equipment.battery?.capacityKwh || 0;
+  // Fallback scale for the Battery row's price-delta math (Optional
+  // Battery, 2026-08-20) when NO battery is currently active — i.e.
+  // "No Battery" is selected, so livePreview carries no real capacity to
+  // scale by. Mirrors lib/db/admin.ts's DEFAULT_BATTERY_KWH_PER_SYSTEM_KW
+  // so a candidate battery card still shows a meaningful "+ Rs X" estimate
+  // (what re-adding a battery would cost) instead of a dead "Enter your
+  // bill to see pricing" placeholder. Once a real battery IS active,
+  // activeBatteryCapacityKwh above always wins.
+  const batteryDeltaScaleKwh =
+    activeBatteryCapacityKwh > 0 ? activeBatteryCapacityKwh : (livePreview?.systemKw ?? 0) * DEFAULT_BATTERY_KWH_PER_SYSTEM_KW;
 
   return (
     <form
       onSubmit={handleSubmit}
       // pb-24 on mobile only, and only while the floating bar can be
       // showing (Complete Solar) — clears space at the bottom of the
-      // form so the fixed bar never covers the very fields "Get BOQ"
+      // form so the fixed bar never covers the very fields "Get Quotation"
       // scrolls the user to (Part 3). lg: cancels it out entirely since
       // the bar itself is lg:hidden.
       className={`animate-fade-up mx-auto mb-8 w-full max-w-6xl rounded-3xl border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-xl md:p-8 print:hidden ${
@@ -1395,6 +1442,63 @@ function CalculatorCard() {
                   )}
                   {livePreviewLoading && <Loader2 className="h-3 w-3 shrink-0 animate-spin" />}
                 </p>
+              )}
+
+              {/* Calculation Transparency — collapsed by default, explains
+                  the REAL sizing math already driving the number above
+                  (daytime-offset %, blended tariff, generation factor),
+                  not a simplified "size for the full bill" claim — this
+                  app deliberately sizes for daytime usage only (the "no
+                  grid export" business model), so the dropdown says so
+                  honestly rather than promising 100% bill offset. */}
+              {resolvedBillPKR !== null && resolvedBillPKR > 0 && livePreview && (
+                <div className="mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowCalcDetails((s) => !s)}
+                    aria-expanded={showCalcDetails}
+                    className="flex items-center gap-1 text-sm text-violet-600 transition-colors duration-200 hover:text-violet-700"
+                  >
+                    <Calculator className="h-3.5 w-3.5 shrink-0" />
+                    View calculation details
+                    <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${showCalcDetails ? "rotate-180" : ""}`} />
+                  </button>
+
+                  {showCalcDetails &&
+                    (() => {
+                      const daytimeUsagePct = DAYTIME_USAGE_PCT_BY_SECTOR[sector];
+                      const monthlyUnits = resolvedBillPKR / DISPLAY_BLENDED_TARIFF_PKR_PER_UNIT;
+                      const dailyDaytimeKwh = (monthlyUnits / 30) * daytimeUsagePct;
+                      const dailySolarOutputKwh = livePreview.systemKw * DISPLAY_DAILY_GENERATION_FACTOR;
+                      const offsetPct = Math.round(daytimeUsagePct * 100);
+                      return (
+                        <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                          <p>
+                            <span className="font-semibold text-slate-900">1. Monthly Consumption:</span> ~{Math.round(monthlyUnits)} units
+                            (based on Rs {DISPLAY_BLENDED_TARIFF_PKR_PER_UNIT}/unit blended LESCO tariff)
+                          </p>
+                          <p>
+                            <span className="font-semibold text-slate-900">2. Daytime Demand:</span> ~{dailyDaytimeKwh.toFixed(1)} kWh/day
+                            ({offsetPct}% of {SECTOR_LABEL[sector].toLowerCase()} usage typically falls during daylight hours)
+                          </p>
+                          <p>
+                            <span className="font-semibold text-slate-900">3. Solar Output:</span> A {livePreview.systemKw} kW system
+                            produces ~{dailySolarOutputKwh.toFixed(1)} kWh/day in Lahore — sized to cover that daytime demand.
+                          </p>
+                          {serviceType === "HYBRID_BATTERY" && (
+                            <p>
+                              <span className="font-semibold text-slate-900">4. Battery Offset:</span> Surplus daytime generation
+                              charges your battery to cover essential loads after dark.
+                            </p>
+                          )}
+                          <p className="border-t border-slate-200 pt-2 font-semibold text-violet-700">
+                            Result: Sized to offset ~{offsetPct}% of your bill — the portion used during daylight hours, without
+                            exporting anything back to the grid.
+                          </p>
+                        </div>
+                      );
+                    })()}
+                </div>
               )}
 
               <div className="mt-2">
@@ -1645,11 +1749,19 @@ function CalculatorCard() {
                           title="Lithium Battery"
                           icon={BatteryIcon}
                           currentLabel={
-                            currentBatteryOption
-                              ? `${currentBatteryOption.label} (${formatTrim(activeBatteryCapacityKwh)}kWh)`
-                              : "Select a battery"
+                            effectiveBatteryCode === NONE_CODE
+                              ? "No Battery Selected"
+                              : currentBatteryOption
+                                ? `${currentBatteryOption.label} (${formatTrim(activeBatteryCapacityKwh)}kWh)`
+                                : "Select a battery"
                           }
-                          currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.batteryPKR) : null}
+                          currentPriceLabel={
+                            effectiveBatteryCode === NONE_CODE
+                              ? null
+                              : livePreview
+                                ? formatPKR(livePreview.breakdown.batteryPKR)
+                                : null
+                          }
                           isOpen={openEquipmentSection === "BATTERY"}
                           onToggleOpen={() => setOpenEquipmentSection((s) => (s === "BATTERY" ? null : "BATTERY"))}
                         >
@@ -1663,28 +1775,46 @@ function CalculatorCard() {
                                 onClick={() => setBatteryCode(o.code)}
                                 deltaLabel={swapDeltaLabel(
                                   o.unitPricePKR,
-                                  currentBatteryOption?.unitPricePKR ?? null,
-                                  activeBatteryCapacityKwh,
+                                  currentBatteryUnitPricePKR,
+                                  batteryDeltaScaleKwh,
                                   effectiveBatteryCode === o.code
                                 )}
                               />
                             ))}
+                            {/* "No Battery" opt-out (Optional Battery, 2026-08-20) —
+                                candidateUnitPricePKR of 0 makes swapDeltaLabel compute
+                                the FULL battery cost as a negative delta ("− Rs X"),
+                                exactly the "how much this removes" figure asked for. */}
+                            <SwapOptionCard
+                              label="No Battery"
+                              imageUrl={null}
+                              active={effectiveBatteryCode === NONE_CODE}
+                              onClick={() => setBatteryCode(NONE_CODE)}
+                              deltaLabel={swapDeltaLabel(
+                                0,
+                                currentBatteryUnitPricePKR,
+                                batteryDeltaScaleKwh,
+                                effectiveBatteryCode === NONE_CODE
+                              )}
+                            />
                           </div>
 
-                          <div>
-                            <p className="mb-1.5 block text-xs font-medium text-slate-600">Battery Capacity</p>
-                            <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
-                              {BATTERY_CAPACITY_PRESETS.map((preset) => (
-                                <SpecCard
-                                  key={preset.kwh}
-                                  title={`${preset.kwh} kWh`}
-                                  description={preset.label}
-                                  active={Number(batteryCapacityKwh) === preset.kwh}
-                                  onClick={() => setBatteryCapacityKwh(String(preset.kwh))}
-                                />
-                              ))}
+                          {effectiveBatteryCode !== NONE_CODE && (
+                            <div>
+                              <p className="mb-1.5 block text-xs font-medium text-slate-600">Battery Capacity</p>
+                              <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
+                                {BATTERY_CAPACITY_PRESETS.map((preset) => (
+                                  <SpecCard
+                                    key={preset.kwh}
+                                    title={`${preset.kwh} kWh`}
+                                    description={preset.label}
+                                    active={Number(batteryCapacityKwh) === preset.kwh}
+                                    onClick={() => setBatteryCapacityKwh(String(preset.kwh))}
+                                  />
+                                ))}
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </EquipmentSwapRow>
                       )}
 
@@ -1799,9 +1929,9 @@ function CalculatorCard() {
           </div>
 
           {/* ---- RIGHT COLUMN: sticky live summary ---- */}
-          {/* id targeted by the mobile floating bar's "Get BOQ →" button
-              (Part 3) — scrolls straight to the Name/WhatsApp/Submit
-              fields, which is what "Get BOQ" actually leads to.
+          {/* id targeted by the mobile floating bar's "Get Quotation →"
+              button (Part 3) — scrolls straight to the Name/WhatsApp/Submit
+              fields, which is what "Get Quotation" actually leads to.
               lg:top-32 (was lg:top-24) — the sticky ticker+header stack
               is taller than 96px (top-24), so the card was clipping
               behind it a few pixels on scroll; 128px clears it with
@@ -1896,7 +2026,7 @@ function CalculatorCard() {
                 ) : (
                   <>
                     <FileText className="h-4 w-4" />
-                    Generate Official BOQ (PDF)
+                    Generate Official Quotation (PDF)
                   </>
                 )}
               </button>
@@ -1914,7 +2044,7 @@ function CalculatorCard() {
           the sticky right column; on mobile that column is pushed far
           below the fold by the single-column stack, so this repeats the
           number where a thumb can actually act on it. Only for Complete
-          Solar (this is the only flow with a real "BOQ" / turnkey price
+          Solar (this is the only flow with a real "Quotation" / turnkey price
           to show — EV Charger/System Upgrades use different terminology
           and already read fine without a second summary bar). */}
       {masterService === "COMPLETE_SOLAR" && (
@@ -1930,7 +2060,7 @@ function CalculatorCard() {
             onClick={() => document.getElementById("contact-and-submit")?.scrollIntoView({ behavior: "smooth", block: "start" })}
             className="flex shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 px-4 py-2.5 text-sm font-semibold text-stone-900 transition-all duration-200 hover:from-amber-500 hover:to-amber-600"
           >
-            Get BOQ <ArrowRight className="h-4 w-4" />
+            Get Quotation <ArrowRight className="h-4 w-4" />
           </button>
         </div>
       )}
@@ -2400,7 +2530,7 @@ function CustomRequirementNotice() {
       <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500" />
       <p>
         <span className="font-semibold">Custom Requirement Noted:</span> Our senior engineering team will source
-        pricing for your specific equipment request and include it in your final WhatsApp BOQ.
+        pricing for your specific equipment request and include it in your final WhatsApp Quotation.
       </p>
     </div>
   );
@@ -2590,10 +2720,24 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
   // a real line). The rows always sum to exactly totalClientPricePKR —
   // same already-rounded-lines guarantee calculateSystemPricing's
   // breakdown itself provides, verified live below.
-  const costBreakdownRows: { label: string; valuePKR: number }[] = [
+  //
+  // A HYBRID_BATTERY quote where the customer explicitly opted out via
+  // the Custom Builder's "No Battery" card (Optional Battery, 2026-08-20)
+  // ALSO resolves battery to null (same shape as ONGRID_ZERO_EXPORT — see
+  // NONE_CODE's doc comment in lib/db/admin.ts), so `battery` alone can't
+  // tell the two apart. serviceType still can: only a HYBRID_BATTERY quote
+  // with no resolved battery means "opted out," and gets an explicit
+  // "Not Included" row instead of silent omission, so the customer sees
+  // their opt-out was actually honored, not just missing.
+  const batteryOptedOutInHybrid = result.serviceType === "HYBRID_BATTERY" && !battery;
+  const costBreakdownRows: { label: string; valuePKR: number; displayOverride?: string }[] = [
     { label: "Solar Panels", valuePKR: result.breakdown.panelsPKR },
     { label: "Inverter", valuePKR: result.breakdown.inverterPKR },
-    ...(battery ? [{ label: "Lithium Battery", valuePKR: result.breakdown.batteryPKR }] : []),
+    ...(battery
+      ? [{ label: "Lithium Battery", valuePKR: result.breakdown.batteryPKR }]
+      : batteryOptedOutInHybrid
+        ? [{ label: "Lithium Battery", valuePKR: 0, displayOverride: "Not Included" }]
+        : []),
     { label: "Galvanized Mounting Structure", valuePKR: result.breakdown.structurePKR },
     { label: "AC/DC Cables, Distribution Box & Safety Equipment", valuePKR: result.breakdown.cablingAndProtectionPKR },
     { label: "Transportation, Installation & Commissioning", valuePKR: result.breakdown.installationPKR },
@@ -2669,7 +2813,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
               <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
               <p>
                 <span className="font-semibold">Custom Requirement Noted:</span> our senior engineering team will
-                source pricing for your specific equipment request and include it in your final WhatsApp BOQ.
+                source pricing for your specific equipment request and include it in your final WhatsApp Quotation.
               </p>
             </div>
           )}
@@ -2679,7 +2823,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
       {/* ---- BOQ Table ---- */}
       <div className="px-6 pt-5 sm:px-8">
         <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <Receipt className="h-3.5 w-3.5 text-violet-600" /> Bill of Quantities
+          <Receipt className="h-3.5 w-3.5 text-violet-600" /> Itemized Quotation
         </p>
         <div className="mt-2.5 overflow-hidden rounded-xl border border-slate-200">
           <table className="w-full border-collapse text-left text-xs">
@@ -2714,7 +2858,9 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
               {costBreakdownRows.map((row, i) => (
                 <tr key={row.label} className={`border-b border-slate-100 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"}`}>
                   <td className="px-3 py-2 text-slate-500">{row.label}</td>
-                  <td className="px-3 py-2 text-right font-medium text-slate-700">{formatPKR(row.valuePKR)}</td>
+                  <td className="px-3 py-2 text-right font-medium text-slate-700">
+                    {row.displayOverride ?? formatPKR(row.valuePKR)}
+                  </td>
                 </tr>
               ))}
               <tr className="bg-emerald-50">

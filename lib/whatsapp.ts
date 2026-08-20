@@ -79,7 +79,7 @@ export function buildContractMessage(input: ContractMessageInput): string {
     `Quote: ${quoteNumber}`,
     `System Size: ${systemKw} kW`,
     "",
-    "Itemized BOQ:",
+    "Itemized Quotation:",
     itemizedText,
     "",
     `Final Price: ${pkrFormatter.format(finalPriceRs)}`,
