@@ -501,6 +501,14 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
             automatedEstimatePriceRs: recommended.totalClientPricePKR,
             billSource: input.billSource,
             uploadedBillFileUrl: input.billFileUrl ?? undefined,
+            // Persisted as the EFFECTIVE tier ("no preference" -> the same
+            // "UNDER_1M" it was actually priced under, per
+            // calculateSystemPricing's targetBudgetTier doc comment) so
+            // the Checker's exact-BOQ pass (calculateAdminBoqPricing) can
+            // resolve the identical equipment default later, rather than
+            // silently re-adding a battery cost on approval — see
+            // Quote.targetBudgetTier's doc comment in schema.prisma.
+            targetBudgetTier: input.targetBudgetTier ?? "UNDER_1M",
             equipmentSelections: input.equipmentSelections ?? undefined,
             // Cost-free snapshots of exactly what was priced — see their
             // doc comments in schema.prisma. `as unknown as Prisma.InputJsonValue`

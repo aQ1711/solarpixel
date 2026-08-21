@@ -381,6 +381,25 @@ model Quote {
   // see bill-upload's route.ts for why that's non-fatal).
   uploadedBillFileUrl String?
 
+  // The Target Budget tier this quote was ACTUALLY priced under at
+  // submission time — "UNDER_1M" | "1M_TO_1_5M" | "1_5M_PLUS" (see
+  // lib/db/admin.ts's BudgetTier type). Always the EFFECTIVE tier, never
+  // null for a quote created after 2026-08-21: "no preference" is
+  // persisted as "UNDER_1M" since calculateSystemPricing prices the two
+  // identically (lowest-cost/no-battery default). A plain String, not a
+  // Prisma enum, because two of the three real tier values ("1M_TO_1_5M",
+  // "1_5M_PLUS") start with a digit, which Prisma enum identifiers can't
+  // — see lib/db/admin.ts's parseBudgetTier for the app-level validation
+  // this relies on instead. Critical for calculateAdminBoqPricing (the
+  // Checker's exact-BOQ pricing) to resolve the SAME equipment
+  // (inverter/battery) the customer was originally quoted, rather than
+  // silently re-adding a battery cost on approval — see that function's
+  // targetBudgetTier param doc comment for the full story. Null only for
+  // quotes created before this column existed; every reader treats null
+  // the same as "UNDER_1M" (the one assumption that can never silently
+  // inflate a price).
+  targetBudgetTier String?
+
   // Snapshot of the Custom Equipment Builder selections (EquipmentOption
   // codes per component, chosen battery capacity, "Other" free-text notes)
   // — null means the Recommended path was used. Client-safe: codes/labels

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { calculateAdminBoqPricing, parseEquipmentSelections, PricingConfigurationError } from "@/lib/db/admin";
+import { calculateAdminBoqPricing, parseEquipmentSelections, parseBudgetTier, PricingConfigurationError } from "@/lib/db/admin";
 import { assertAdminModuleAccess, InternalAuthError } from "@/lib/auth/internal-guard";
 import { buildWaLink, buildContractMessage } from "@/lib/whatsapp";
 import { DAYS_TO_DEPLOY_DEFAULT } from "@/lib/constants";
@@ -95,6 +95,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ quo
         requiresDbUpgrade: survey.dbUpgradeRequired,
         equipmentSelections: parseEquipmentSelections(quote.equipmentSelections),
         finalBatteryCapacityKwh,
+        targetBudgetTier: parseBudgetTier(quote.targetBudgetTier),
       });
     } catch (err) {
       if (err instanceof PricingConfigurationError) {

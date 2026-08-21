@@ -782,6 +782,19 @@ export interface AdminBoqPricingInput {
    *  undefined falls back to the pre-survey estimate, same as before this
    *  field existed. */
   finalBatteryCapacityKwh?: number | null;
+  /** The Target Budget tier the customer's original quote was priced
+   *  under (Quote.targetBudgetTier, 2026-08-21) — persisted as the
+   *  EFFECTIVE tier at submission time, so "no preference" is already
+   *  stored as "UNDER_1M" (see calculateSystemPricing's targetBudgetTier
+   *  doc comment: the two are priced identically). Critical for the
+   *  Checker to NOT silently re-add a battery the customer was never
+   *  quoted for. Null/undefined (quotes created before this field
+   *  existed) falls back to "UNDER_1M" here too — the one assumption
+   *  that can never silently inflate a price. Ignored entirely once the
+   *  customer made an explicit inverterCode/batteryCode pick in
+   *  equipmentSelections — an explicit pick always wins, same
+   *  precedence as calculateSystemPricing. */
+  targetBudgetTier?: BudgetTier | null;
 }
 
 interface AdminBoqPricingBreakdown {
@@ -851,17 +864,32 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     input;
   const needsBattery = serviceType === "HYBRID_BATTERY";
   const selections = input.equipmentSelections ?? undefined;
+  // "No preference" was persisted as "UNDER_1M" at quote-creation time
+  // (see AdminBoqPricingInput.targetBudgetTier's doc comment) — this is
+  // the SAME effectiveBudgetTier normalization calculateSystemPricing
+  // uses, so the two engines can't drift on which equipment a given
+  // quote actually resolves to.
+  const effectiveBudgetTier: BudgetTier = input.targetBudgetTier ?? "UNDER_1M";
   // Same reserved opt-out value calculateSystemPricing honors above (see
-  // NONE_CODE's doc comment) — the Checker's exact BOQ must respect the
-  // customer's original "no battery" pick, not silently reintroduce one.
-  const batteryOptedOut = needsBattery && selections?.batteryCode === NONE_CODE;
+  // NONE_CODE's doc comment), PLUS the UNDER_1M budget tier ALSO forcing
+  // no battery — the Checker's exact BOQ must respect the customer's
+  // original "no battery" outcome (whether from an explicit opt-out or
+  // from the tier they were quoted under), never silently reintroduce
+  // one at approval time. An explicit real batteryCode pick still always
+  // overrides this, same precedence as calculateSystemPricing.
+  const batteryOptedOut =
+    needsBattery &&
+    (selections?.batteryCode === NONE_CODE || (effectiveBudgetTier === "UNDER_1M" && selections?.batteryCode === undefined));
   // Checker's confirmed capacity wins over the pre-survey estimate when
   // provided — see AdminBoqPricingInput.finalBatteryCapacityKwh's doc comment.
   const hasFinalCapacity = needsBattery && !batteryOptedOut && input.finalBatteryCapacityKwh != null;
 
   // Resolve the ACTUAL equipment codes the customer's original quote
-  // selected (falling back to the admin-configured default for anything
-  // unset or "OTHER") — Panel/Inverter/Breakers/Battery all price by
+  // selected (falling back to the SAME budget-tier-aware default
+  // calculateSystemPricing would have resolved for anything unset or
+  // "OTHER" — not the plain admin-marked default, which would silently
+  // re-introduce the "always resolves to a real battery" bug this field
+  // exists to close) — Panel/Inverter/Breakers/Battery all price by
   // whichever specific catalog row this resolves to, not an arbitrary
   // "most recently created" row for the componentType. Structure is
   // deliberately NOT resolved this way — see AdminBoqPricingInput's doc
@@ -870,10 +898,18 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
   // at this stage, so there's no code to resolve for them either.
   const [panelCode, inverterCode, breakersCode, batteryCode] = await Promise.all([
     resolveEquipmentCode("SOLAR_PANEL", null, selections?.panelCode, DEFAULT_PANEL_CODE),
-    resolveEquipmentCode("INVERTER", serviceType, selections?.inverterCode, DEFAULT_INVERTER_CODE_BY_SERVICE_TYPE[serviceType]),
+    resolveBudgetTierInverterCode(effectiveBudgetTier, systemKw, serviceType).then((defaultInverterCode) =>
+      resolveEquipmentCode("INVERTER", serviceType, selections?.inverterCode, defaultInverterCode)
+    ),
     resolveEquipmentCode("BREAKERS", null, selections?.breakersCode, DEFAULT_BREAKERS_CODE),
+    // batteryOptedOut is already true whenever effectiveBudgetTier is
+    // UNDER_1M (see above), so reaching here only happens for
+    // 1M_TO_1_5M/1_5M_PLUS — always the budget-tier battery pick now,
+    // same reasoning as calculateSystemPricing's matching comment.
     needsBattery && !batteryOptedOut
-      ? resolveEquipmentCode("BATTERY", serviceType, selections?.batteryCode, DEFAULT_BATTERY_CODE)
+      ? resolveBudgetTierBatteryCode(serviceType).then((defaultBatteryCode) =>
+          resolveEquipmentCode("BATTERY", serviceType, selections?.batteryCode, defaultBatteryCode)
+        )
       : Promise.resolve(null),
   ]);
   const batteryCapacityKwh =
@@ -1288,6 +1324,19 @@ function resolveQty(qty: number | undefined, defaultQty: number): number {
 // ============================================================================
 
 export type BudgetTier = "UNDER_1M" | "1M_TO_1_5M" | "1_5M_PLUS";
+const BUDGET_TIERS: readonly BudgetTier[] = ["UNDER_1M", "1M_TO_1_5M", "1_5M_PLUS"];
+
+/** Safely narrows Quote.targetBudgetTier (a plain `String?` column — see
+ *  its doc comment in schema.prisma for why it isn't a Prisma enum: two
+ *  of the three tier values start with a digit, which Prisma enum
+ *  identifiers can't) back to `BudgetTier | null`. Same shape-check-not-
+ *  full-validation spirit as parseEquipmentSelections/parseSpecs — an
+ *  unrecognized/corrupted value degrades to null (treated as "UNDER_1M"
+ *  by every caller, per the whole point of this field: never silently
+ *  assume a battery was included). */
+export function parseBudgetTier(value: string | null | undefined): BudgetTier | null {
+  return value && (BUDGET_TIERS as readonly string[]).includes(value) ? (value as BudgetTier) : null;
+}
 
 /** Smallest in-stock inverter (for this service type) whose own rated
  *  capacity (specValue, kW) covers the required system size — "smallest

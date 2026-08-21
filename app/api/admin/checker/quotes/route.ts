@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import {
   calculateAdminBoqPricing,
   parseEquipmentSelections,
+  parseBudgetTier,
   PricingConfigurationError,
   type AdminBoqPricingResult,
 } from "@/lib/db/admin";
@@ -69,6 +70,12 @@ export async function GET(req: NextRequest) {
             // can win here. See SiteSurvey.surveyedBatteryCapacityKwh's doc
             // comment in schema.prisma.
             finalBatteryCapacityKwh: survey.surveyedBatteryCapacityKwh?.toNumber() ?? undefined,
+            // The Target Budget tier this quote was ACTUALLY priced under
+            // at submission time (Quote.targetBudgetTier) — critical so
+            // this exact-BOQ pass can't silently re-add a battery the
+            // customer was never quoted for. See AdminBoqPricingInput's
+            // doc comment.
+            targetBudgetTier: parseBudgetTier(quote.targetBudgetTier),
           });
         } catch (err) {
           if (err instanceof PricingConfigurationError) {
