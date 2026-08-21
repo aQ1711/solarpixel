@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { trackWhatsAppClick } from "@/lib/analytics";
 import {
   Loader2,
   CheckCircle2,
@@ -363,15 +364,6 @@ const EV_CHARGER_TYPES: { kw: number; description: string }[] = [
 const EV_CHARGER_INCLUDED_CABLE_METERS = 10;
 const EV_CHARGER_EXTRA_CABLE_RATE_PKR_PER_METER = 500;
 
-// Last-resort fallback for the BOQ's panel-count math
-// (Math.ceil((systemKw * 1000) / panelWattage)) if result.equipment.panel
-// .specValue somehow comes back null — shouldn't happen in practice
-// (every real panel catalog row has a wattage; only the reserved "Other"
-// placeholder doesn't, and the backend never resolves a quote's ACTUAL
-// priced equipment to "Other" — see ResolvedEquipmentItem's doc comment).
-// Matches DEFAULT_PANEL_CODE's real wattage in lib/db/admin.ts.
-const FALLBACK_PANEL_WATTAGE_W = 610;
-
 // Large visual sector cards (top of the calculator) — illustration +
 // label + short description. Order is display order; Residential is the
 // default-active sector, matching DEFAULT_SECTOR below.
@@ -448,6 +440,11 @@ const MASTER_SERVICE_DESCRIPTION: Record<MasterService, string> = {
 };
 
 const WHATSAPP_BUSINESS_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_BUSINESS_NUMBER || "923000000000";
+// Generic prefilled text for every WhatsApp CTA that has no quote/inquiry
+// context yet (header, footer, the floating badge before a result
+// exists) — distinct from the quote-specific messages built in
+// ResultSummary/AddOnResultSummary, which include real numbers.
+const GENERAL_INQUIRY_WA_MESSAGE = "Assalam o Alaikum! I'd like to learn more about Solar Pixel's solar systems.";
 
 const pkr = new Intl.NumberFormat("en-PK", {
   style: "currency",
@@ -638,9 +635,10 @@ function Header() {
         </div>
         <div className="flex items-center gap-1.5">
           <a
-            href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}`}
+            href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(GENERAL_INQUIRY_WA_MESSAGE)}`}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => trackWhatsAppClick("header")}
             className="hidden min-h-9 items-center gap-1.5 rounded-full border border-stone-200 px-3.5 text-xs font-medium text-stone-600 transition-colors duration-200 hover:border-stone-300 hover:text-stone-900 sm:flex"
           >
             <MessageCircle className="h-3.5 w-3.5" />
@@ -1466,6 +1464,7 @@ function CalculatorCard() {
         const priced = data as PanelWashingResult;
         const priceLine = `${formatPKR(priced.oneTimePricePKR)} one-time (${priced.panelCount} panels)`;
         const message = `Hi Solar Pixel! I'm ${fullName} and I'd like to request: ${serviceLabel}. Quote: ${priceLine}.${detailsLine}`;
+        trackWhatsAppClick("panel_washing_inquiry");
         window.open(`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
         setAddOnResult(priced);
         setStatus("success");
@@ -1501,6 +1500,7 @@ function CalculatorCard() {
         }
         const priced = data as EvChargerResult;
         const message = `Hi Solar Pixel! I'm ${fullName} and I'd like to request: ${serviceLabel} (${priced.evChargerRatingKw} kW). Quote: ${formatPKR(priced.totalClientPricePKR)} turnkey.${detailsLine}`;
+        trackWhatsAppClick("ev_charger_inquiry");
         window.open(`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
         setAddOnResult(priced);
         setStatus("success");
@@ -2413,6 +2413,18 @@ function CalculatorCard() {
         </div>
       )}
 
+      {/* Floating mobile WhatsApp badge — general inquiry, since no quote
+          exists yet at this point in the flow (ResultSummary/
+          AddOnResultSummary render their own copy of this with the real
+          quote-specific message once one does). Offset higher when the
+          Complete Solar bottom price bar above is also showing, so the
+          two don't visually stack on top of each other. */}
+      <FloatingWhatsAppButton
+        message={GENERAL_INQUIRY_WA_MESSAGE}
+        source="floating_badge_form"
+        raised={masterService === "COMPLETE_SOLAR"}
+      />
+
       {masterService !== "COMPLETE_SOLAR" && (
         // ============ EV Charger / System Upgrades — same 2-column split
         // as the Solar dashboard, for a consistent layout across every
@@ -3120,23 +3132,11 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
       : `Panel Washing - One-Time Visit (${panelWashing.panelCount} Panels @ ${formatPKR(panelWashing.ratePerPanel)}/panel)`
     : null;
 
-  // Part 1: dynamic panel count. panelWattage comes straight from the
-  // backend's resolved equipment (real for both Recommended and Custom
-  // paths now — see ResolvedEquipment's doc comment), falling back to
-  // FALLBACK_PANEL_WATTAGE_W only in the defensive edge case where a
-  // catalog row is missing its specValue. panelCount is `panel.count`
-  // (2026-08-20) — the backend's real, already-clamped count — NOT
-  // re-derived from systemKw here anymore: that guess breaks the instant
-  // the customer adjusts the Panel Quantity Adjuster away from baseline.
-  const panelWattage = panel.specValue ?? FALLBACK_PANEL_WATTAGE_W;
+  // Part 1: dynamic panel count. panelCount is `panel.count` (2026-08-20)
+  // — the backend's real, already-clamped count — NOT re-derived from
+  // systemKw here: that guess breaks the instant the customer adjusts
+  // the Panel Quantity Adjuster away from baseline.
   const panelCount = panel.count;
-  const panelBrand = panel.brand ?? panel.label;
-  const inverterBrand = inverter.brand ?? inverter.label;
-  // Most catalog inverter models don't have a specValue on file yet (see
-  // EquipmentOption.specValue's doc comment) — falls back to systemKw
-  // itself, i.e. "assumed sized to match," same reasoning the bottleneck
-  // warning below uses to decide when a REAL mismatch is worth flagging.
-  const inverterCapacityKw = inverter.specValue ?? result.systemKw;
 
   // Flags a real system-size/inverter-capacity mismatch the pricing
   // engine doesn't itself enforce (see ResolvedEquipmentItem's doc
@@ -3182,19 +3182,20 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
     { description: netMeteringRowDescription, uom: "JOB", qty: "1" },
   ];
 
-  const equipmentLines = [
-    `Solar Panel: ${panelBrand} ${panelWattage}W × ${panelCount}`,
-    `Inverter: ${inverterBrand} ${formatTrim(inverterCapacityKw)}kW`,
-    ...(battery ? [`Battery: ${battery.brand ?? battery.label} ${formatTrim(battery.capacityKwh)}kWh`] : []),
-    ...(civilBlockQty > 0 ? [`Civil Blocks: ${civilBlockQty}`] : []),
-    ...(earthingBoreQty > 0 ? [`Earthing & Boring: ${earthingBoreQty} bore${earthingBoreQty === 1 ? "" : "s"}`] : []),
-    ...(lightningArrestorQty > 0 ? [`Lightning Arrestor: ${lightningArrestorQty}`] : []),
-    ...(panelWashingDescription ? [panelWashingDescription] : []),
-  ];
   const customNote = result.hasCustomRequirements
     ? "\n\nNote: includes custom/specific equipment requests. Please confirm final pricing for those items."
     : "";
-  const waMessage = `Hi Solar Pixel! I'd like to lock in my Sales Quotation (Quote ${result.quoteId}) — ${result.systemKw}kW ${SERVICE_TYPE_LABEL[result.serviceType]} system, ${formatPKR(result.totalClientPricePKR)}.\n\n${equipmentLines.map((l) => `• ${l}`).join("\n")}${customNote}\n\nPlease book my free site survey.`;
+  // Public, unauthenticated quote view (app/quote/[quoteId]/page.tsx) —
+  // NOT a literal generated PDF file, see that route's doc comment for
+  // why (a real PDF-generation + storage pipeline is a materially
+  // bigger, separate project; this webpage is print-to-PDF-able via the
+  // browser instead, same "no PDF library" convention the on-site
+  // "Download Quotation (PDF)" button already uses). Falls back to a
+  // relative path server-side (window is undefined during SSR) — this
+  // component only ever actually renders client-side in practice, but
+  // the fallback keeps the string well-formed either way.
+  const pdfUrl = typeof window !== "undefined" ? `${window.location.origin}/quote/${result.quoteId}` : `/quote/${result.quoteId}`;
+  const waMessage = `Assalam o Alaikum! I generated a custom quote on your site:\n- System: ${result.systemKw}kW (${panelCount} panels)\n- Total Price: ${formatPKR(result.totalClientPricePKR)}\n- Reference ID: #${result.quoteId}\n\n📄 Official PDF Quotation: ${pdfUrl}\n\nI would like to schedule a site survey.${customNote}`;
   const waHref = `https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(waMessage)}`;
 
   const today = new Date().toLocaleDateString("en-PK", { day: "numeric", month: "long", year: "numeric" });
@@ -3398,6 +3399,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
             href={waHref}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => trackWhatsAppClick("quote_report_cta", result.quoteId)}
             className="glow-cta flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-violet-600 to-purple-600 text-sm font-bold text-white transition-all duration-200 hover:from-violet-500 hover:to-purple-500"
           >
             <MessageCircle className="h-4 w-4" /> Lock In Price on WhatsApp
@@ -3415,6 +3417,8 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
           Instant estimate — your exact price is confirmed after a free on-site survey.
         </p>
       </div>
+
+      <FloatingWhatsAppButton message={waMessage} source="floating_badge_quote_report" quoteId={result.quoteId} />
     </div>
   );
 }
@@ -3492,6 +3496,7 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
         href={waHref}
         target="_blank"
         rel="noopener noreferrer"
+        onClick={() => trackWhatsAppClick(isWashing ? "panel_washing_report_cta" : "ev_charger_report_cta")}
         className="glow-cta mt-5 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 py-4 text-sm font-bold text-stone-900 transition-all duration-200 hover:from-amber-500 hover:to-amber-600"
       >
         <MessageCircle className="h-4 w-4" />
@@ -3499,6 +3504,8 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
       </a>
 
       <p className="mt-3 text-[11px] text-stone-500">Instant estimate — your exact price is confirmed after a free consultation.</p>
+
+      <FloatingWhatsAppButton message={waMessage} source={isWashing ? "floating_badge_panel_washing_report" : "floating_badge_ev_charger_report"} />
     </div>
   );
 }
@@ -3659,7 +3666,11 @@ function Footer() {
         <div className="flex-1 px-6 py-16 sm:px-10 sm:py-20">
           <div className="mx-auto grid max-w-3xl gap-10 text-center sm:grid-cols-3 sm:text-left">
             <FooterColumn title="Contact">
-              <FooterLink href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}`} icon={MessageCircle}>
+              <FooterLink
+                href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(GENERAL_INQUIRY_WA_MESSAGE)}`}
+                icon={MessageCircle}
+                onClick={() => trackWhatsAppClick("footer_contact")}
+              >
                 WhatsApp
               </FooterLink>
               <FooterLink href={`mailto:${CONTACT_EMAIL}`} icon={Mail}>
@@ -3671,7 +3682,11 @@ function Footer() {
             </FooterColumn>
 
             <FooterColumn title="Social">
-              <FooterLink href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}`} icon={MessageCircle}>
+              <FooterLink
+                href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(GENERAL_INQUIRY_WA_MESSAGE)}`}
+                icon={MessageCircle}
+                onClick={() => trackWhatsAppClick("footer_social")}
+              >
                 Chat with us
               </FooterLink>
               <FooterLink href={WEBSITE_URL} icon={Globe}>
@@ -3721,13 +3736,41 @@ function FooterColumn({ title, children }: { title: string; children: React.Reac
   );
 }
 
+/** Mobile floating WhatsApp CTA — bottom-right, per brief's exact spec
+ *  (fixed, 20px from bottom/right, z-50). `lg:hidden` scopes it to
+ *  mobile/tablet, matching this file's existing mobile-only breakpoint
+ *  convention (see the Mobile-Only Floating Bottom Bar above). `raised`
+ *  bumps it above the Complete Solar bottom price bar when that's also
+ *  on screen, so the two never visually overlap — both are only ever
+ *  rendered together during the input phase (the report screens each
+ *  render their OWN copy of this button with the bar's condition simply
+ *  false, since neither report view has that bar at all). */
+function FloatingWhatsAppButton({ message, source, quoteId, raised }: { message: string; source: string; quoteId?: string; raised?: boolean }) {
+  return (
+    <a
+      href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(message)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={() => trackWhatsAppClick(source, quoteId)}
+      aria-label="Chat with us on WhatsApp"
+      className={`fixed right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 transition-transform duration-200 hover:scale-105 lg:hidden print:hidden ${
+        raised ? "bottom-24" : "bottom-5"
+      }`}
+    >
+      <MessageCircle className="h-6 w-6" />
+    </a>
+  );
+}
+
 function FooterLink({
   href,
   icon: Icon,
+  onClick,
   children,
 }: {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
+  onClick?: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -3735,6 +3778,7 @@ function FooterLink({
       href={href}
       target={href.startsWith("http") ? "_blank" : undefined}
       rel={href.startsWith("http") ? "noopener noreferrer" : undefined}
+      onClick={onClick}
       className="flex items-center justify-center gap-1.5 text-sm text-white/70 transition-colors duration-200 hover:text-white sm:justify-start"
     >
       <Icon className="h-3.5 w-3.5 shrink-0" />
