@@ -398,12 +398,27 @@ export async function calculateSystemPricing(
    *  resolveBudgetTierInverterCode(). Does NOT change systemKw or how
    *  it's computed — the real daytime-offset formula is unchanged. An
    *  explicit `selections.inverterCode`/`batteryCode` still always wins
-   *  (resolveSelection's normal `code ?? defaultCode` fallback chain). */
+   *  (resolveSelection's normal `code ?? defaultCode` fallback chain).
+   *  UNDEFINED ("no preference") is treated identically to "UNDER_1M"
+   *  (2026-08-21) — the lowest-cost configuration is always the
+   *  starting recommendation; price only rises once the customer
+   *  explicitly picks a higher tier. The plain admin-marked
+   *  isDefault=true equipment is no longer reachable as a Recommended-
+   *  path default through this parameter at all. */
   targetBudgetTier?: BudgetTier
 ): Promise<SystemPricingResult> {
   const now = new Date();
   const watts = systemKw * 1000;
   const needsBattery = serviceType === "HYBRID_BATTERY";
+  // "No preference" (targetBudgetTier omitted) now resolves the SAME as
+  // UNDER_1M — smallest fitting inverter, no battery — rather than the
+  // admin-marked Recommended default (2026-08-21, explicit instruction:
+  // the default recommendation must be the lowest-cost one, so a first-
+  // time visitor never sees a battery-inclusive price before they've
+  // told us their budget; the price should only go UP as they pick a
+  // higher Target Budget tier). Every other spot in this function that
+  // used to branch on `targetBudgetTier` now uses this instead.
+  const effectiveBudgetTier: BudgetTier = targetBudgetTier ?? "UNDER_1M";
   // See NONE_CODE's doc comment — an explicit customer opt-out, distinct
   // from "no preference." Forces batteryCode/batteryCapacityKwh to the
   // same null/0 shape ONGRID_ZERO_EXPORT already produces below, so every
@@ -416,7 +431,7 @@ export async function calculateSystemPricing(
   // have auto-decided.
   const batteryOptedOut =
     needsBattery &&
-    (selections?.batteryCode === NONE_CODE || (targetBudgetTier === "UNDER_1M" && selections?.batteryCode === undefined));
+    (selections?.batteryCode === NONE_CODE || (effectiveBudgetTier === "UNDER_1M" && selections?.batteryCode === undefined));
 
   let hasCustomRequirements = false;
   /** "OTHER" -> flag it and fall back to the Recommended default for
@@ -451,17 +466,17 @@ export async function calculateSystemPricing(
   const [defaultPanelCode, defaultInverterCode, defaultCableCode, defaultBreakersCode, defaultStructureCode, defaultBatteryCode] =
     await Promise.all([
       getDefaultCode("SOLAR_PANEL", null, DEFAULT_PANEL_CODE),
-      targetBudgetTier
-        ? resolveBudgetTierInverterCode(targetBudgetTier, systemKw, serviceType)
-        : getDefaultCode("INVERTER", serviceType, DEFAULT_INVERTER_CODE_BY_SERVICE_TYPE[serviceType]),
+      resolveBudgetTierInverterCode(effectiveBudgetTier, systemKw, serviceType),
       getDefaultCode("DC_CABLE", null, DEFAULT_CABLE_CODE),
       getDefaultCode("BREAKERS", null, DEFAULT_BREAKERS_CODE),
       getDefaultCode("MOUNTING_STRUCTURE", null, DEFAULT_STRUCTURE_CODE),
-      needsBattery && !batteryOptedOut
-        ? targetBudgetTier && targetBudgetTier !== "UNDER_1M"
-          ? resolveBudgetTierBatteryCode(serviceType)
-          : getDefaultCode("BATTERY", serviceType, DEFAULT_BATTERY_CODE)
-        : Promise.resolve(DEFAULT_BATTERY_CODE),
+      // batteryOptedOut is already true whenever effectiveBudgetTier is
+      // UNDER_1M (see above), so reaching here with needsBattery true
+      // only happens for 1M_TO_1_5M/1_5M_PLUS — always the budget-tier
+      // battery pick now, never the plain admin default (see this
+      // function's doc comment on why "no preference" no longer means
+      // "admin default").
+      needsBattery && !batteryOptedOut ? resolveBudgetTierBatteryCode(serviceType) : Promise.resolve(DEFAULT_BATTERY_CODE),
     ]);
 
   const panelCode = resolveSelection(selections?.panelCode, defaultPanelCode);

@@ -1657,14 +1657,14 @@ function CalculatorCard() {
               </div>
 
               {resolvedBillPKR !== null && resolvedBillPKR > 0 && (
-                <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-violet-700">
-                  <Zap className="h-3.5 w-3.5 shrink-0" />
+                <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-violet-700">
+                  <Zap className="h-4 w-4 shrink-0" />
                   {livePreview ? (
                     <>Recommended System: {livePreview.systemKw} kW</>
                   ) : (
                     <>Calculating recommended system size…</>
                   )}
-                  {livePreviewLoading && <Loader2 className="h-3 w-3 shrink-0 animate-spin" />}
+                  {livePreviewLoading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
                 </p>
               )}
 
@@ -1676,7 +1676,7 @@ function CalculatorCard() {
                   effect, a separate live-preview call that always forces
                   targetBudgetTier: "UNDER_1M". */}
               {resolvedBillPKR !== null && resolvedBillPKR > 0 && baselinePreview && (
-                <p className="mt-1.5 text-xs text-slate-500">
+                <p className="mt-1.5 text-sm text-slate-500">
                   Starting from: <span className="font-semibold text-slate-700">{formatPKR(baselinePreview.totalClientPricePKR)}</span>{" "}
                   (panels + inverter only, no battery)
                 </p>
