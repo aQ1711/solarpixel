@@ -749,7 +749,20 @@ model GlobalPricingSettings {
   installationCostPerWattCommercial  Decimal @db.Decimal(8, 2)
   installationCostPerWattIndustrial  Decimal @db.Decimal(8, 2)
   evChargerInstallationFee           Decimal @db.Decimal(12, 2)
-  washingCostPerPanel                Decimal @db.Decimal(10, 2)
+
+  // Tiered "One-Time Visit" Panel Washing rates (2026-08-21) — replaces
+  // the old single flat washingCostPerPanel with 4 volume brackets +
+  // a minimum call-out fee floor. See panelWashingRawCostPKR() in
+  // lib/db/admin.ts for the exact bracket logic (1-20 / 21-60 / 61-150 /
+  // 151+ panels). Shared by BOTH the standalone "System Upgrades &
+  // Washing" inquiry flow (unaffected otherwise — its Monthly
+  // Subscription discount is just a % off whatever this resolves to)
+  // and the new toggleable Custom Equipment Builder option.
+  washingRateTier1PerPanel  Decimal @db.Decimal(10, 2)
+  washingRateTier2PerPanel  Decimal @db.Decimal(10, 2)
+  washingRateTier3PerPanel  Decimal @db.Decimal(10, 2)
+  washingRateTier4PerPanel  Decimal @db.Decimal(10, 2)
+  washingMinimumVisitFeePKR Decimal @db.Decimal(10, 2)
 
   // "Site Works" add-ons (2026-08-20) — same flat-rate shape as
   // evChargerInstallationFee/washingCostPerPanel above: no brand/model

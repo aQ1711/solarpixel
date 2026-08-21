@@ -90,6 +90,10 @@ interface ItemizedBreakdown {
   /** Civil blocks + earthing/boring + lightning arrestor combined — see
    *  SiteWorksQuantities and lib/db/admin.ts's siteWorksPKR doc comment. */
   siteWorksPKR: number;
+  /** "One-Time Panel Washing Visit" — 0 unless toggled on. See
+   *  PanelWashingSelection and lib/db/admin.ts's panelWashingPKR doc
+   *  comment. */
+  panelWashingPKR: number;
 }
 
 /** Mirrors lib/db/admin.ts's SiteWorksQuantities — the exact "Site Works"
@@ -149,6 +153,7 @@ interface QuoteResult {
   breakdown: ItemizedBreakdown;
   equipment: ResolvedEquipment;
   siteWorks: SiteWorksQuantities;
+  panelWashing: PanelWashingSelection | null;
   /** True when any Custom Builder selection was "Other / Specific
    *  Requirement" — the price uses a placeholder cost for that slot until
    *  engineering sources real pricing. See lib/db/admin.ts's OTHER_CODE. */
@@ -173,6 +178,7 @@ interface SolarPreviewResult {
   breakdown: ItemizedBreakdown;
   equipment: ResolvedEquipment;
   siteWorks: SiteWorksQuantities;
+  panelWashing: PanelWashingSelection | null;
   hasCustomRequirements: boolean;
 }
 
@@ -244,6 +250,19 @@ interface EquipmentSelections {
    *  those limits). Omitted defaults to the bill-derived baseline count,
    *  unchanged behavior. */
   panelQtyOverride?: number;
+  /** "One-Time Panel Washing Visit" (2026-08-21) — Custom Builder
+   *  Services toggle. Omitted/false = not included, 0 cost. */
+  includePanelWashing?: boolean;
+}
+
+/** Mirrors lib/db/admin.ts's PanelWashingSelection — null when
+ *  includePanelWashing wasn't toggled on. Lets the client render the
+ *  exact "N Panels @ Rs X/panel" / "(Minimum Call-Out Fee)" wording
+ *  without re-deriving which tier/floor applied. */
+interface PanelWashingSelection {
+  panelCount: number;
+  ratePerPanel: number;
+  isMinimumFeeApplied: boolean;
 }
 
 /** Mirrors lib/db/admin.ts's BudgetTier — auto-selects inverter/battery
@@ -307,6 +326,10 @@ interface PanelWashingResult {
   sector: Sector;
   washFrequency: WashFrequency;
   costPerPanelPKR: number;
+  /** True when the minimum visit fee floor (not the tiered per-panel
+   *  rate) was the binding price — see PanelWashingQuote's doc comment
+   *  in lib/db/admin.ts. */
+  isMinimumFeeApplied: boolean;
   oneTimePricePKR: number;
   monthlyPricePKR: number | null;
   totalClientPricePKR: number;
@@ -1010,6 +1033,8 @@ function CalculatorCard() {
   // IS the selection" pattern), since the true baseline/max come from
   // the live backend response, not a client-known constant.
   const [panelQtyOverride, setPanelQtyOverride] = useState<number | null>(null);
+  // "One-Time Panel Washing Visit" (2026-08-21) — Services section toggle.
+  const [includePanelWashing, setIncludePanelWashing] = useState(false);
 
   const serviceType: ServiceType =
     LOCKED_SERVICE_TYPE_BY_SECTOR[sector] ?? (sector === "RESIDENTIAL" ? residentialServiceType : commercialServiceType);
@@ -1115,6 +1140,7 @@ function CalculatorCard() {
           earthingBoreQty,
           lightningArrestorQty,
           panelQtyOverride: panelQtyOverride ?? undefined,
+          includePanelWashing,
         }
       : undefined;
 
@@ -1185,6 +1211,7 @@ function CalculatorCard() {
     lightningArrestorQty,
     panelQtyOverride,
     targetBudgetTier,
+    includePanelWashing,
   ]);
 
   // "Starting from" baseline (2026-08-20) — a SEPARATE, independent
@@ -2224,6 +2251,25 @@ function CalculatorCard() {
                           />
                         </div>
                       </EquipmentSwapRow>
+
+                      {/* Services (2026-08-21) — a toggleable add-on, not
+                          a brand/model pick or a quantity, so a plain
+                          on/off switch rather than EquipmentSwapRow's
+                          expand-to-swap or QuantityStepper's +/- shell.
+                          Dynamically recalculates with the Panel Quantity
+                          Adjuster above — same effectivePanelCount the
+                          backend already resolved for Civil Blocks. */}
+                      <div>
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Services</p>
+                        <ServiceToggleCard
+                          title="One-Time Panel Washing Visit"
+                          icon={WaterDropIcon}
+                          description="A single professional cleaning visit after installation — not a recurring plan."
+                          active={includePanelWashing}
+                          onToggle={() => setIncludePanelWashing((s) => !s)}
+                          priceLabel={livePreview?.panelWashing ? formatPKR(livePreview.breakdown.panelWashingPKR) : null}
+                        />
+                      </div>
                     </div>
                   )}
 
@@ -2508,7 +2554,9 @@ function CalculatorCard() {
                       {washPreviewLoading && <Loader2 className="ml-2 inline h-4 w-4 animate-spin text-violet-400" />}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {washPreview.panelCount} panels × {formatPKR(washPreview.costPerPanelPKR)}
+                      {washPreview.isMinimumFeeApplied
+                        ? "Minimum call-out fee"
+                        : `${washPreview.panelCount} panels × ${formatPKR(washPreview.costPerPanelPKR)}`}
                     </p>
                   </>
                 ) : (
@@ -2904,6 +2952,70 @@ function QuantityStepper({
   );
 }
 
+/** A simple on/off service add-on card (2026-08-21's "Services" section)
+ *  — a real switch (role="switch"/aria-checked), not a button styled to
+ *  look like one. Distinct from every other Custom Builder row: there's
+ *  no brand to swap and no quantity to pick, just "include this or
+ *  don't." `priceLabel` is null before a bill is entered (or if the
+ *  backend hasn't returned a resolved panelWashing selection yet) —
+ *  never shows a stale/guessed number. */
+function ServiceToggleCard({
+  title,
+  icon: Icon,
+  description,
+  active,
+  onToggle,
+  priceLabel,
+}: {
+  title: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  description: string;
+  active: boolean;
+  onToggle: () => void;
+  priceLabel: string | null;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 rounded-xl border px-3.5 py-3 transition-colors duration-200 ${
+        active ? "border-violet-300 bg-violet-50" : "border-slate-200 bg-white"
+      }`}
+    >
+      <div className="flex min-w-0 items-center gap-3">
+        {Icon && (
+          <span
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border ${
+              active ? "border-violet-200 bg-white text-violet-600" : "border-slate-200 bg-slate-50 text-violet-600"
+            }`}
+          >
+            <Icon className="h-7 w-7" />
+          </span>
+        )}
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
+          <p className="text-[11px] text-slate-500">{description}</p>
+          {active && priceLabel && <p className="text-xs font-bold text-violet-700">{priceLabel}</p>}
+        </div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={active}
+        aria-label={title}
+        onClick={onToggle}
+        className={`relative flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 ${
+          active ? "bg-violet-600" : "bg-slate-300"
+        }`}
+      >
+        <span
+          className={`absolute h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${
+            active ? "translate-x-6" : "translate-x-1"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
 function CustomRequirementNotice() {
   return (
     <div className="flex items-start gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3.5 py-3 text-left text-xs leading-relaxed text-violet-800">
@@ -3024,6 +3136,17 @@ interface BoqRow {
 function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => void }) {
   const { panel, inverter, battery } = result.equipment;
   const { civilBlockQty, earthingBoreQty, lightningArrestorQty } = result.siteWorks;
+  const { panelWashing } = result;
+  // "Panel Washing - One-Time Visit (...)" — exact PDF wording per spec:
+  // the parenthetical is either the real tier breakdown ("50 Panels @ Rs
+  // 150/panel") or, when the minimum visit fee floor was the binding
+  // price, "(Minimum Call-Out Fee)" instead — never both, never a
+  // fabricated per-panel rate for a floored price.
+  const panelWashingDescription = panelWashing
+    ? panelWashing.isMinimumFeeApplied
+      ? "Panel Washing - One-Time Visit (Minimum Call-Out Fee)"
+      : `Panel Washing - One-Time Visit (${panelWashing.panelCount} Panels @ ${formatPKR(panelWashing.ratePerPanel)}/panel)`
+    : null;
 
   // Part 1: dynamic panel count. panelWattage comes straight from the
   // backend's resolved equipment (real for both Recommended and Custom
@@ -3082,6 +3205,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
     ...(lightningArrestorQty > 0
       ? [{ description: "Lightning Arrestor", uom: "PCS" as const, qty: String(lightningArrestorQty) }]
       : []),
+    ...(panelWashingDescription ? [{ description: panelWashingDescription, uom: "JOB" as const, qty: "1" }] : []),
     { description: "Transportation, Installation, Testing & Commissioning", uom: "JOB", qty: "1" },
     { description: netMeteringRowDescription, uom: "JOB", qty: "1" },
   ];
@@ -3093,6 +3217,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
     ...(civilBlockQty > 0 ? [`Civil Blocks: ${civilBlockQty}`] : []),
     ...(earthingBoreQty > 0 ? [`Earthing & Boring: ${earthingBoreQty} bore${earthingBoreQty === 1 ? "" : "s"}`] : []),
     ...(lightningArrestorQty > 0 ? [`Lightning Arrestor: ${lightningArrestorQty}`] : []),
+    ...(panelWashingDescription ? [panelWashingDescription] : []),
   ];
   const customNote = result.hasCustomRequirements
     ? "\n\nNote: includes custom/specific equipment requests. Please confirm final pricing for those items."
@@ -3141,6 +3266,9 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
     result.breakdown.siteWorksPKR > 0
       ? { label: "Site Works (Civil, Earthing & Lightning Arrestor)", valuePKR: result.breakdown.siteWorksPKR }
       : { label: "Site Works (Civil, Earthing & Lightning Arrestor)", valuePKR: 0, displayOverride: "Not Included" },
+    ...(panelWashing
+      ? [{ label: "Panel Washing (One-Time Visit)", valuePKR: result.breakdown.panelWashingPKR }]
+      : []),
   ];
 
   return (
@@ -3363,7 +3491,10 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
       {isWashing ? (
         <div className="mt-5 grid grid-cols-2 gap-3 text-left">
           <Stat label="Panel Count" value={`${result.panelCount} panels`} />
-          <Stat label="Cleaning Rate" value={`${formatPKR(result.costPerPanelPKR)}/panel`} />
+          <Stat
+            label="Cleaning Rate"
+            value={result.isMinimumFeeApplied ? "Minimum call-out fee" : `${formatPKR(result.costPerPanelPKR)}/panel`}
+          />
           <Stat
             label="Frequency"
             value={result.washFrequency === "MONTHLY_SUBSCRIPTION" ? "Monthly Subscription" : "One-Time Wash"}

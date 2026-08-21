@@ -74,13 +74,29 @@ interface MaterialItem {
   specs: SpecEntry[] | null;
 }
 
+/** The 5 admin-editable Panel Washing rate fields (2026-08-21 tiered
+ *  pricing) — used as a single `onSaveWashingRate(field, v)` callback
+ *  rather than 5 separate props, same "one callback, field as an
+ *  argument" pattern `onSaveMargin(sector, v)` already uses for the 3
+ *  sector margins. */
+type WashingRateField =
+  | "washingRateTier1PerPanel"
+  | "washingRateTier2PerPanel"
+  | "washingRateTier3PerPanel"
+  | "washingRateTier4PerPanel"
+  | "washingMinimumVisitFeePKR";
+
 interface GlobalRules {
   structureCostPerWatt: number;
   installationCostPerWattResidential: number;
   installationCostPerWattCommercial: number;
   installationCostPerWattIndustrial: number;
   evChargerInstallationFee: number;
-  washingCostPerPanel: number;
+  washingRateTier1PerPanel: number;
+  washingRateTier2PerPanel: number;
+  washingRateTier3PerPanel: number;
+  washingRateTier4PerPanel: number;
+  washingMinimumVisitFeePKR: number;
   civilWorkCostPerBlock: number;
   earthingCostPerBore: number;
   lightningArrestorCostPerUnit: number;
@@ -252,7 +268,11 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
     installationCostPerWattCommercial?: number;
     installationCostPerWattIndustrial?: number;
     evChargerInstallationFee?: number;
-    washingCostPerPanel?: number;
+    washingRateTier1PerPanel?: number;
+    washingRateTier2PerPanel?: number;
+    washingRateTier3PerPanel?: number;
+    washingRateTier4PerPanel?: number;
+    washingMinimumVisitFeePKR?: number;
     civilWorkCostPerBlock?: number;
     earthingCostPerBore?: number;
     lightningArrestorCostPerUnit?: number;
@@ -415,7 +435,7 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
             onSaveInstallationCommercial={(v) => saveGlobalPricingRates({ installationCostPerWattCommercial: v })}
             onSaveInstallationIndustrial={(v) => saveGlobalPricingRates({ installationCostPerWattIndustrial: v })}
             onSaveEvChargerFee={(v) => saveGlobalPricingRates({ evChargerInstallationFee: v })}
-            onSaveWashingRate={(v) => saveGlobalPricingRates({ washingCostPerPanel: v })}
+            onSaveWashingRate={(field, v) => saveGlobalPricingRates({ [field]: v })}
             onSaveCivilBlockRate={(v) => saveGlobalPricingRates({ civilWorkCostPerBlock: v })}
             onSaveEarthingBoreRate={(v) => saveGlobalPricingRates({ earthingCostPerBore: v })}
             onSaveLightningArrestorRate={(v) => saveGlobalPricingRates({ lightningArrestorCostPerUnit: v })}
@@ -526,7 +546,7 @@ function KpiBanner({
   onSaveInstallationCommercial: (v: number) => Promise<boolean>;
   onSaveInstallationIndustrial: (v: number) => Promise<boolean>;
   onSaveEvChargerFee: (v: number) => Promise<boolean>;
-  onSaveWashingRate: (v: number) => Promise<boolean>;
+  onSaveWashingRate: (field: WashingRateField, v: number) => Promise<boolean>;
   onSaveCivilBlockRate: (v: number) => Promise<boolean>;
   onSaveEarthingBoreRate: (v: number) => Promise<boolean>;
   onSaveLightningArrestorRate: (v: number) => Promise<boolean>;
@@ -588,8 +608,58 @@ function KpiBanner({
       <KpiCard label="EV Charger Installation Fee">
         <InlineEditableNumber value={globalRules.evChargerInstallationFee} prefix="Rs " onSave={onSaveEvChargerFee} />
       </KpiCard>
-      <KpiCard label="Panel Washing Rate" suffix="/panel">
-        <InlineEditableNumber value={globalRules.washingCostPerPanel} prefix="Rs " suffix="/panel" onSave={onSaveWashingRate} />
+      <KpiCard label="Panel Washing Rates (One-Time Visit)">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-stone-500">1-20 panels</span>
+            <InlineEditableNumber
+              value={globalRules.washingRateTier1PerPanel}
+              prefix="Rs "
+              suffix="/panel"
+              compact
+              onSave={(v) => onSaveWashingRate("washingRateTier1PerPanel", v)}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-stone-500">21-60 panels</span>
+            <InlineEditableNumber
+              value={globalRules.washingRateTier2PerPanel}
+              prefix="Rs "
+              suffix="/panel"
+              compact
+              onSave={(v) => onSaveWashingRate("washingRateTier2PerPanel", v)}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-stone-500">61-150 panels</span>
+            <InlineEditableNumber
+              value={globalRules.washingRateTier3PerPanel}
+              prefix="Rs "
+              suffix="/panel"
+              compact
+              onSave={(v) => onSaveWashingRate("washingRateTier3PerPanel", v)}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-stone-500">151+ panels</span>
+            <InlineEditableNumber
+              value={globalRules.washingRateTier4PerPanel}
+              prefix="Rs "
+              suffix="/panel"
+              compact
+              onSave={(v) => onSaveWashingRate("washingRateTier4PerPanel", v)}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2 border-t border-stone-100 pt-1.5">
+            <span className="text-[11px] text-stone-500">Minimum visit fee</span>
+            <InlineEditableNumber
+              value={globalRules.washingMinimumVisitFeePKR}
+              prefix="Rs "
+              compact
+              onSave={(v) => onSaveWashingRate("washingMinimumVisitFeePKR", v)}
+            />
+          </div>
+        </div>
       </KpiCard>
       <KpiCard label="Site Works Rates">
         <div className="flex flex-col gap-1.5">

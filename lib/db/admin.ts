@@ -70,6 +70,13 @@ export interface ItemizedBreakdown {
    *  breakers, and 0 whenever every quantity is 0. See EquipmentSelections'
    *  civilBlockQty/earthingBoreQty/lightningArrestorQty doc comments. */
   siteWorksPKR: number;
+  /** "One-Time Panel Washing Visit" (2026-08-21) — 0 unless the customer
+   *  toggled it on in the Custom Equipment Builder's Services section
+   *  (selections.includePanelWashing). Uses the SAME tiered rate
+   *  (panelWashingRawCostPKR) the standalone "System Upgrades & Washing"
+   *  inquiry flow already uses, priced against the real, already-clamped
+   *  panel count (post Panel Quantity Adjuster). */
+  panelWashingPKR: number;
 }
 
 /** One resolved catalog item — the ACTUAL EquipmentOption a slot priced
@@ -128,6 +135,17 @@ export interface SystemPricingResult {
    *  client render this from the real resolved value, never re-guess
    *  the default" reasoning as resolvedEquipment above. */
   siteWorks: SiteWorksQuantities;
+  /** "One-Time Panel Washing Visit" (2026-08-21) — null when not toggled
+   *  on (breakdown.panelWashingPKR is 0 in that case too). Lets the
+   *  client render the exact "N Panels @ Rs X/panel" / "(Minimum
+   *  Call-Out Fee)" wording without re-deriving which tier/floor applied. */
+  panelWashing: PanelWashingSelection | null;
+}
+
+export interface PanelWashingSelection {
+  panelCount: number;
+  ratePerPanel: number;
+  isMinimumFeeApplied: boolean;
 }
 
 export interface SiteWorksQuantities {
@@ -190,6 +208,12 @@ export interface EquipmentSelections {
    *  a deliberate v1 simplification (see calculateSystemPricing's
    *  comment on why), not an oversight. */
   panelQtyOverride?: number;
+  /** "One-Time Panel Washing Visit" (2026-08-21) — a toggleable Services/
+   *  Maintenance add-on in the Custom Equipment Builder, priced with the
+   *  SAME tiered per-panel rate the standalone "System Upgrades &
+   *  Washing" flow uses (see panelWashingRawCostPKR), against the real,
+   *  already-clamped panel count. Omitted/false = not included, 0 cost. */
+  includePanelWashing?: boolean;
 }
 
 /** Safely narrows `Quote.equipmentSelections` (a Prisma `Json?` column)
@@ -605,6 +629,13 @@ export async function calculateSystemPricing(
     earthingBoreQty * settings.earthingCostPerBore +
     lightningArrestorQty * settings.lightningArrestorCostPerUnit;
 
+  // "One-Time Panel Washing Visit" (2026-08-21) — only priced when
+  // toggled on; uses the same tiered formula/panel count the standalone
+  // washing inquiry flow uses. `panelWashingSelection` (the display-only
+  // rate/floor info) flows straight into the return below.
+  const panelWashingResult = selections?.includePanelWashing ? panelWashingRawCostPKR(effectivePanelCount, settings) : null;
+  const rawPanelWashingPKR = panelWashingResult?.rawCostPKR ?? 0;
+
   // Gross-margin convention: margin% = (price - cost) / price
   //                       => price = cost / (1 - margin%)
   // Applied per LINE using that specific item's own margin override if
@@ -630,6 +661,9 @@ export async function calculateSystemPricing(
     // rate (GlobalPricingSettings), not a RawVendorCost row, so no
     // per-item override, just the sector default margin.
     siteWorksPKR: Math.round(markUp(rawSiteWorksPKR, sectorDefaultMarginPercent)),
+    // Same flat-admin-rate reasoning as installationPKR/siteWorksPKR —
+    // 0 (not marked up from 0, just literally 0) when not toggled on.
+    panelWashingPKR: panelWashingResult ? Math.round(markUp(rawPanelWashingPKR, sectorDefaultMarginPercent)) : 0,
   };
 
   // Total is the SUM of the (already-rounded) breakdown lines, not a
@@ -643,7 +677,8 @@ export async function calculateSystemPricing(
     breakdown.cablingAndProtectionPKR +
     breakdown.structurePKR +
     breakdown.installationPKR +
-    breakdown.siteWorksPKR;
+    breakdown.siteWorksPKR +
+    breakdown.panelWashingPKR;
 
   const resolvedEquipment: ResolvedEquipment = {
     panel: {
@@ -679,6 +714,9 @@ export async function calculateSystemPricing(
     breakdown,
     resolvedEquipment,
     siteWorks: { civilBlockQty, earthingBoreQty, lightningArrestorQty },
+    panelWashing: panelWashingResult
+      ? { panelCount: effectivePanelCount, ratePerPanel: panelWashingResult.ratePerPanel, isMinimumFeeApplied: panelWashingResult.isMinimumFeeApplied }
+      : null,
   };
 }
 
@@ -741,6 +779,8 @@ interface AdminBoqPricingBreakdown {
   /** Civil blocks + earthing/boring + lightning arrestor combined — see
    *  ItemizedBreakdown.siteWorksPKR's doc comment in calculateSystemPricing. */
   siteWorksPKR: number;
+  /** See ItemizedBreakdown.panelWashingPKR's doc comment. */
+  panelWashingPKR: number;
 }
 
 export interface AdminBoqPricingResult {
@@ -771,6 +811,8 @@ export interface AdminBoqPricingResult {
    *  uses, since there's no separate site-survey re-measurement step for
    *  these the way there is for cables/structure/battery capacity. */
   siteWorks: SiteWorksQuantities;
+  /** See SystemPricingResult.panelWashing's doc comment. */
+  panelWashing: PanelWashingSelection | null;
 }
 
 /**
@@ -943,6 +985,11 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
       earthingBoreQty * settings.earthingCostPerBore +
       lightningArrestorQty * settings.lightningArrestorCostPerUnit
   );
+  // "One-Time Panel Washing Visit" — same toggle/formula as
+  // calculateSystemPricing, re-resolved from the original
+  // equipmentSelections (no separate site-survey step for this either).
+  const panelWashingResult = selections?.includePanelWashing ? panelWashingRawCostPKR(effectivePanelCount, settings) : null;
+  const rawPanelWashingPKR = panelWashingResult?.rawCostPKR ?? 0;
 
   const breakdown: AdminBoqPricingBreakdown = {
     // Only panelPKR scales with the adjusted count — same deliberate v1
@@ -958,6 +1005,7 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     dataCablePKR: round2(data.unitCostRs.toNumber() * dataCableMeters),
     dbUpgradePKR: requiresDbUpgrade && dbUpgrade ? round2(dbUpgrade.unitCostRs.toNumber()) : 0,
     siteWorksPKR: rawSiteWorksPKR,
+    panelWashingPKR: rawPanelWashingPKR,
   };
 
   const exactRawCostPKR = round2(Object.values(breakdown).reduce((sum, n) => sum + n, 0));
@@ -988,6 +1036,7 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     // no per-item override, just the sector default margin (same as
     // installationPKR above and calculateSystemPricing's siteWorksPKR).
     siteWorksPKR: round2(markUp(breakdown.siteWorksPKR, sectorDefaultMarginPercent)),
+    panelWashingPKR: panelWashingResult ? round2(markUp(breakdown.panelWashingPKR, sectorDefaultMarginPercent)) : 0,
   };
 
   const exactClientPricePKR = Math.round(Object.values(markedUpBreakdown).reduce((sum, n) => sum + n, 0));
@@ -1003,6 +1052,9 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     markedUpBreakdown,
     batteryCapacityKwh: needsBattery && !batteryOptedOut ? batteryCapacityKwh : null,
     siteWorks: { civilBlockQty, earthingBoreQty, lightningArrestorQty },
+    panelWashing: panelWashingResult
+      ? { panelCount: effectivePanelCount, ratePerPanel: panelWashingResult.ratePerPanel, isMinimumFeeApplied: panelWashingResult.isMinimumFeeApplied }
+      : null,
   };
 }
 
@@ -1100,7 +1152,14 @@ export interface GlobalPricingRules {
   installationCostPerWattCommercial: number;
   installationCostPerWattIndustrial: number;
   evChargerInstallationFee: number;
-  washingCostPerPanel: number;
+  /** Tiered "One-Time Visit" Panel Washing rates (2026-08-21) — replaced
+   *  the old single flat washingCostPerPanel. See
+   *  panelWashingRawCostPKR()'s doc comment for the exact bracket logic. */
+  washingRateTier1PerPanel: number;
+  washingRateTier2PerPanel: number;
+  washingRateTier3PerPanel: number;
+  washingRateTier4PerPanel: number;
+  washingMinimumVisitFeePKR: number;
   /** "Site Works" add-on rates (2026-08-20) — see siteWorksPKR's doc
    *  comment below and GlobalPricingSettings in schema.prisma. */
   civilWorkCostPerBlock: number;
@@ -1114,7 +1173,11 @@ export interface GlobalPricingSettingsDTO {
   installationCostPerWattCommercial: number;
   installationCostPerWattIndustrial: number;
   evChargerInstallationFee: number;
-  washingCostPerPanel: number;
+  washingRateTier1PerPanel: number;
+  washingRateTier2PerPanel: number;
+  washingRateTier3PerPanel: number;
+  washingRateTier4PerPanel: number;
+  washingMinimumVisitFeePKR: number;
   civilWorkCostPerBlock: number;
   earthingCostPerBore: number;
   lightningArrestorCostPerUnit: number;
@@ -1129,7 +1192,11 @@ const FALLBACK_GLOBAL_PRICING_SETTINGS: GlobalPricingSettingsDTO = {
   installationCostPerWattCommercial: 12,
   installationCostPerWattIndustrial: 12,
   evChargerInstallationFee: 25000,
-  washingCostPerPanel: 500,
+  washingRateTier1PerPanel: 200,
+  washingRateTier2PerPanel: 150,
+  washingRateTier3PerPanel: 125,
+  washingRateTier4PerPanel: 100,
+  washingMinimumVisitFeePKR: 2000,
   civilWorkCostPerBlock: 3000,
   earthingCostPerBore: 5000,
   lightningArrestorCostPerUnit: 8000,
@@ -1147,7 +1214,11 @@ export async function getGlobalPricingSettings(): Promise<GlobalPricingSettingsD
     installationCostPerWattCommercial: row.installationCostPerWattCommercial.toNumber(),
     installationCostPerWattIndustrial: row.installationCostPerWattIndustrial.toNumber(),
     evChargerInstallationFee: row.evChargerInstallationFee.toNumber(),
-    washingCostPerPanel: row.washingCostPerPanel.toNumber(),
+    washingRateTier1PerPanel: row.washingRateTier1PerPanel.toNumber(),
+    washingRateTier2PerPanel: row.washingRateTier2PerPanel.toNumber(),
+    washingRateTier3PerPanel: row.washingRateTier3PerPanel.toNumber(),
+    washingRateTier4PerPanel: row.washingRateTier4PerPanel.toNumber(),
+    washingMinimumVisitFeePKR: row.washingMinimumVisitFeePKR.toNumber(),
     civilWorkCostPerBlock: row.civilWorkCostPerBlock.toNumber(),
     earthingCostPerBore: row.earthingCostPerBore.toNumber(),
     lightningArrestorCostPerUnit: row.lightningArrestorCostPerUnit.toNumber(),
@@ -1314,25 +1385,66 @@ export interface PanelWashingQuote {
   panelCount: number;
   rawCostPKR: number;
   clientPricePKR: number;
+  /** The tier rate (Rs/panel) that actually applied — see
+   *  panelWashingRawCostPKR's doc comment for the brackets. Lets callers
+   *  render "50 Panels @ Rs 150/panel" without re-deriving which bracket
+   *  panelCount fell into. */
+  ratePerPanel: number;
+  /** True when the Rs washingMinimumVisitFeePKR floor was the binding
+   *  constraint (panelCount × ratePerPanel would otherwise have been
+   *  less) — callers render "(Minimum Call-Out Fee)" instead of the
+   *  "N Panels @ Rs X/panel" breakdown in that case. */
+  isMinimumFeeApplied: boolean;
 }
 
-/** Standalone add-on pricing — Panel Washing has no BOQ/system sizing of
- *  its own, just panelCount × the admin-set per-panel rate, marked up by
- *  the sector's default margin (a flat admin rate, not a per-item
- *  RawVendorCost row, so there's no per-item override to apply here).
- *  NOT wired into a customer-facing submission flow yet — the System
- *  Upgrades inquiry in app/page.tsx has no panel-count input to call
- *  this with today; exported so that wiring is a small follow-up rather
- *  than a rebuild of this calculation. */
+/** "One-Time Visit" Panel Washing tiered pricing (2026-08-21) — 4 volume
+ *  brackets, each a flat Rs/panel rate, with a minimum call-out fee floor
+ *  so a tiny job is never priced below what a visit actually costs to run:
+ *    1-20 panels:   Rs washingRateTier1PerPanel/panel (floor applies here
+ *                   in practice — the other 3 brackets' tiered cost always
+ *                   exceeds the floor on its own)
+ *    21-60 panels:  Rs washingRateTier2PerPanel/panel
+ *    61-150 panels: Rs washingRateTier3PerPanel/panel
+ *    151+ panels:   Rs washingRateTier4PerPanel/panel
+ *  All 5 numbers are admin-editable via /admin/pricing's "Panel Washing
+ *  Rates" card (POST /api/admin/pricing/rules) — GlobalPricingSettings,
+ *  same flat-rate shape as installation/EV Charger/Site Works, not a
+ *  RawVendorCost catalog row (no brand/model involved). Shared by BOTH
+ *  the standalone "System Upgrades & Washing" inquiry flow
+ *  (calculatePanelWashingQuote below) and the Custom Equipment Builder's
+ *  toggleable washing option (calculateSystemPricing/
+ *  calculateAdminBoqPricing) — one formula, can't drift between the two. */
+function panelWashingRawCostPKR(
+  panelCount: number,
+  settings: GlobalPricingSettingsDTO
+): { rawCostPKR: number; ratePerPanel: number; isMinimumFeeApplied: boolean } {
+  const ratePerPanel =
+    panelCount <= 20
+      ? settings.washingRateTier1PerPanel
+      : panelCount <= 60
+        ? settings.washingRateTier2PerPanel
+        : panelCount <= 150
+          ? settings.washingRateTier3PerPanel
+          : settings.washingRateTier4PerPanel;
+  const tieredCostPKR = panelCount * ratePerPanel;
+  const rawCostPKR = Math.max(settings.washingMinimumVisitFeePKR, tieredCostPKR);
+  return { rawCostPKR: round2(rawCostPKR), ratePerPanel, isMinimumFeeApplied: rawCostPKR > tieredCostPKR };
+}
+
+/** Standalone add-on pricing for the "System Upgrades & Washing" inquiry
+ *  flow — Panel Washing has no BOQ/system sizing of its own, just the
+ *  tiered rate above marked up by the sector's default margin (a flat
+ *  admin rate, not a per-item RawVendorCost row, so there's no per-item
+ *  override to apply here). */
 export async function calculatePanelWashingQuote(panelCount: number, sector: Sector): Promise<PanelWashingQuote> {
   if (!Number.isFinite(panelCount) || panelCount <= 0) {
     throw new PricingConfigurationError(`Invalid panel count (${panelCount}) for a washing quote.`);
   }
   const [settings, sectorMargins] = await Promise.all([getGlobalPricingSettings(), getSectorDefaultMargins(new Date())]);
   const marginPercent = sectorMargins.get(sector) ?? 15;
-  const rawCostPKR = round2(panelCount * settings.washingCostPerPanel);
+  const { rawCostPKR, ratePerPanel, isMinimumFeeApplied } = panelWashingRawCostPKR(panelCount, settings);
   const clientPricePKR = Math.round(markUp(rawCostPKR, marginPercent));
-  return { panelCount, rawCostPKR, clientPricePKR };
+  return { panelCount, rawCostPKR, clientPricePKR, ratePerPanel, isMinimumFeeApplied };
 }
 
 /** EV Charger installation is a flat admin-set fee, no BOQ to size — same
@@ -1488,7 +1600,11 @@ export async function listMaterialCatalog(): Promise<MaterialCatalogResponse> {
       installationCostPerWattCommercial: settings.installationCostPerWattCommercial,
       installationCostPerWattIndustrial: settings.installationCostPerWattIndustrial,
       evChargerInstallationFee: settings.evChargerInstallationFee,
-      washingCostPerPanel: settings.washingCostPerPanel,
+      washingRateTier1PerPanel: settings.washingRateTier1PerPanel,
+      washingRateTier2PerPanel: settings.washingRateTier2PerPanel,
+      washingRateTier3PerPanel: settings.washingRateTier3PerPanel,
+      washingRateTier4PerPanel: settings.washingRateTier4PerPanel,
+      washingMinimumVisitFeePKR: settings.washingMinimumVisitFeePKR,
       civilWorkCostPerBlock: settings.civilWorkCostPerBlock,
       earthingCostPerBore: settings.earthingCostPerBore,
       lightningArrestorCostPerUnit: settings.lightningArrestorCostPerUnit,
@@ -1809,7 +1925,11 @@ export async function updateGlobalPricingRule(input: UpdateGlobalRulesInput): Pr
     installationCostPerWattCommercial: settings.installationCostPerWattCommercial,
     installationCostPerWattIndustrial: settings.installationCostPerWattIndustrial,
     evChargerInstallationFee: settings.evChargerInstallationFee,
-    washingCostPerPanel: settings.washingCostPerPanel,
+    washingRateTier1PerPanel: settings.washingRateTier1PerPanel,
+    washingRateTier2PerPanel: settings.washingRateTier2PerPanel,
+    washingRateTier3PerPanel: settings.washingRateTier3PerPanel,
+    washingRateTier4PerPanel: settings.washingRateTier4PerPanel,
+    washingMinimumVisitFeePKR: settings.washingMinimumVisitFeePKR,
     civilWorkCostPerBlock: settings.civilWorkCostPerBlock,
     earthingCostPerBore: settings.earthingCostPerBore,
     lightningArrestorCostPerUnit: settings.lightningArrestorCostPerUnit,
@@ -1822,7 +1942,11 @@ export interface UpdateGlobalPricingSettingsInput {
   installationCostPerWattCommercial?: number;
   installationCostPerWattIndustrial?: number;
   evChargerInstallationFee?: number;
-  washingCostPerPanel?: number;
+  washingRateTier1PerPanel?: number;
+  washingRateTier2PerPanel?: number;
+  washingRateTier3PerPanel?: number;
+  washingRateTier4PerPanel?: number;
+  washingMinimumVisitFeePKR?: number;
   civilWorkCostPerBlock?: number;
   earthingCostPerBore?: number;
   lightningArrestorCostPerUnit?: number;
@@ -1843,7 +1967,11 @@ export async function updateGlobalPricingSettings(input: UpdateGlobalPricingSett
         installationCostPerWattCommercial: existing.installationCostPerWattCommercial.toNumber(),
         installationCostPerWattIndustrial: existing.installationCostPerWattIndustrial.toNumber(),
         evChargerInstallationFee: existing.evChargerInstallationFee.toNumber(),
-        washingCostPerPanel: existing.washingCostPerPanel.toNumber(),
+        washingRateTier1PerPanel: existing.washingRateTier1PerPanel.toNumber(),
+        washingRateTier2PerPanel: existing.washingRateTier2PerPanel.toNumber(),
+        washingRateTier3PerPanel: existing.washingRateTier3PerPanel.toNumber(),
+        washingRateTier4PerPanel: existing.washingRateTier4PerPanel.toNumber(),
+        washingMinimumVisitFeePKR: existing.washingMinimumVisitFeePKR.toNumber(),
         civilWorkCostPerBlock: existing.civilWorkCostPerBlock.toNumber(),
         earthingCostPerBore: existing.earthingCostPerBore.toNumber(),
         lightningArrestorCostPerUnit: existing.lightningArrestorCostPerUnit.toNumber(),
@@ -1855,7 +1983,11 @@ export async function updateGlobalPricingSettings(input: UpdateGlobalPricingSett
     installationCostPerWattCommercial: input.installationCostPerWattCommercial ?? current.installationCostPerWattCommercial,
     installationCostPerWattIndustrial: input.installationCostPerWattIndustrial ?? current.installationCostPerWattIndustrial,
     evChargerInstallationFee: input.evChargerInstallationFee ?? current.evChargerInstallationFee,
-    washingCostPerPanel: input.washingCostPerPanel ?? current.washingCostPerPanel,
+    washingRateTier1PerPanel: input.washingRateTier1PerPanel ?? current.washingRateTier1PerPanel,
+    washingRateTier2PerPanel: input.washingRateTier2PerPanel ?? current.washingRateTier2PerPanel,
+    washingRateTier3PerPanel: input.washingRateTier3PerPanel ?? current.washingRateTier3PerPanel,
+    washingRateTier4PerPanel: input.washingRateTier4PerPanel ?? current.washingRateTier4PerPanel,
+    washingMinimumVisitFeePKR: input.washingMinimumVisitFeePKR ?? current.washingMinimumVisitFeePKR,
     civilWorkCostPerBlock: input.civilWorkCostPerBlock ?? current.civilWorkCostPerBlock,
     earthingCostPerBore: input.earthingCostPerBore ?? current.earthingCostPerBore,
     lightningArrestorCostPerUnit: input.lightningArrestorCostPerUnit ?? current.lightningArrestorCostPerUnit,

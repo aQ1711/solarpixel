@@ -12,6 +12,7 @@ import {
   type ItemizedBreakdown,
   type ResolvedEquipment,
   type SiteWorksQuantities,
+  type PanelWashingSelection,
   type BudgetTier,
 } from "@/lib/db/admin";
 import { DAYS_TO_DEPLOY_DEFAULT } from "@/lib/constants";
@@ -89,6 +90,8 @@ const equipmentSelectionsSchema = z.object({
   // [baselinePanelCount, maxPanelCount] regardless of what's sent here
   // (see calculateSystemPricing); this is just a shape/range check.
   panelQtyOverride: z.number().int().positive().max(5000).optional(),
+  // "One-Time Panel Washing Visit" (2026-08-21) — Custom Builder toggle.
+  includePanelWashing: z.boolean().optional(),
 });
 
 // Target Budget tiers (2026-08-20) — auto-selects inverter/battery
@@ -305,6 +308,7 @@ interface PricedTier {
   breakdown: ItemizedBreakdown;
   resolvedEquipment: ResolvedEquipment;
   siteWorks: SiteWorksQuantities;
+  panelWashing: PanelWashingSelection | null;
 }
 
 /** Sizes + prices one tier end-to-end (used for both the recommended
@@ -322,7 +326,7 @@ async function priceTier(
   targetBudgetTier: BudgetTier | undefined
 ): Promise<PricedTier> {
   const { requiredDailyDaytimeUnits, rawKwRequired, systemKw } = calculateSystemSize(monthlyBillPKR, offsetPct);
-  const { totalClientPricePKR, hasCustomRequirements, breakdown, resolvedEquipment, siteWorks } = await calculateSystemPricing(
+  const { totalClientPricePKR, hasCustomRequirements, breakdown, resolvedEquipment, siteWorks, panelWashing } = await calculateSystemPricing(
     systemKw,
     sector,
     serviceType,
@@ -344,6 +348,7 @@ async function priceTier(
     breakdown,
     resolvedEquipment,
     siteWorks,
+    panelWashing,
   };
 }
 
@@ -540,6 +545,7 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
     breakdown: recommended.breakdown,
     equipment: recommended.resolvedEquipment,
     siteWorks: recommended.siteWorks,
+    panelWashing: recommended.panelWashing,
     nearZeroBillTier: nearZeroBillTier && {
       systemKw: nearZeroBillTier.systemKw,
       totalClientPricePKR: nearZeroBillTier.totalClientPricePKR,
@@ -570,7 +576,12 @@ async function handlePanelWashingQuote(input: CalculateQuoteInput): Promise<Next
 
   try {
     const quote = await calculatePanelWashingQuote(panelCount, sector);
-    const costPerPanelPKR = Math.round(quote.rawCostPKR / panelCount);
+    // The REAL tier rate, not `rawCostPKR / panelCount` — those two only
+    // agree when the minimum visit fee floor DIDN'T kick in (2026-08-21
+    // tiered pricing); dividing a floored total back out would silently
+    // report a fabricated "effective" per-panel rate instead of the rate
+    // that actually applied.
+    const costPerPanelPKR = quote.ratePerPanel;
     const oneTimePricePKR = quote.clientPricePKR;
     const monthlyPricePKR =
       input.washFrequency === "MONTHLY_SUBSCRIPTION"
@@ -583,6 +594,7 @@ async function handlePanelWashingQuote(input: CalculateQuoteInput): Promise<Next
       sector,
       washFrequency: input.washFrequency,
       costPerPanelPKR,
+      isMinimumFeeApplied: quote.isMinimumFeeApplied,
       oneTimePricePKR,
       monthlyPricePKR,
       totalClientPricePKR: monthlyPricePKR ?? oneTimePricePKR,
