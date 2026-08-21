@@ -618,6 +618,20 @@ model EquipmentOption {
   sortOrder Int     @default(0)
   isActive  Boolean @default(true)
 
+  /** Inventory guardrail (2026-08-20) — distinct from `isActive`:
+   *  `isActive: false` means "discontinued, remove from every catalog
+   *  view," `inStock: false` means "still a real, sellable item, just
+   *  temporarily unavailable to ship." The public storefront must never
+   *  recommend or price an `inStock: false` item (see getDefaultCode()/
+   *  calculateSystemPricing()'s inStock filters and the "smallest/
+   *  cheapest in-stock" budget-tier helpers in lib/db/admin.ts) — the
+   *  Custom Equipment Builder still SHOWS it (greyed out, disabled, "Out
+   *  of Stock" badge) so a customer isn't confused about why a
+   *  previously-seen brand vanished, it just can't be selected. Defaults
+   *  true so every already-seeded row stays exactly as buyable as before
+   *  this column existed. */
+  inStock Boolean @default(true)
+
   // Media, hosted on Google Drive (brand logos, official spec PDFs) —
   // always stored in the normalized `https://drive.google.com/uc?export=
   // view&id=FILE_ID` form, never a raw share link, via
@@ -642,6 +656,7 @@ model EquipmentOption {
   @@unique([componentType, code])
   @@index([componentType, isActive])
   @@index([componentType, isDefault])
+  @@index([componentType, inStock])
   @@map("equipment_options")
   @@schema("public")
 }

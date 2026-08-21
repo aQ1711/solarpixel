@@ -88,7 +88,17 @@ export interface ResolvedEquipmentItem {
 }
 
 export interface ResolvedEquipment {
-  panel: ResolvedEquipmentItem;
+  /** count/baselineCount/maxCount added 2026-08-20 for the Panel
+   *  Quantity Adjuster — count is the REAL, already-clamped panel count
+   *  actually priced (post panelQtyOverride, if any); baselineCount is
+   *  the bill-required minimum (the adjuster's floor); maxCount is the
+   *  selected inverter's own rated-kW ceiling, or null when that
+   *  inverter has no specValue on file (no real cap can be computed, so
+   *  the adjuster should treat it as unbounded rather than stuck at
+   *  baseline). The client must render panel count from `count` here,
+   *  never re-derive it from systemKw — that guess breaks the instant
+   *  the customer adjusts the count away from baseline. */
+  panel: ResolvedEquipmentItem & { count: number; baselineCount: number; maxCount: number | null };
   inverter: ResolvedEquipmentItem;
   /** null for ONGRID_ZERO_EXPORT (no battery line at all). `capacityKwh`
    *  is the TOTAL capacity actually priced (explicit selection, or the
@@ -152,16 +162,34 @@ export interface EquipmentSelections {
   /** Must match a MOUNTING_STRUCTURE RawVendorCost.itemName, e.g.
    *  "STANDARD_L1_L2". Omitted defaults to DEFAULT_STRUCTURE_CODE. */
   structureCode?: string;
-  /** "Site Works" quantities (2026-08-20) — each x its flat admin rate
+  /** "Site Works" quantities — each x its flat admin rate
    *  (GlobalPricingSettings) makes up siteWorksPKR. Not a brand/model
    *  pick like everything else here, just a customer-adjustable count;
    *  0 is valid (customer doesn't need that item at all). Omitted
-   *  defaults to DEFAULT_CIVIL_BLOCK_QTY/DEFAULT_EARTHING_BORE_QTY/
-   *  DEFAULT_LIGHTNING_ARRESTOR_QTY below — same "omitted -> Recommended
-   *  default" convention as every other slot in this interface. */
+   *  defaults to DEFAULT_EARTHING_BORE_QTY/DEFAULT_LIGHTNING_ARRESTOR_QTY
+   *  below — same "omitted -> Recommended default" convention as every
+   *  other slot in this interface.
+   *
+   *  civilBlockQty is UNUSED as of 2026-08-20 — civil block count is now
+   *  always auto-computed as Math.ceil(panelCount × 1.5) (see
+   *  calculateSystemPricing), never customer-set. Field kept (not
+   *  removed) purely so already-persisted Quote.equipmentSelections JSON
+   *  from before this change still parses without error; a value here is
+   *  silently ignored. */
   civilBlockQty?: number;
   earthingBoreQty?: number;
   lightningArrestorQty?: number;
+  /** Panel Quantity Adjuster (2026-08-20) — a customer-adjustable count
+   *  of panels, Custom Builder only. Clamped server-side to
+   *  [baselinePanelCount, maxPanelCount] (see calculateSystemPricing) —
+   *  never below what the bill actually requires, never above what the
+   *  selected inverter's own rated kW can carry. Omitted defaults to
+   *  baselinePanelCount (today's existing bill-derived count, unchanged
+   *  behavior). Only panelsPKR scales with this — inverter/cabling/
+   *  structure/installation still price off the bill-derived systemKw,
+   *  a deliberate v1 simplification (see calculateSystemPricing's
+   *  comment on why), not an oversight. */
+  panelQtyOverride?: number;
 }
 
 /** Safely narrows `Quote.equipmentSelections` (a Prisma `Json?` column)
@@ -217,12 +245,11 @@ const OTHER_CODE = "OTHER";
  *  app/page.tsx. */
 const NONE_CODE = "NONE";
 
-// "Site Works" default quantities (2026-08-20) — earthing/lightning
-// defaults per explicit spec; civil blocks has no specified default so 1
-// was chosen as the least-surprising "customer needs at least one" floor
-// (flag to product if a different default is wanted). All three are
-// still fully customer-adjustable, including down to 0.
-const DEFAULT_CIVIL_BLOCK_QTY = 1;
+// "Site Works" default quantities — Earthing/Lightning stay fully
+// customer-adjustable (including down to 0); Civil Blocks has no default
+// here anymore — it's always auto-computed from the real panel count
+// (Math.ceil(panelCount × 1.5), see calculateSystemPricing), never
+// customer-set.
 const DEFAULT_EARTHING_BORE_QTY = 2;
 const DEFAULT_LIGHTNING_ARRESTOR_QTY = 1;
 
@@ -249,8 +276,15 @@ async function getDefaultCode(
   applicableServiceType: ServiceType | null,
   fallbackCode: string
 ): Promise<string> {
+  // inStock: true — a guardrail, not just a filter: the admin-marked
+  // default must never be an out-of-stock item (see EquipmentOption.
+  // inStock's doc comment). If the sole isDefault row for this slot goes
+  // out of stock, this returns null and falls to `fallbackCode` below —
+  // no "pick the next-best in-stock alternative" logic here, that's what
+  // the dedicated findSmallestInStockInverter()/findCheapestInStockBattery()
+  // budget-tier helpers are for.
   const row = await adminPrisma.equipmentOption.findFirst({
-    where: { componentType, applicableServiceType, isDefault: true, isActive: true },
+    where: { componentType, applicableServiceType, isDefault: true, isActive: true, inStock: true },
     orderBy: { sortOrder: "asc" },
   });
   return row?.code ?? fallbackCode;
@@ -330,7 +364,15 @@ export async function calculateSystemPricing(
   systemKw: number,
   sector: Sector,
   serviceType: ServiceType,
-  selections?: EquipmentSelections
+  selections?: EquipmentSelections,
+  /** Target Budget tier (2026-08-20) — auto-selects inverter/battery
+   *  defaults for this bracket instead of the admin-marked Recommended
+   *  default; see the "Target Budget tiers" section above
+   *  resolveBudgetTierInverterCode(). Does NOT change systemKw or how
+   *  it's computed — the real daytime-offset formula is unchanged. An
+   *  explicit `selections.inverterCode`/`batteryCode` still always wins
+   *  (resolveSelection's normal `code ?? defaultCode` fallback chain). */
+  targetBudgetTier?: BudgetTier
 ): Promise<SystemPricingResult> {
   const now = new Date();
   const watts = systemKw * 1000;
@@ -340,7 +382,14 @@ export async function calculateSystemPricing(
   // same null/0 shape ONGRID_ZERO_EXPORT already produces below, so every
   // downstream `needsBattery && batteryCode`/`needsBattery && battery`
   // check already skips battery correctly with no further branching.
-  const batteryOptedOut = needsBattery && selections?.batteryCode === NONE_CODE;
+  // The UNDER_1M budget tier ALSO forces this — "Force Battery to NONE"
+  // per spec — but only when the customer hasn't explicitly picked a
+  // battery of their own in Custom mode; an explicit pick (even a
+  // different real battery) always overrides what a budget tier would
+  // have auto-decided.
+  const batteryOptedOut =
+    needsBattery &&
+    (selections?.batteryCode === NONE_CODE || (targetBudgetTier === "UNDER_1M" && selections?.batteryCode === undefined));
 
   let hasCustomRequirements = false;
   /** "OTHER" -> flag it and fall back to the Recommended default for
@@ -375,12 +424,16 @@ export async function calculateSystemPricing(
   const [defaultPanelCode, defaultInverterCode, defaultCableCode, defaultBreakersCode, defaultStructureCode, defaultBatteryCode] =
     await Promise.all([
       getDefaultCode("SOLAR_PANEL", null, DEFAULT_PANEL_CODE),
-      getDefaultCode("INVERTER", serviceType, DEFAULT_INVERTER_CODE_BY_SERVICE_TYPE[serviceType]),
+      targetBudgetTier
+        ? resolveBudgetTierInverterCode(targetBudgetTier, systemKw, serviceType)
+        : getDefaultCode("INVERTER", serviceType, DEFAULT_INVERTER_CODE_BY_SERVICE_TYPE[serviceType]),
       getDefaultCode("DC_CABLE", null, DEFAULT_CABLE_CODE),
       getDefaultCode("BREAKERS", null, DEFAULT_BREAKERS_CODE),
       getDefaultCode("MOUNTING_STRUCTURE", null, DEFAULT_STRUCTURE_CODE),
       needsBattery && !batteryOptedOut
-        ? getDefaultCode("BATTERY", serviceType, DEFAULT_BATTERY_CODE)
+        ? targetBudgetTier && targetBudgetTier !== "UNDER_1M"
+          ? resolveBudgetTierBatteryCode(serviceType)
+          : getDefaultCode("BATTERY", serviceType, DEFAULT_BATTERY_CODE)
         : Promise.resolve(DEFAULT_BATTERY_CODE),
     ]);
 
@@ -394,8 +447,10 @@ export async function calculateSystemPricing(
   const batteryCapacityKwh =
     needsBattery && !batteryOptedOut ? (selections?.batteryCapacityKwh ?? systemKw * DEFAULT_BATTERY_KWH_PER_SYSTEM_KW) : 0;
 
-  // "Site Works" quantities — see resolveQty's doc comment below.
-  const civilBlockQty = resolveQty(selections?.civilBlockQty, DEFAULT_CIVIL_BLOCK_QTY);
+  // "Site Works" quantities — Earthing/Lightning stay customer-set (see
+  // resolveQty's doc comment below); Civil Blocks is computed further
+  // down, once the actual resolved panel count is known (it's no longer
+  // customer-set — see EquipmentSelections.civilBlockQty's doc comment).
   const earthingBoreQty = resolveQty(selections?.earthingBoreQty, DEFAULT_EARTHING_BORE_QTY);
   const lightningArrestorQty = resolveQty(selections?.lightningArrestorQty, DEFAULT_LIGHTNING_ARRESTOR_QTY);
 
@@ -482,7 +537,62 @@ export async function calculateSystemPricing(
     );
   }
 
-  const rawPanelPKR = panel!.unitCostRs.toNumber() * watts;
+  // Inventory guardrail (2026-08-20), defense-in-depth — the Custom
+  // Equipment Builder already disables selecting an out-of-stock item
+  // client-side (greyed out, "Out of Stock" badge), so this only fires
+  // for a bypassed/stale client request. Checked for Panel/Inverter/
+  // Battery only (the components this function already fetches
+  // EquipmentOption metadata for) — Cable/Breakers/Structure rely on the
+  // client-side block alone; see project memory for why that scope line
+  // was drawn there. Deliberately a hard error, not a silent
+  // substitution: silently swapping in a DIFFERENT priced item for a
+  // request that named a specific one would be a worse surprise than
+  // failing loudly.
+  const outOfStock = [
+    panelOption?.inStock === false && `Panel "${panelCode}" is out of stock`,
+    inverterOption?.inStock === false && `Inverter "${inverterCode}" is out of stock`,
+    needsBattery && !batteryOptedOut && batteryOption?.inStock === false && `Battery "${batteryCode}" is out of stock`,
+  ].filter(Boolean);
+  if (outOfStock.length > 0) {
+    throw new PricingConfigurationError(`Cannot price this configuration: ${outOfStock.join(", ")}.`);
+  }
+
+  // Panel Quantity Adjuster (2026-08-20) — baselinePanelCount is the same
+  // Math.ceil(watts / panelWattage) the client has always derived for
+  // display; it's now also computed here so it can be the adjuster's
+  // real, server-enforced floor. maxPanelCount is the selected
+  // inverter's own rated kW (specValue) converted to a panel count — its
+  // ceiling; null (no cap) when that inverter has no specValue on file,
+  // since "stuck at baseline" would make the adjuster pointless for the
+  // many catalog inverters missing this field (see EquipmentOption.
+  // specValue's doc comment). effectivePanelCount is the actual,
+  // already-clamped count this quote prices — panelQtyOverride can only
+  // ever raise the count within the inverter's real headroom, never drop
+  // it below what the bill requires.
+  const panelWattage = panelOption?.specValue?.toNumber() ?? FALLBACK_PANEL_WATTAGE_W;
+  const baselinePanelCount = Math.ceil(watts / panelWattage);
+  const maxPanelCount = inverterOption?.specValue
+    ? Math.floor((inverterOption.specValue.toNumber() * 1000) / panelWattage)
+    : null;
+  const effectivePanelCount = Math.min(
+    Math.max(Math.round(selections?.panelQtyOverride ?? baselinePanelCount), baselinePanelCount),
+    maxPanelCount ?? Infinity
+  );
+  // Civil Blocks (2026-08-20) — always auto-computed from the REAL,
+  // already-clamped panel count, never customer-set (see
+  // EquipmentSelections.civilBlockQty's doc comment on why the field
+  // still exists but is ignored).
+  const civilBlockQty = Math.ceil(effectivePanelCount * 1.5);
+
+  // Only panelsPKR scales with the adjusted panel count — inverter/
+  // cabling/structure/installation still price off the bill-derived
+  // `watts` (systemKw × 1000), unchanged. A deliberate v1 simplification
+  // (extra panels genuinely need marginally more cable/structure/labor
+  // too, but this catalog has no per-panel breakdown to compute that
+  // marginal cost from — only a blended $/W rate for the WHOLE bill-
+  // derived system), not an oversight; flagged here so it's an easy
+  // follow-up if a future spec wants every line to scale.
+  const rawPanelPKR = panel!.unitCostRs.toNumber() * (effectivePanelCount * panelWattage);
   const rawInverterPKR = inverter!.unitCostRs.toNumber() * watts;
   const rawDcCablePKR = dcCable!.unitCostRs.toNumber() * watts;
   const rawAcCablePKR = acCable!.unitCostRs.toNumber() * watts;
@@ -541,6 +651,9 @@ export async function calculateSystemPricing(
       brand: panelOption?.brand ?? null,
       label: panelOption?.label ?? panelCode,
       specValue: panelOption?.specValue?.toNumber() ?? null,
+      count: effectivePanelCount,
+      baselineCount: baselinePanelCount,
+      maxCount: maxPanelCount,
     },
     inverter: {
       code: inverterCode,
@@ -711,11 +824,11 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     throw new PricingConfigurationError(`Invalid battery capacity (${batteryCapacityKwh} kWh) for sector=${sector}.`);
   }
 
-  // Same "Site Works" quantities the instant estimate resolved — no
-  // separate site-survey re-measurement step for these (unlike
-  // dcCableMeters/acCableMeters/structureChoice above), so the Checker's
-  // exact BOQ just re-resolves from the original equipmentSelections.
-  const civilBlockQty = resolveQty(selections?.civilBlockQty, DEFAULT_CIVIL_BLOCK_QTY);
+  // Earthing/Lightning — same "no separate site-survey re-measurement,
+  // just re-resolve from the original equipmentSelections" reasoning as
+  // dcCableMeters/etc above. Civil Blocks is computed further down from
+  // the real panel count instead (see EquipmentSelections.civilBlockQty's
+  // doc comment on why it's no longer read from selections at all).
   const earthingBoreQty = resolveQty(selections?.earthingBoreQty, DEFAULT_EARTHING_BORE_QTY);
   const lightningArrestorQty = resolveQty(selections?.lightningArrestorQty, DEFAULT_LIGHTNING_ARRESTOR_QTY);
 
@@ -727,7 +840,7 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
   });
 
-  const [panel, inverter, breakers, battery, structure, settings, dcCable, acCable, dataCable, dbUpgrade, marginRule] =
+  const [panel, inverter, breakers, battery, structure, settings, dcCable, acCable, dataCable, dbUpgrade, marginRule, panelOption, inverterOption] =
     await Promise.all([
       adminPrisma.rawVendorCost.findFirst({ where: activeCostFilter("SOLAR_PANEL", panelCode), orderBy: { effectiveFrom: "desc" } }),
       adminPrisma.rawVendorCost.findFirst({ where: activeCostFilter("INVERTER", inverterCode), orderBy: { effectiveFrom: "desc" } }),
@@ -762,6 +875,12 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
       },
       orderBy: { effectiveFrom: "desc" },
     }),
+    // Cost-free catalog metadata (specValue = panel wattage / inverter
+    // rated kW) for the same Panel Quantity Adjuster / Civil Blocks math
+    // calculateSystemPricing uses — a miss here just falls back to
+    // FALLBACK_PANEL_WATTAGE_W / "no cap," same as there.
+    adminPrisma.equipmentOption.findFirst({ where: { componentType: "SOLAR_PANEL", code: panelCode } }),
+    adminPrisma.equipmentOption.findFirst({ where: { componentType: "INVERTER", code: inverterCode } }),
   ]);
 
   const missing = [
@@ -800,6 +919,21 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
   }
 
   const watts = systemKw * 1000;
+  // Same Panel Quantity Adjuster math/clamping as calculateSystemPricing
+  // — re-clamped here too (not just trusted from the original quote's
+  // persisted panelQtyOverride) in case the resolved inverter changed
+  // between the instant estimate and this exact-BOQ pass. Civil Blocks
+  // derives from THIS real, re-clamped count, same formula as the
+  // instant estimate.
+  const panelWattage = panelOption?.specValue?.toNumber() ?? FALLBACK_PANEL_WATTAGE_W;
+  const baselinePanelCount = Math.ceil(watts / panelWattage);
+  const maxPanelCount = inverterOption?.specValue ? Math.floor((inverterOption.specValue.toNumber() * 1000) / panelWattage) : null;
+  const effectivePanelCount = Math.min(
+    Math.max(Math.round(selections?.panelQtyOverride ?? baselinePanelCount), baselinePanelCount),
+    maxPanelCount ?? Infinity
+  );
+  const civilBlockQty = Math.ceil(effectivePanelCount * 1.5);
+
   // RAW (pre-margin) costs — this breakdown stays the true underlying
   // cost, unaffected by margin, same as before this pass: it's what the
   // Checker uses to audit true spend vs. price (Business Rule #3), not
@@ -811,7 +945,9 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
   );
 
   const breakdown: AdminBoqPricingBreakdown = {
-    panelPKR: round2(p.unitCostRs.toNumber() * watts),
+    // Only panelPKR scales with the adjusted count — same deliberate v1
+    // simplification as calculateSystemPricing (see its comment).
+    panelPKR: round2(p.unitCostRs.toNumber() * (effectivePanelCount * panelWattage)),
     inverterPKR: round2(inv.unitCostRs.toNumber() * watts),
     batteryPKR: needsBattery && battery ? round2(battery.unitCostRs.toNumber() * batteryCapacityKwh) : 0,
     breakersPKR: round2(brk.unitCostRs.toNumber() * watts),
@@ -930,6 +1066,8 @@ export interface MaterialCatalogItem {
   applicableServiceType: ServiceType | null;
   isDefault: boolean;
   isActive: boolean;
+  /** Inventory guardrail — see its doc comment in schema.prisma. */
+  inStock: boolean;
   sortOrder: number;
   vendorCostId: string | null;
   vendorName: string | null;
@@ -1040,6 +1178,137 @@ function resolveQty(qty: number | undefined, defaultQty: number): number {
   if (!Number.isFinite(qty) || qty < 0) return defaultQty;
   return Math.round(qty);
 }
+
+// ============================================================================
+// Target Budget tiers (2026-08-20) — auto-selects the smallest/cheapest/
+// oversized IN-STOCK inverter and battery for a given budget bracket,
+// instead of the admin-marked Recommended default. Deliberately layered
+// ON TOP of the real daytime-offset sizing model (systemKw is computed
+// the same way it always has been, in calculateSystemSize() in
+// app/api/quote/calculate/route.ts) — NOT a replacement sizing formula.
+// An explicit Custom Builder pick (selections.inverterCode/batteryCode)
+// still always wins over whatever a budget tier would have auto-picked;
+// see calculateSystemPricing's resolveSelection/batteryOptedOut.
+// ============================================================================
+
+export type BudgetTier = "UNDER_1M" | "1M_TO_1_5M" | "1_5M_PLUS";
+
+/** Smallest in-stock inverter (for this service type) whose own rated
+ *  capacity (specValue, kW) covers the required system size — "smallest
+ *  that fits," not "cheapest" or "admin default." Inverters with no
+ *  specValue on file are excluded (their capacity is unknown, so "fits"
+ *  can't be evaluated — see EquipmentOption.specValue's doc comment on
+ *  how common that gap still is in this catalog). Returns null if
+ *  nothing in-stock actually covers the requirement — callers fall back
+ *  to getDefaultCode(). */
+async function findSmallestFittingInStockInverter(systemKw: number, serviceType: ServiceType): Promise<string | null> {
+  const rows = await adminPrisma.equipmentOption.findMany({
+    where: {
+      componentType: "INVERTER",
+      applicableServiceType: serviceType,
+      isActive: true,
+      inStock: true,
+      isOtherOption: false,
+      specValue: { gte: systemKw },
+    },
+    orderBy: { specValue: "asc" },
+    take: 1,
+  });
+  return rows[0]?.code ?? null;
+}
+
+/** An oversized in-stock inverter, +3 to +5kW over the required system
+ *  size (the "1.5M+" budget tier's future-proofing pick, per spec) —
+ *  prefers the SMALLEST inverter that clears +3kW over systemKw (closest
+ *  match to the "+3 to +5kW" band), not the biggest one in the catalog.
+ *  Falls back to a plain "smallest that fits" pick if nothing in-stock
+ *  reaches +3kW over (better an appropriately-sized inverter than none). */
+async function findOversizedInStockInverter(systemKw: number, serviceType: ServiceType): Promise<string | null> {
+  const rows = await adminPrisma.equipmentOption.findMany({
+    where: {
+      componentType: "INVERTER",
+      applicableServiceType: serviceType,
+      isActive: true,
+      inStock: true,
+      isOtherOption: false,
+      specValue: { gte: systemKw + 3 },
+    },
+    orderBy: { specValue: "asc" },
+    take: 1,
+  });
+  return rows[0]?.code ?? findSmallestFittingInStockInverter(systemKw, serviceType);
+}
+
+/** Cheapest in-stock battery by its own per-kWh VENDOR cost (not the
+ *  customer-facing marked-up price — "cheapest" is a real-cost/
+ *  procurement concept, consistent with this whole file's confidential
+ *  boundary). Joins EquipmentOption (inStock/isActive) to RawVendorCost
+ *  (the actual PKR/kWh rate) by code === itemName, the established
+ *  convention throughout this file. Returns null if nothing qualifies —
+ *  callers fall back to getDefaultCode(). */
+async function findCheapestInStockBattery(serviceType: ServiceType): Promise<string | null> {
+  const now = new Date();
+  const options = await adminPrisma.equipmentOption.findMany({
+    where: { componentType: "BATTERY", applicableServiceType: serviceType, isActive: true, inStock: true, isOtherOption: false },
+    select: { code: true },
+  });
+  if (options.length === 0) return null;
+
+  const costs = await adminPrisma.rawVendorCost.findMany({
+    where: {
+      componentType: "BATTERY",
+      itemName: { in: options.map((o) => o.code) },
+      isActive: true,
+      effectiveFrom: { lte: now },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+    },
+    orderBy: { effectiveFrom: "desc" },
+  });
+  // Most-recent active cost row per itemName wins — same "first hit"
+  // pattern used everywhere else in this file costs are deduped.
+  const costByItem = new Map<string, number>();
+  for (const c of costs) {
+    if (!costByItem.has(c.itemName)) costByItem.set(c.itemName, c.unitCostRs.toNumber());
+  }
+
+  let cheapestCode: string | null = null;
+  let cheapestCost = Infinity;
+  for (const [itemName, cost] of costByItem) {
+    if (cost < cheapestCost) {
+      cheapestCost = cost;
+      cheapestCode = itemName;
+    }
+  }
+  return cheapestCode;
+}
+
+/** Resolves the budget-tier-driven inverter default — smallest-fitting
+ *  for UNDER_1M/1M_TO_1_5M, oversized for 1_5M_PLUS. Falls back to the
+ *  ordinary admin-configured Recommended default when nothing in-stock
+ *  actually qualifies, so a thin/empty catalog never breaks pricing. */
+async function resolveBudgetTierInverterCode(tier: BudgetTier, systemKw: number, serviceType: ServiceType): Promise<string> {
+  const code =
+    tier === "1_5M_PLUS"
+      ? await findOversizedInStockInverter(systemKw, serviceType)
+      : await findSmallestFittingInStockInverter(systemKw, serviceType);
+  return code ?? getDefaultCode("INVERTER", serviceType, DEFAULT_INVERTER_CODE_BY_SERVICE_TYPE[serviceType]);
+}
+
+/** Resolves the budget-tier-driven battery default — cheapest in-stock,
+ *  for the two tiers that include a battery at all (UNDER_1M forces
+ *  NONE_CODE instead, handled separately via batteryOptedOut). Falls
+ *  back to the ordinary admin default when nothing in-stock qualifies. */
+async function resolveBudgetTierBatteryCode(serviceType: ServiceType): Promise<string> {
+  const code = await findCheapestInStockBattery(serviceType);
+  return code ?? getDefaultCode("BATTERY", serviceType, DEFAULT_BATTERY_CODE);
+}
+
+/** Mirrors app/page.tsx's FALLBACK_PANEL_WATTAGE_W — must stay
+ *  numerically identical (a display-only client copy existed before this
+ *  server-side one; both now feed real pricing/adjuster-limit math, not
+ *  just display, so drift here is a real bug, not a cosmetic one). Only
+ *  used when a resolved panel option is missing its specValue. */
+const FALLBACK_PANEL_WATTAGE_W = 610;
 
 export interface PanelWashingQuote {
   panelCount: number;
@@ -1195,6 +1464,7 @@ export async function listMaterialCatalog(): Promise<MaterialCatalogResponse> {
       applicableServiceType: opt.applicableServiceType,
       isDefault: opt.isDefault,
       isActive: opt.isActive,
+      inStock: opt.inStock,
       sortOrder: opt.sortOrder,
       vendorCostId: cost?.id ?? null,
       vendorName: cost?.vendorName ?? null,
@@ -1250,6 +1520,7 @@ async function toMaterialCatalogItem(
     applicableServiceType: ServiceType | null;
     isDefault: boolean;
     isActive: boolean;
+    inStock: boolean;
     sortOrder: number;
     logoUrl: string | null;
     brochureUrl: string | null;
@@ -1276,6 +1547,7 @@ async function toMaterialCatalogItem(
     applicableServiceType: option.applicableServiceType,
     isDefault: option.isDefault,
     isActive: option.isActive,
+    inStock: option.inStock,
     sortOrder: option.sortOrder,
     vendorCostId: cost?.id ?? null,
     vendorName: cost?.vendorName ?? null,
@@ -1303,6 +1575,10 @@ export interface CreateMaterialInput {
   vendorName?: string | null;
   marginPercentOverride?: number | null;
   isDefault?: boolean;
+  /** Inventory guardrail — see its doc comment in schema.prisma. Omitted
+   *  defaults to true (matches the column's own DB default), same as
+   *  every other new material — nothing starts out-of-stock by accident. */
+  inStock?: boolean;
   /** Google Drive share or direct links — run through
    *  formatGoogleDriveLink() before being stored, regardless of whether
    *  the client already normalized them. */
@@ -1343,6 +1619,7 @@ export async function createMaterialItem(input: CreateMaterialInput): Promise<Ma
       isDefault: input.isDefault ?? false,
       sortOrder: 50,
       isActive: true,
+      inStock: input.inStock ?? true,
       logoUrl: input.logoUrl ? formatGoogleDriveLink(input.logoUrl) : null,
       brochureUrl: input.brochureUrl ? formatGoogleDriveLink(input.brochureUrl) : null,
       specs: input.specs && input.specs.length > 0 ? (input.specs as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
@@ -1374,6 +1651,8 @@ export interface UpdateMaterialInput {
    *  default; omit to leave it unchanged. */
   marginPercentOverride?: number | null;
   isDefault?: boolean;
+  /** Inventory guardrail toggle — see its doc comment in schema.prisma. */
+  inStock?: boolean;
   label?: string;
   brand?: string | null;
   /** Google Drive share or direct links, re-normalized via
@@ -1401,6 +1680,7 @@ export async function updateMaterialItem(id: string, input: UpdateMaterialInput)
 
   const needsOptionUpdate =
     input.isDefault !== undefined ||
+    input.inStock !== undefined ||
     input.label !== undefined ||
     input.brand !== undefined ||
     input.logoUrl !== undefined ||
@@ -1411,6 +1691,7 @@ export async function updateMaterialItem(id: string, input: UpdateMaterialInput)
         where: { id },
         data: {
           ...(input.isDefault !== undefined && { isDefault: input.isDefault }),
+          ...(input.inStock !== undefined && { inStock: input.inStock }),
           ...(input.label !== undefined && { label: input.label }),
           ...(input.brand !== undefined && { brand: input.brand }),
           ...(input.logoUrl !== undefined && { logoUrl: input.logoUrl ? formatGoogleDriveLink(input.logoUrl) : null }),

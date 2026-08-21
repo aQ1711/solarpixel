@@ -56,6 +56,8 @@ const createMaterialSchema = z.object({
   vendorName: z.string().trim().max(120).optional(),
   marginPercentOverride: z.number().min(0).max(99).optional(),
   isDefault: z.boolean().optional(),
+  // Inventory guardrail (2026-08-20) — see its doc comment in schema.prisma.
+  inStock: z.boolean().optional(),
   logoUrl: mediaUrlSchema.optional(),
   brochureUrl: mediaUrlSchema.optional(),
   specs: specsSchema.optional(),
@@ -145,6 +147,7 @@ export async function POST(req: NextRequest) {
         vendorName: input.vendorName,
         marginPercentOverride: input.marginPercentOverride,
         isDefault: input.isDefault,
+        inStock: input.inStock,
         logoUrl: input.logoUrl,
         brochureUrl: input.brochureUrl,
         specs: input.specs,

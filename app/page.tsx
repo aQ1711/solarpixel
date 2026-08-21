@@ -119,7 +119,15 @@ interface ResolvedEquipmentItem {
  *  capacity) directly from what the backend actually priced, instead of
  *  the frontend re-guessing the Recommended default. */
 interface ResolvedEquipment {
-  panel: ResolvedEquipmentItem;
+  /** count/baselineCount/maxCount added 2026-08-20 for the Panel
+   *  Quantity Adjuster — `count` is the REAL, already-clamped panel
+   *  count actually priced; render panel count from THIS, never
+   *  re-derive it from systemKw (that guess breaks the instant the
+   *  customer adjusts the count away from baseline). baselineCount is
+   *  the adjuster's floor (bill-required minimum); maxCount is the
+   *  selected inverter's own rated-kW ceiling, or null (unbounded) when
+   *  that inverter has no specValue on file. */
+  panel: ResolvedEquipmentItem & { count: number; baselineCount: number; maxCount: number | null };
   inverter: ResolvedEquipmentItem;
   /** null for ONGRID_ZERO_EXPORT. capacityKwh is the TOTAL capacity
    *  actually priced, distinct from specValue (a single module's rating). */
@@ -200,6 +208,11 @@ interface EquipmentOptionDTO {
    *  getPublicUnitPricesPKR's doc comment in lib/db/admin.ts. Null for
    *  "Other / Specific Requirement" or the rare data-entry gap. */
   unitPricePKR: number | null;
+  /** Inventory guardrail (2026-08-20) — false means the Custom Builder
+   *  must grey this option out, disable its button, and show an "Out of
+   *  Stock" badge; the app must never let a customer select it. See
+   *  EquipmentOption.inStock's doc comment in schema.prisma. */
+  inStock: boolean;
 }
 
 type EquipmentOptionsByType = Partial<Record<ComponentType, EquipmentOptionDTO[]>>;
@@ -217,13 +230,27 @@ interface EquipmentSelections {
   acCableCode?: string;
   breakersCode?: string;
   structureCode?: string;
-  /** "Site Works" quantities (2026-08-20) — customer-adjustable counts,
-   *  not brand/model codes. See DEFAULT_CIVIL_BLOCK_QTY and friends for
-   *  the defaults applied when omitted. */
-  civilBlockQty?: number;
+  /** Earthing/Lightning stay customer-adjustable counts (see
+   *  DEFAULT_EARTHING_BORE_QTY/DEFAULT_LIGHTNING_ARRESTOR_QTY for the
+   *  defaults applied when omitted). civilBlockQty is never sent by this
+   *  client as of 2026-08-20 — civil block count is always auto-computed
+   *  server-side as Math.ceil(panelCount × 1.5); see
+   *  lib/db/admin.ts's calculateSystemPricing. */
   earthingBoreQty?: number;
   lightningArrestorQty?: number;
+  /** Panel Quantity Adjuster (2026-08-20) — Custom Builder only. Clamped
+   *  server-side to [baselinePanelCount, maxPanelCount] regardless of
+   *  what's sent here (see livePreview.equipment.panel's doc comment for
+   *  those limits). Omitted defaults to the bill-derived baseline count,
+   *  unchanged behavior. */
+  panelQtyOverride?: number;
 }
+
+/** Mirrors lib/db/admin.ts's BudgetTier — auto-selects inverter/battery
+ *  for this bracket instead of the admin-marked Recommended default; see
+ *  resolveBudgetTierInverterCode's doc comment there. Does NOT change how
+ *  systemKw itself is sized. */
+type BudgetTier = "UNDER_1M" | "1M_TO_1_5M" | "1_5M_PLUS";
 
 // Reserved code for "Other / Specific Requirement" — must match OTHER_CODE
 // in lib/db/admin.ts and prisma/seed.ts exactly.
@@ -237,11 +264,11 @@ const NONE_CODE = "NONE";
 // as a fallback scale for the Battery row's price-delta math (see
 // batteryDeltaScaleKwh below), never for real pricing itself.
 const DEFAULT_BATTERY_KWH_PER_SYSTEM_KW = 1.2;
-// Mirrors lib/db/admin.ts's DEFAULT_CIVIL_BLOCK_QTY/DEFAULT_EARTHING_BORE_QTY/
+// Mirrors lib/db/admin.ts's DEFAULT_EARTHING_BORE_QTY/
 // DEFAULT_LIGHTNING_ARRESTOR_QTY — the Site Works row's initial stepper
 // values before the customer touches them. Real pricing always comes from
-// the live backend response either way (see livePreview.siteWorks).
-const DEFAULT_CIVIL_BLOCK_QTY = 1;
+// the live backend response either way (see livePreview.siteWorks). Civil
+// Blocks has no client default — it's read-only, always server-computed.
 const DEFAULT_EARTHING_BORE_QTY = 2;
 const DEFAULT_LIGHTNING_ARRESTOR_QTY = 1;
 
@@ -898,6 +925,11 @@ function CalculatorCard() {
   const [commercialServiceType, setCommercialServiceType] = useState<ServiceType>("ONGRID_ZERO_EXPORT");
 
   const [billAmountInput, setBillAmountInput] = useState("");
+  // Target Budget tier (2026-08-20) — null = no preference, ordinary
+  // admin-configured Recommended default resolves the inverter/battery.
+  // Sits alongside the bill amount, not inside equipmentSelections — it's
+  // a top-level sizing/strategy input, not a per-component brand pick.
+  const [targetBudgetTier, setTargetBudgetTier] = useState<BudgetTier | null>(null);
   const [billSource, setBillSource] = useState<BillSource>("MANUAL");
   const [billFileUrl, setBillFileUrl] = useState<string | null>(null);
   const [billDetails, setBillDetails] = useState<UploadedBillDetails | null>(null);
@@ -967,10 +999,17 @@ function CalculatorCard() {
   // real value directly (no "null = no override yet, fall back at
   // render" indirection needed): a quantity picker's own displayed value
   // IS the selection, there's no separate "Recommended default" catalog
-  // row to fall back to.
-  const [civilBlockQty, setCivilBlockQty] = useState(DEFAULT_CIVIL_BLOCK_QTY);
+  // row to fall back to. Civil Blocks has no state of its own as of
+  // 2026-08-20 — it's always auto-computed server-side from the real
+  // panel count (see the read-only display in the Site Works row below).
   const [earthingBoreQty, setEarthingBoreQty] = useState(DEFAULT_EARTHING_BORE_QTY);
   const [lightningArrestorQty, setLightningArrestorQty] = useState(DEFAULT_LIGHTNING_ARRESTOR_QTY);
+  // Panel Quantity Adjuster (2026-08-20) — null = no override yet, same
+  // "fall back to the backend's own baseline at render" pattern as
+  // panelCode/inverterCode above (NOT the Site Works quantities' "value
+  // IS the selection" pattern), since the true baseline/max come from
+  // the live backend response, not a client-known constant.
+  const [panelQtyOverride, setPanelQtyOverride] = useState<number | null>(null);
 
   const serviceType: ServiceType =
     LOCKED_SERVICE_TYPE_BY_SECTOR[sector] ?? (sector === "RESIDENTIAL" ? residentialServiceType : commercialServiceType);
@@ -1073,9 +1112,9 @@ function CalculatorCard() {
           acCableCode: effectiveCableCode ?? undefined,
           breakersCode: effectiveBreakersCode ?? undefined,
           structureCode: effectiveStructureCode ?? undefined,
-          civilBlockQty,
           earthingBoreQty,
           lightningArrestorQty,
+          panelQtyOverride: panelQtyOverride ?? undefined,
         }
       : undefined;
 
@@ -1109,6 +1148,7 @@ function CalculatorCard() {
             serviceType: sector === "INDUSTRIAL" ? undefined : serviceType,
             daytimeUsagePct: DAYTIME_USAGE_PCT_BY_SECTOR[sector],
             equipmentSelections,
+            targetBudgetTier: targetBudgetTier ?? undefined,
           }),
         });
         const data = await res.json();
@@ -1141,10 +1181,51 @@ function CalculatorCard() {
     effectiveCableCode,
     effectiveBreakersCode,
     effectiveStructureCode,
-    civilBlockQty,
     earthingBoreQty,
     lightningArrestorQty,
+    panelQtyOverride,
+    targetBudgetTier,
   ]);
+
+  // "Starting from" baseline (2026-08-20) — a SEPARATE, independent
+  // preview call from the main livePreview above, deliberately ignoring
+  // whatever the customer has actually selected (Target Budget tier,
+  // Custom Builder brand picks, panel qty override) — per spec this
+  // figure is ALWAYS the cheapest possible configuration (required
+  // panels + smallest in-stock hybrid inverter + no battery), a stable
+  // reference point the customer can compare their actual live total
+  // against, not something that should move around as they customize.
+  const [baselinePreview, setBaselinePreview] = useState<SolarPreviewResult | null>(null);
+
+  useEffect(() => {
+    if (masterService !== "COMPLETE_SOLAR") return;
+    if (resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0) return;
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/quote/calculate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requestKind: "SOLAR_PREVIEW",
+            monthlyBillPKR: resolvedBillPKR,
+            sector,
+            serviceType: sector === "INDUSTRIAL" ? undefined : serviceType,
+            daytimeUsagePct: DAYTIME_USAGE_PCT_BY_SECTOR[sector],
+            targetBudgetTier: "UNDER_1M",
+          }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setBaselinePreview(data as SolarPreviewResult);
+      } catch {
+        // Purely a supplementary reference figure — a failed fetch just
+        // leaves the "Starting from" line hidden, never blocks or errors
+        // the main live estimate.
+      }
+    }, 500);
+    return () => clearTimeout(timeoutId);
+  }, [masterService, resolvedBillPKR, sector, serviceType]);
 
   function handleBillAmountChange(raw: string) {
     setBillAmountInput(raw);
@@ -1294,6 +1375,7 @@ function CalculatorCard() {
           billSource,
           billFileUrl: billFileUrl ?? undefined,
           equipmentSelections,
+          targetBudgetTier: targetBudgetTier ?? undefined,
         }),
       });
 
@@ -1508,23 +1590,50 @@ function CalculatorCard() {
                 of identical cards" look (Part 2) — see StepHeader. */}
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
               <StepHeader step={1} title="Energy Profile" />
-              <label htmlFor="billAmount" className="mb-1.5 block text-sm font-semibold text-slate-700">
-                Average Monthly Bill (PKR)
-              </label>
-              <div className="relative">
-                <input
-                  id="billAmount"
-                  type="text"
-                  inputMode="numeric"
-                  required
-                  value={billAmountInput}
-                  onChange={(e) => handleBillAmountChange(e.target.value.replace(/[^\d]/g, ""))}
-                  placeholder="e.g. 25000"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 pr-11 text-base font-medium text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
-                />
-                {billSource !== "MANUAL" && (
-                  <BadgeCheck className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-600" />
-                )}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="billAmount" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                    Average Monthly Bill (PKR)
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="billAmount"
+                      type="text"
+                      inputMode="numeric"
+                      required
+                      value={billAmountInput}
+                      onChange={(e) => handleBillAmountChange(e.target.value.replace(/[^\d]/g, ""))}
+                      placeholder="e.g. 25000"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 pr-11 text-base font-medium text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+                    />
+                    {billSource !== "MANUAL" && (
+                      <BadgeCheck className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-600" />
+                    )}
+                  </div>
+                </div>
+                <div>
+                  {/* Target Budget (2026-08-20) — auto-selects the
+                      inverter/battery strategy (see the Calculation
+                      Transparency dropdown below for what each tier
+                      actually does); does NOT change system size itself.
+                      "No preference" keeps the ordinary admin-configured
+                      Recommended default, unchanged from before this
+                      feature. */}
+                  <label htmlFor="targetBudgetTier" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                    Target Budget
+                  </label>
+                  <select
+                    id="targetBudgetTier"
+                    value={targetBudgetTier ?? ""}
+                    onChange={(e) => setTargetBudgetTier((e.target.value || null) as BudgetTier | null)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-base font-medium text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+                  >
+                    <option value="">No preference</option>
+                    <option value="UNDER_1M">Under Rs 1 Million</option>
+                    <option value="1M_TO_1_5M">Rs 1 Million - Rs 1.5 Million</option>
+                    <option value="1_5M_PLUS">Rs 1.5 Million+</option>
+                  </select>
+                </div>
               </div>
 
               {resolvedBillPKR !== null && resolvedBillPKR > 0 && (
@@ -1536,6 +1645,20 @@ function CalculatorCard() {
                     <>Calculating recommended system size…</>
                   )}
                   {livePreviewLoading && <Loader2 className="h-3 w-3 shrink-0 animate-spin" />}
+                </p>
+              )}
+
+              {/* "Starting from" baseline (2026-08-20) — ALWAYS the
+                  cheapest possible configuration (required panels +
+                  smallest in-stock hybrid inverter + no battery),
+                  regardless of whichever Target Budget tier is actually
+                  selected above — see the dedicated baselinePreview
+                  effect, a separate live-preview call that always forces
+                  targetBudgetTier: "UNDER_1M". */}
+              {resolvedBillPKR !== null && resolvedBillPKR > 0 && baselinePreview && (
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Starting from: <span className="font-semibold text-slate-700">{formatPKR(baselinePreview.totalClientPricePKR)}</span>{" "}
+                  (panels + inverter only, no battery)
                 </p>
               )}
 
@@ -1584,6 +1707,17 @@ function CalculatorCard() {
                             <p>
                               <span className="font-semibold text-slate-900">4. Battery Offset:</span> Surplus daytime generation
                               charges your battery to cover essential loads after dark.
+                            </p>
+                          )}
+                          {targetBudgetTier && (
+                            <p>
+                              <span className="font-semibold text-slate-900">5. Budget Strategy:</span>{" "}
+                              {targetBudgetTier === "UNDER_1M" &&
+                                "Smallest in-stock hybrid inverter that fits your system, no battery — lowest upfront cost."}
+                              {targetBudgetTier === "1M_TO_1_5M" &&
+                                "Smallest in-stock hybrid inverter that fits your system, plus our cheapest in-stock battery."}
+                              {targetBudgetTier === "1_5M_PLUS" &&
+                                `Oversized ${formatTrim(livePreview.equipment.inverter.specValue ?? livePreview.systemKw)}kW inverter selected to leave room for future panels without requiring an upgrade, plus battery.`}
                             </p>
                           )}
                           <p className="border-t border-slate-200 pt-2 font-semibold text-violet-700">
@@ -1779,11 +1913,23 @@ function CalculatorCard() {
 
                   {equipmentOptions && (
                     <div className="space-y-3">
-                      {/* 1. Solar Panels — Default & Swap */}
+                      {/* 1. Solar Panels — Default & Swap, plus the Panel
+                          Quantity Adjuster (2026-08-20). Min/max come
+                          from the live backend response (baselineCount =
+                          the bill-required floor; maxCount = the
+                          currently selected inverter's own rated-kW
+                          ceiling, null = unbounded when that inverter has
+                          no specValue on file) — never computed
+                          client-side, so the adjuster's limits can never
+                          drift from what the server will actually accept. */}
                       <EquipmentSwapRow
                         title="Solar Panels"
                         icon={SolarPanelIcon}
-                        currentLabel={currentPanelOption?.label ?? "Select a panel"}
+                        currentLabel={
+                          currentPanelOption
+                            ? `${currentPanelOption.label} × ${livePreview?.equipment.panel.count ?? "—"}`
+                            : "Select a panel"
+                        }
                         currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.panelsPKR) : null}
                         isOpen={openEquipmentSection === "PANEL"}
                         onToggleOpen={() => setOpenEquipmentSection((s) => (s === "PANEL" ? null : "PANEL"))}
@@ -1795,6 +1941,7 @@ function CalculatorCard() {
                               label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
                               imageUrl={o.logoUrl}
                               active={effectivePanelCode === o.code}
+                              inStock={o.inStock}
                               onClick={() => setPanelCode(o.code)}
                               deltaLabel={swapDeltaLabel(
                                 o.unitPricePKR,
@@ -1805,6 +1952,26 @@ function CalculatorCard() {
                             />
                           ))}
                         </div>
+                        {livePreview && (
+                          <div>
+                            <p className="mb-1.5 block text-xs font-medium text-slate-600">
+                              Number of Panels
+                              <span className="ml-1.5 font-normal text-slate-400">
+                                (min {livePreview.equipment.panel.baselineCount}
+                                {livePreview.equipment.panel.maxCount !== null &&
+                                  ` · max ${livePreview.equipment.panel.maxCount}`}
+                                )
+                              </span>
+                            </p>
+                            <QuantityStepper
+                              label="Panels"
+                              value={livePreview.equipment.panel.count}
+                              onChange={(v) => setPanelQtyOverride(v)}
+                              min={livePreview.equipment.panel.baselineCount}
+                              max={livePreview.equipment.panel.maxCount ?? undefined}
+                            />
+                          </div>
+                        )}
                       </EquipmentSwapRow>
 
                       {/* 2. Inverter — Default & Swap */}
@@ -1823,6 +1990,7 @@ function CalculatorCard() {
                               label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
                               imageUrl={o.logoUrl}
                               active={effectiveInverterCode === o.code}
+                              inStock={o.inStock}
                               onClick={() => setInverterCode(o.code)}
                               deltaLabel={swapDeltaLabel(
                                 o.unitPricePKR,
@@ -1867,6 +2035,7 @@ function CalculatorCard() {
                                 label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
                                 imageUrl={o.logoUrl}
                                 active={effectiveBatteryCode === o.code}
+                                inStock={o.inStock}
                                 onClick={() => setBatteryCode(o.code)}
                                 deltaLabel={swapDeltaLabel(
                                   o.unitPricePKR,
@@ -1945,6 +2114,7 @@ function CalculatorCard() {
                               label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
                               imageUrl={o.logoUrl}
                               active={effectiveCableCode === o.code}
+                              inStock={o.inStock}
                               onClick={() => setCableCode(o.code)}
                               deltaLabel={swapDeltaLabel(
                                 o.unitPricePKR,
@@ -1972,6 +2142,7 @@ function CalculatorCard() {
                               label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
                               imageUrl={o.logoUrl}
                               active={effectiveBreakersCode === o.code}
+                              inStock={o.inStock}
                               onClick={() => setBreakersCode(o.code)}
                               deltaLabel={swapDeltaLabel(
                                 o.unitPricePKR,
@@ -1999,6 +2170,7 @@ function CalculatorCard() {
                               label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
                               imageUrl={o.logoUrl}
                               active={effectiveStructureCode === o.code}
+                              inStock={o.inStock}
                               onClick={() => setStructureCode(o.code)}
                               deltaLabel={swapDeltaLabel(
                                 o.unitPricePKR,
@@ -2013,18 +2185,22 @@ function CalculatorCard() {
 
                       {/* Site Works (2026-08-20) — civil blocks, earthing
                           & boring, and lightning arrestor. Not a
-                          brand/model swap like every row above: each is
-                          just a customer-adjustable count against a flat
-                          admin rate (GlobalPricingSettings), so this row
-                          holds 3 quantity steppers instead of alternative
-                          cards. Collapsed by default (not important for
-                          the client to fuss over, but the option's here)
-                          — same EquipmentSwapRow shell as every other row
-                          for visual consistency. */}
+                          brand/model swap like every row above: Earthing/
+                          Lightning are customer-adjustable counts against
+                          a flat admin rate (GlobalPricingSettings);
+                          Civil Blocks is READ-ONLY as of this update —
+                          always auto-computed server-side as
+                          Math.ceil(panelCount × 1.5), never customer-set
+                          (see EquipmentSelections.civilBlockQty's doc
+                          comment). Collapsed by default (not important
+                          for the client to fuss over, but the option's
+                          here) — same EquipmentSwapRow shell as every
+                          other row for visual consistency. */}
                       <EquipmentSwapRow
                         title="Site Works"
                         icon={Wrench}
                         currentLabel={(() => {
+                          const civilBlockQty = livePreview?.siteWorks.civilBlockQty ?? 0;
                           const total = civilBlockQty + earthingBoreQty + lightningArrestorQty;
                           return total > 0 ? `${total} item${total === 1 ? "" : "s"} selected` : "No site works selected";
                         })()}
@@ -2033,7 +2209,13 @@ function CalculatorCard() {
                         onToggleOpen={() => setOpenEquipmentSection((s) => (s === "SITE_WORKS" ? null : "SITE_WORKS"))}
                       >
                         <div className="space-y-2.5">
-                          <QuantityStepper label="Civil Blocks" value={civilBlockQty} onChange={setCivilBlockQty} />
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">Civil Blocks</p>
+                              <p className="text-[11px] text-slate-500">Auto-calculated: {formatTrim(1.5)}× your panel count</p>
+                            </div>
+                            <span className="text-sm font-bold text-slate-900">{livePreview?.siteWorks.civilBlockQty ?? "—"}</span>
+                          </div>
                           <QuantityStepper label="Earthing & Boring" value={earthingBoreQty} onChange={setEarthingBoreQty} />
                           <QuantityStepper
                             label="Lightning Arrestor"
@@ -2587,31 +2769,51 @@ function SwapOptionCard({
   active,
   onClick,
   deltaLabel,
+  inStock = true,
 }: {
   label: string;
   imageUrl: string | null;
   active: boolean;
   onClick: () => void;
   deltaLabel: string;
+  /** Inventory guardrail (2026-08-20) — false greys the card out,
+   *  disables its button, and shows an "Out of Stock" badge instead of
+   *  the price delta; the customer must never be able to select it. Not
+   *  every catalog slot has stock data plumbed through yet (Cable/
+   *  Breakers/Structure), so this defaults to true — "assume in stock"
+   *  — rather than requiring every caller to pass it. */
+  inStock?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={!inStock}
       aria-pressed={active}
+      aria-disabled={!inStock}
       className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-all ${
-        active ? CARD_SELECTED_CLASSES : CARD_UNSELECTED_CLASSES
+        !inStock
+          ? "cursor-not-allowed border border-slate-200 bg-slate-100 opacity-60"
+          : active
+            ? CARD_SELECTED_CLASSES
+            : CARD_UNSELECTED_CLASSES
       }`}
     >
       {imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element -- external Google Drive URL, not a local/optimizable asset
-        <img src={imageUrl} alt="" className="h-6 w-10 shrink-0 object-contain" />
+        <img src={imageUrl} alt="" className={`h-6 w-10 shrink-0 object-contain ${!inStock ? "grayscale" : ""}`} />
       )}
       <span className="min-w-0">
-        <span className="block truncate text-xs font-semibold">{label}</span>
-        <span className={`block text-[11px] font-semibold ${active ? "text-violet-100" : deltaLabel.startsWith("+") ? "text-orange-700" : "text-emerald-700"}`}>
-          {deltaLabel}
-        </span>
+        <span className={`block truncate text-xs font-semibold ${!inStock ? "text-slate-500" : ""}`}>{label}</span>
+        {!inStock ? (
+          <span className="block text-[11px] font-semibold text-slate-400">Out of Stock</span>
+        ) : (
+          <span
+            className={`block text-[11px] font-semibold ${active ? "text-violet-100" : deltaLabel.startsWith("+") ? "text-orange-700" : "text-emerald-700"}`}
+          >
+            {deltaLabel}
+          </span>
+        )}
       </span>
     </button>
   );
@@ -2656,25 +2858,44 @@ function SpecCard({
  *  these 3 items aren't a brand pick, just a customer-adjustable count
  *  against a flat admin rate. 0 is a valid, reachable value ("I don't
  *  need this item"), never negative. */
-function QuantityStepper({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+/** min defaults to 0 (Site Works' Earthing/Lightning — "I don't need
+ *  this item" is valid); the Panel Quantity Adjuster passes a real
+ *  min/max (see its caller) so this same component enforces the
+ *  bill-required floor and the selected inverter's rated-kW ceiling
+ *  without duplicating clamp logic in two places. */
+function QuantityStepper({
+  label,
+  value,
+  onChange,
+  min = 0,
+  max,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+}) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3">
       <p className="text-sm font-semibold text-slate-900">{label}</p>
       <div className="flex shrink-0 items-center gap-3">
         <button
           type="button"
-          onClick={() => onChange(Math.max(0, value - 1))}
+          onClick={() => onChange(Math.max(min, value - 1))}
+          disabled={value <= min}
           aria-label={`Decrease ${label}`}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-base font-bold text-violet-700 transition-colors duration-200 hover:border-violet-300 hover:bg-violet-100"
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-base font-bold text-violet-700 transition-colors duration-200 hover:border-violet-300 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40"
         >
           −
         </button>
         <span className="w-4 text-center text-sm font-bold text-slate-900">{value}</span>
         <button
           type="button"
-          onClick={() => onChange(value + 1)}
+          onClick={() => onChange(Math.min(max ?? Infinity, value + 1))}
+          disabled={max !== undefined && value >= max}
           aria-label={`Increase ${label}`}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-base font-bold text-violet-700 transition-colors duration-200 hover:border-violet-300 hover:bg-violet-100"
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-base font-bold text-violet-700 transition-colors duration-200 hover:border-violet-300 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40"
         >
           +
         </button>
@@ -2804,14 +3025,16 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
   const { panel, inverter, battery } = result.equipment;
   const { civilBlockQty, earthingBoreQty, lightningArrestorQty } = result.siteWorks;
 
-  // Part 1: dynamic panel count — Math.ceil((systemSizeKw * 1000) /
-  // panelWattage), exactly as specified. panelWattage comes straight from
-  // the backend's resolved equipment (real for both Recommended and
-  // Custom paths now — see ResolvedEquipment's doc comment), falling back
-  // to FALLBACK_PANEL_WATTAGE_W only in the defensive edge case where a
-  // catalog row is missing its specValue.
+  // Part 1: dynamic panel count. panelWattage comes straight from the
+  // backend's resolved equipment (real for both Recommended and Custom
+  // paths now — see ResolvedEquipment's doc comment), falling back to
+  // FALLBACK_PANEL_WATTAGE_W only in the defensive edge case where a
+  // catalog row is missing its specValue. panelCount is `panel.count`
+  // (2026-08-20) — the backend's real, already-clamped count — NOT
+  // re-derived from systemKw here anymore: that guess breaks the instant
+  // the customer adjusts the Panel Quantity Adjuster away from baseline.
   const panelWattage = panel.specValue ?? FALLBACK_PANEL_WATTAGE_W;
-  const panelCount = Math.ceil((result.systemKw * 1000) / panelWattage);
+  const panelCount = panel.count;
   const panelBrand = panel.brand ?? panel.label;
   const inverterBrand = inverter.brand ?? inverter.label;
   // Most catalog inverter models don't have a specValue on file yet (see
@@ -2852,7 +3075,9 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
     { description: "AC Cables as per NEPRA Requirements", uom: "JOB", qty: "1" },
     { description: "AC Distribution Box & Safety Equipment", uom: "JOB", qty: "1" },
     { description: "Earthing Pits with Ground Copper Electrode & Lightning Protection", uom: "JOB", qty: "1" },
-    ...(civilBlockQty > 0 ? [{ description: "Civil Block", uom: "PCS" as const, qty: String(civilBlockQty) }] : []),
+    ...(civilBlockQty > 0
+      ? [{ description: `Concrete Civil Blocks for Roof Mount (Qty: ${civilBlockQty})`, uom: "PCS" as const, qty: String(civilBlockQty) }]
+      : []),
     ...(earthingBoreQty > 0 ? [{ description: "Earthing Bore", uom: "PCS" as const, qty: String(earthingBoreQty) }] : []),
     ...(lightningArrestorQty > 0
       ? [{ description: "Lightning Arrestor", uom: "PCS" as const, qty: String(lightningArrestorQty) }]

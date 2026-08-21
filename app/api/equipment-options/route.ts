@@ -45,6 +45,10 @@ export async function GET(req: NextRequest) {
           // everything else this route already exposes. Powers the Custom
           // Equipment Builder's visual brand cards.
           logoUrl: true,
+          // Inventory guardrail (2026-08-20) — client-safe boolean, powers
+          // the Custom Equipment Builder's greyed-out/disabled "Out of
+          // Stock" treatment. See its doc comment in schema.prisma.
+          inStock: true,
         },
       }),
       getPublicUnitPricesPKR(sector),

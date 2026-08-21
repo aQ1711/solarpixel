@@ -17,6 +17,8 @@ const putBodySchema = z.object({
   vendorCostRs: z.number().positive().max(10_000_000).optional(),
   marginPercentOverride: z.number().min(0).max(99).nullable().optional(),
   isDefault: z.boolean().optional(),
+  // Inventory guardrail (2026-08-20) — see its doc comment in schema.prisma.
+  inStock: z.boolean().optional(),
   label: z.string().trim().min(1).max(120).optional(),
   brand: z.string().trim().max(80).nullable().optional(),
   // Pass null explicitly to clear; omit to leave unchanged — same
@@ -69,6 +71,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       vendorCostRs: input.vendorCostRs,
       marginPercentOverride: input.marginPercentOverride,
       isDefault: input.isDefault,
+      inStock: input.inStock,
       label: input.label,
       brand: input.brand,
       logoUrl: input.logoUrl,

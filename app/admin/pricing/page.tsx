@@ -56,6 +56,8 @@ interface MaterialItem {
   applicableServiceType: ServiceType | null;
   isDefault: boolean;
   isActive: boolean;
+  /** Inventory guardrail — see its doc comment in schema.prisma. */
+  inStock: boolean;
   sortOrder: number;
   vendorCostId: string | null;
   vendorName: string | null;
@@ -283,6 +285,7 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
       vendorCostRs?: number;
       marginPercentOverride?: number | null;
       isDefault?: boolean;
+      inStock?: boolean;
       label?: string;
       brand?: string | null;
       logoUrl?: string | null;
@@ -746,6 +749,7 @@ function MaterialTable({
       vendorCostRs?: number;
       marginPercentOverride?: number | null;
       isDefault?: boolean;
+      inStock?: boolean;
       label?: string;
       brand?: string | null;
       logoUrl?: string | null;
@@ -776,6 +780,7 @@ function MaterialTable({
             <th className="px-4 py-3">Admin Margin (%)</th>
             <th className="px-4 py-3">Customer Price</th>
             <th className="px-4 py-3">Default</th>
+            <th className="px-4 py-3">Stock</th>
             <th className="px-4 py-3 text-right">Actions</th>
           </tr>
         </thead>
@@ -878,6 +883,20 @@ function MaterialTable({
                   >
                     <Star className={`h-3 w-3 ${item.isDefault ? "fill-emerald-500 text-emerald-500" : ""}`} />
                     {item.isDefault ? "Default" : "Set Default"}
+                  </button>
+                </td>
+                <td className="px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => onSaveMaterial(item.id, { inStock: !item.inStock })}
+                    title={item.inStock ? "In stock — click to mark out of stock" : "Out of stock — click to restock"}
+                    className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors duration-200 ${
+                      item.inStock
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-red-200 bg-red-50 text-red-700"
+                    }`}
+                  >
+                    {item.inStock ? "In Stock" : "Out of Stock"}
                   </button>
                 </td>
                 <td className="px-4 py-3 text-right">

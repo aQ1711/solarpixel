@@ -12,6 +12,7 @@ import {
   type ItemizedBreakdown,
   type ResolvedEquipment,
   type SiteWorksQuantities,
+  type BudgetTier,
 } from "@/lib/db/admin";
 import { DAYS_TO_DEPLOY_DEFAULT } from "@/lib/constants";
 
@@ -84,7 +85,18 @@ const equipmentSelectionsSchema = z.object({
   civilBlockQty: z.number().int().min(0).max(500).optional(),
   earthingBoreQty: z.number().int().min(0).max(500).optional(),
   lightningArrestorQty: z.number().int().min(0).max(500).optional(),
+  // Panel Quantity Adjuster (2026-08-20) — clamped server-side to
+  // [baselinePanelCount, maxPanelCount] regardless of what's sent here
+  // (see calculateSystemPricing); this is just a shape/range check.
+  panelQtyOverride: z.number().int().positive().max(5000).optional(),
 });
+
+// Target Budget tiers (2026-08-20) — auto-selects inverter/battery
+// defaults for this bracket instead of the admin-marked Recommended
+// default; see BudgetTier in lib/db/admin.ts. Does NOT change how
+// systemKw itself is sized (the real daytime-offset formula is
+// unaffected either way).
+const BUDGET_TIERS = ["UNDER_1M", "1M_TO_1_5M", "1_5M_PLUS"] as const;
 
 // Which "kind" of request this is — omitted entirely = "SOLAR", so every
 // existing Complete Solar caller (which never sends this field) keeps
@@ -149,6 +161,11 @@ const calculateQuoteSchema = z
 
     // Omitted = Recommended path. Present = Custom Equipment Builder path.
     equipmentSelections: equipmentSelectionsSchema.optional(),
+
+    // Target Budget tier (2026-08-20) — see BUDGET_TIERS above. Optional;
+    // omitted means the ordinary admin-configured Recommended default
+    // resolves the inverter/battery, unchanged from before this feature.
+    targetBudgetTier: z.enum(BUDGET_TIERS).optional(),
 
     // Single-step lead capture: for a SOLAR *submission* the lead is
     // persisted BEFORE the price is shown, so name + WhatsApp are
@@ -301,14 +318,16 @@ async function priceTier(
   offsetPct: number,
   sector: Sector,
   serviceType: ServiceType,
-  selections: EquipmentSelections | undefined
+  selections: EquipmentSelections | undefined,
+  targetBudgetTier: BudgetTier | undefined
 ): Promise<PricedTier> {
   const { requiredDailyDaytimeUnits, rawKwRequired, systemKw } = calculateSystemSize(monthlyBillPKR, offsetPct);
   const { totalClientPricePKR, hasCustomRequirements, breakdown, resolvedEquipment, siteWorks } = await calculateSystemPricing(
     systemKw,
     sector,
     serviceType,
-    selections
+    selections,
+    targetBudgetTier
   );
   const { estimatedMonthlySavingsPKR, paybackYears } = calculateSavingsAndPayback(
     requiredDailyDaytimeUnits,
@@ -396,7 +415,14 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
   //        margin % never enter this function's scope.
   let recommended: PricedTier;
   try {
-    recommended = await priceTier(monthlyBillPKR, daytimeUsagePct, sector, serviceType, input.equipmentSelections);
+    recommended = await priceTier(
+      monthlyBillPKR,
+      daytimeUsagePct,
+      sector,
+      serviceType,
+      input.equipmentSelections,
+      input.targetBudgetTier
+    );
   } catch (err) {
     if (err instanceof PricingConfigurationError) {
       // Log full internal detail server-side only; the client gets a
@@ -423,7 +449,8 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
         NEAR_ZERO_BILL_OFFSET_PCT,
         sector,
         serviceType,
-        input.equipmentSelections
+        input.equipmentSelections,
+        input.targetBudgetTier
       );
     } catch (err) {
       if (err instanceof PricingConfigurationError) {
