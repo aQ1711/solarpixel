@@ -1077,14 +1077,17 @@ function CalculatorCard() {
     inverterCode && inverterOptionsForServiceType.some((o) => o.code === inverterCode)
       ? inverterCode
       : firstNonOther(inverterOptionsForServiceType);
+  // Default = "No Battery" (NONE_CODE), not the first real catalog row —
+  // the Custom Equipment Builder never pre-selects a battery cost on the
+  // customer's behalf; they must explicitly pick one from the row below
+  // to add it (2026-08-21, explicit instruction). Only an explicit,
+  // still-valid pick from batteryCode overrides that.
   const effectiveBatteryCode =
     serviceType !== "HYBRID_BATTERY"
       ? null
-      : batteryCode === NONE_CODE
-        ? NONE_CODE
-        : batteryCode && batteryOptions.some((o) => o.code === batteryCode)
-          ? batteryCode
-          : firstNonOther(batteryOptions);
+      : batteryCode && batteryOptions.some((o) => o.code === batteryCode)
+        ? batteryCode
+        : NONE_CODE;
   const effectiveCableCode = cableCode ?? firstNonOther(equipmentOptions?.DC_CABLE);
   const effectiveBreakersCode = breakersCode ?? firstNonOther(equipmentOptions?.BREAKERS);
   const effectiveStructureCode = structureCode ?? firstNonOther(equipmentOptions?.MOUNTING_STRUCTURE);
