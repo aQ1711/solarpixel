@@ -310,6 +310,50 @@ const BATTERY_CAPACITY_PRESETS: { kwh: number; label: string }[] = [
   { kwh: 14.3, label: "Commercial Grade" },
 ];
 
+// Inverter Capacity presets (2026-08-21) — same "select capacity, not
+// just a brand" UX as Battery Capacity above, applied to Inverter.
+// UNLIKE battery capacity, this is NOT a separate customer-adjustable
+// multiplier (an inverter is one fixed unit, not stackable kWh) — a
+// click resolves to whichever REAL catalog inverter (for the current
+// serviceType) most closely covers the target kW, via
+// resolveInverterCodeForCapacity below. KNOWN CATALOG GAP, shipped
+// anyway per explicit instruction: as of 2026-08-21 only ONE inverter
+// model (Solis, 10kW) has a specValue on file — Huawei Hybrid/On-Grid,
+// Sofar, and Growatt don't (see EquipmentOption.specValue's doc comment
+// in schema.prisma) — so every preset currently resolves to whichever
+// single known-capacity option exists, not a genuinely different match
+// per preset. This is expected to self-correct with zero further code
+// changes once an admin fills in real specValue ratings for the other
+// models via /admin/pricing. The picker is hidden entirely (replaced by
+// an explanatory note) when NO inverter for the current serviceType has
+// a known specValue at all, rather than showing preset buttons that
+// would all silently resolve to nothing.
+const INVERTER_CAPACITY_PRESETS: { kw: number; label: string }[] = [
+  { kw: 3, label: "Small Home" },
+  { kw: 5, label: "Standard Home" },
+  { kw: 8, label: "Large Home" },
+  { kw: 10, label: "Commercial" },
+  { kw: 15, label: "Heavy Commercial" },
+];
+
+/** "Smallest fitting" first (mirrors the server's own
+ *  findSmallestFittingInStockInverter/resolveBudgetTierInverterCode
+ *  philosophy in lib/db/admin.ts — never undersize what's presented as
+ *  covering the target), falling back to the largest available
+ *  known-capacity option if nothing actually reaches the target. Only
+ *  ever considers real (non-"Other") options with a known specValue —
+ *  returns null when none exist, so the caller can leave the current
+ *  selection untouched instead of guessing. */
+function resolveInverterCodeForCapacity(targetKw: number, options: EquipmentOptionDTO[]): string | null {
+  const withSpec = options.filter(
+    (o): o is EquipmentOptionDTO & { specValue: number } => !o.isOtherOption && o.specValue !== null
+  );
+  if (withSpec.length === 0) return null;
+  const fitting = withSpec.filter((o) => o.specValue >= targetKw).sort((a, b) => a.specValue - b.specValue);
+  if (fitting.length > 0) return fitting[0].code;
+  return [...withSpec].sort((a, b) => b.specValue - a.specValue)[0].code;
+}
+
 // ----------------------------------------------------------------------
 // Panel Washing & EV Charger — the two SYSTEM_UPGRADES/EV_CHARGER
 // master-service flows, structured-input inquiries backed by real
@@ -2020,6 +2064,37 @@ function CalculatorCard() {
                               )}
                             />
                           ))}
+                        </div>
+
+                        {/* Inverter Capacity presets — see
+                            INVERTER_CAPACITY_PRESETS' doc comment for the
+                            real catalog-data gap this currently ships
+                            with (only Solis has a known rating today). */}
+                        <div className="mt-3">
+                          {inverterOptionsForServiceType.some((o) => !o.isOtherOption && o.specValue !== null) ? (
+                            <>
+                              <p className="mb-1.5 block text-xs font-medium text-slate-600">Inverter Capacity</p>
+                              <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
+                                {INVERTER_CAPACITY_PRESETS.map((preset) => (
+                                  <SpecCard
+                                    key={preset.kw}
+                                    title={`${preset.kw} kW`}
+                                    description={preset.label}
+                                    active={currentInverterOption?.specValue === preset.kw}
+                                    onClick={() => {
+                                      const code = resolveInverterCodeForCapacity(preset.kw, inverterOptionsForServiceType);
+                                      if (code) setInverterCode(code);
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-[11px] text-slate-400">
+                              Capacity presets aren&apos;t configured yet for {SERVICE_TYPE_LABEL[serviceType]} inverters —
+                              pick a brand above instead.
+                            </p>
+                          )}
                         </div>
                       </EquipmentSwapRow>
 
