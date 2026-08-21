@@ -1135,6 +1135,32 @@ function CalculatorCard() {
   const effectiveStructureCode = structureCode ?? firstNonOther(equipmentOptions?.MOUNTING_STRUCTURE);
 
   const currentPanelOption = equipmentOptions?.SOLAR_PANEL?.find((o) => o.code === effectivePanelCode) ?? null;
+
+  // Solar Panel — Company then Wattage cascading picker (2026-08-22),
+  // matching Battery's brand-then-capacity two-step UX. Unlike Battery
+  // (where capacity is a genuinely separate multiplier on top of
+  // brand), every real catalog SKU here already IS one specific
+  // brand+wattage combination — picking a "wattage" card just resolves
+  // directly to that one SKU's code, there's no second independent
+  // dimension being combined.
+  const realPanelOptions = (equipmentOptions?.SOLAR_PANEL ?? []).filter((o) => !o.isOtherOption);
+  const otherPanelOption = equipmentOptions?.SOLAR_PANEL?.find((o) => o.isOtherOption) ?? null;
+  const panelBrands = Array.from(new Set(realPanelOptions.map((o) => o.brand ?? o.label)));
+  function panelSkusForBrand(brand: string): EquipmentOptionDTO[] {
+    return realPanelOptions.filter((o) => (o.brand ?? o.label) === brand).sort((a, b) => (a.specValue ?? 0) - (b.specValue ?? 0));
+  }
+  /** The cheapest in-stock SKU for a brand — what a brand card resolves
+   *  to when clicked, and what its own price delta previews. Falls back
+   *  to the first SKU (even if out of stock) only when NOTHING in that
+   *  brand is in stock, so clicking a brand always selects something. */
+  function defaultPanelSkuForBrand(brand: string): EquipmentOptionDTO | null {
+    const skus = panelSkusForBrand(brand);
+    const inStockSkus = skus.filter((o) => o.inStock);
+    if (inStockSkus.length === 0) return skus[0] ?? null;
+    return inStockSkus.reduce((cheapest, o) => ((o.unitPricePKR ?? Infinity) < (cheapest.unitPricePKR ?? Infinity) ? o : cheapest));
+  }
+  const currentPanelBrand =
+    effectivePanelCode !== OTHER_CODE ? (currentPanelOption?.brand ?? currentPanelOption?.label ?? null) : null;
   const currentInverterOption = inverterOptionsForServiceType.find((o) => o.code === effectiveInverterCode) ?? null;
   const currentBatteryOption = batteryOptions.find((o) => o.code === effectiveBatteryCode) ?? null;
   // The active battery slot's unit price, for swapDeltaLabel's diff math
@@ -1998,24 +2024,74 @@ function CalculatorCard() {
                         isOpen={openEquipmentSection === "PANEL"}
                         onToggleOpen={() => setOpenEquipmentSection((s) => (s === "PANEL" ? null : "PANEL"))}
                       >
+                        {/* Step 1: Company — one card per distinct panel
+                            brand, plus "Other". Clicking a brand resolves
+                            to its cheapest in-stock wattage (below lets
+                            the customer refine that pick). */}
                         <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
-                          {(equipmentOptions.SOLAR_PANEL ?? []).map((o) => (
+                          {panelBrands.map((brand) => {
+                            const defaultSku = defaultPanelSkuForBrand(brand);
+                            const active = currentPanelBrand === brand;
+                            return (
+                              <SwapOptionCard
+                                key={brand}
+                                label={brand}
+                                imageUrl={defaultSku?.logoUrl ?? null}
+                                active={active}
+                                inStock={panelSkusForBrand(brand).some((o) => o.inStock)}
+                                onClick={() => {
+                                  if (defaultSku) setPanelCode(defaultSku.code);
+                                }}
+                                deltaLabel={swapDeltaLabel(
+                                  defaultSku?.unitPricePKR ?? null,
+                                  currentPanelOption?.unitPricePKR ?? null,
+                                  systemWatts,
+                                  active
+                                )}
+                              />
+                            );
+                          })}
+                          {otherPanelOption && (
                             <SwapOptionCard
-                              key={o.code}
-                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
-                              imageUrl={o.logoUrl}
-                              active={effectivePanelCode === o.code}
-                              inStock={o.inStock}
-                              onClick={() => setPanelCode(o.code)}
+                              key={otherPanelOption.code}
+                              label="Other / Specific Requirement"
+                              imageUrl={null}
+                              active={effectivePanelCode === OTHER_CODE}
+                              inStock={otherPanelOption.inStock}
+                              onClick={() => setPanelCode(OTHER_CODE)}
                               deltaLabel={swapDeltaLabel(
-                                o.unitPricePKR,
+                                otherPanelOption.unitPricePKR,
                                 currentPanelOption?.unitPricePKR ?? null,
                                 systemWatts,
-                                effectivePanelCode === o.code
+                                effectivePanelCode === OTHER_CODE
                               )}
                             />
-                          ))}
+                          )}
                         </div>
+
+                        {/* Step 2: Wattage — only shown once a real
+                            company is selected and it actually has more
+                            than one wattage on file; same SpecCard preset
+                            style as Battery Capacity. Each card IS a real
+                            distinct catalog SKU (unlike Battery Capacity,
+                            which layers an independent multiplier on top
+                            of whichever brand is selected). */}
+                        {currentPanelBrand && panelSkusForBrand(currentPanelBrand).length > 1 && (
+                          <div className="mt-3">
+                            <p className="mb-1.5 block text-xs font-medium text-slate-600">Wattage</p>
+                            <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
+                              {panelSkusForBrand(currentPanelBrand).map((o) => (
+                                <SpecCard
+                                  key={o.code}
+                                  title={o.specValue !== null ? `${o.specValue}W` : o.label}
+                                  description={o.label}
+                                  active={effectivePanelCode === o.code}
+                                  onClick={() => setPanelCode(o.code)}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         {livePreview && (
                           <div>
                             <p className="mb-1.5 block text-xs font-medium text-slate-600">
