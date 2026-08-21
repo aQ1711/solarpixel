@@ -489,6 +489,18 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
           key={modalState.mode === "edit" ? modalState.item.id : "create"}
           mode={modalState.mode}
           editingItem={modalState.mode === "edit" ? modalState.item : null}
+          // Bug fix (2026-08-22): "Add New Material" used to always
+          // default the modal's OWN componentType picker to SOLAR_PANEL,
+          // regardless of which tab you were actually on — so adding a
+          // material from the Inverter tab silently created a Solar
+          // Panel instead unless you noticed and manually changed the
+          // in-modal dropdown too. The item was really "added," just to
+          // the wrong category, so the Inverter tab kept showing "No
+          // active materials yet." Now defaults to whichever
+          // componentType the current tab actually represents (the
+          // first one, for the merged Cables & Breakers tab) — still
+          // changeable inside the modal, just a correct starting point.
+          defaultComponentType={activeTabDef.componentTypes[0]}
           onClose={() => setModalState({ mode: "closed" })}
           residentialMargin={globalRules?.sectorMargins.RESIDENTIAL ?? 0}
           onCreate={async (input) => {
@@ -1107,6 +1119,7 @@ function SpecsBuilder({ specs, onChange }: { specs: SpecEntry[]; onChange: (spec
 function MaterialModal({
   mode,
   editingItem,
+  defaultComponentType,
   onClose,
   onCreate,
   onUpdate,
@@ -1114,6 +1127,11 @@ function MaterialModal({
 }: {
   mode: "create" | "edit";
   editingItem: MaterialItem | null;
+  /** Which componentType to preselect in create mode — the tab the
+   *  admin was actually on when they clicked "Add New Material." Only
+   *  a starting point (still changeable via the dropdown below);
+   *  ignored in edit mode, where `editingItem`'s own value always wins. */
+  defaultComponentType?: ComponentType;
   onClose: () => void;
   onCreate: (input: CreateMaterialInput) => Promise<boolean>;
   onUpdate: (id: string, patch: UpdateMaterialPatch) => Promise<boolean>;
@@ -1126,14 +1144,22 @@ function MaterialModal({
   // they're the join-key/pricing-shape fields lib/db/admin.ts resolves
   // by), so their inputs are disabled in edit mode, not hidden — the
   // admin can still see what they're editing.
-  const [componentType, setComponentType] = useState<ComponentType>(editingItem?.componentType ?? "SOLAR_PANEL");
+  const [componentType, setComponentType] = useState<ComponentType>(
+    editingItem?.componentType ?? defaultComponentType ?? "SOLAR_PANEL"
+  );
   const [label, setLabel] = useState(editingItem?.label ?? "");
   const [brand, setBrand] = useState(editingItem?.brand ?? "");
   const [specValue, setSpecValue] = useState(editingItem?.specValue != null ? String(editingItem.specValue) : "");
   const [applicableServiceType, setApplicableServiceType] = useState<ServiceType | "">(
     editingItem?.applicableServiceType ?? ""
   );
-  const [unit, setUnit] = useState<CostUnit>(editingItem?.unit ?? "PER_WATT");
+  // BATTERY prices PER_KWH, everything else in this catalog PER_WATT —
+  // match the resolved starting componentType (not a blind PER_WATT
+  // default) so switching tabs before opening the modal doesn't leave a
+  // silently-wrong unit an admin has to remember to fix by hand.
+  const [unit, setUnit] = useState<CostUnit>(
+    editingItem?.unit ?? ((defaultComponentType ?? "SOLAR_PANEL") === "BATTERY" ? "PER_KWH" : "PER_WATT")
+  );
   const [vendorCostRs, setVendorCostRs] = useState(editingItem?.unitCostRs != null ? String(editingItem.unitCostRs) : "");
   const [marginPercentOverride, setMarginPercentOverride] = useState(
     editingItem?.marginPercentOverride != null ? String(editingItem.marginPercentOverride) : ""
