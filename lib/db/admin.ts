@@ -73,9 +73,12 @@ export interface ItemizedBreakdown {
   /** "One-Time Panel Washing Visit" (2026-08-21) — 0 unless the customer
    *  toggled it on in the Custom Equipment Builder's Services section
    *  (selections.includePanelWashing). Uses the SAME tiered rate
-   *  (panelWashingRawCostPKR) the standalone "System Upgrades & Washing"
+   *  (panelWashingRawCostPKR) the standalone "Panel Washing & Servicing"
    *  inquiry flow already uses, priced against the real, already-clamped
-   *  panel count (post Panel Quantity Adjuster). */
+   *  panel count (post Panel Quantity Adjuster). UNLIKE every other line
+   *  in this interface, this one is NOT marked up — it's the raw tiered
+   *  rate exactly, no margin added (explicit instruction, see
+   *  calculatePanelWashingQuote's doc comment). */
   panelWashingPKR: number;
 }
 
@@ -661,9 +664,11 @@ export async function calculateSystemPricing(
     // rate (GlobalPricingSettings), not a RawVendorCost row, so no
     // per-item override, just the sector default margin.
     siteWorksPKR: Math.round(markUp(rawSiteWorksPKR, sectorDefaultMarginPercent)),
-    // Same flat-admin-rate reasoning as installationPKR/siteWorksPKR —
-    // 0 (not marked up from 0, just literally 0) when not toggled on.
-    panelWashingPKR: panelWashingResult ? Math.round(markUp(rawPanelWashingPKR, sectorDefaultMarginPercent)) : 0,
+    // Panel Washing is deliberately NOT marked up (2026-08-21, explicit
+    // instruction reversing this file's earlier margin-on-everything
+    // convention for this one line specifically) — the customer sees
+    // exactly the admin-configured tiered rate, no percentage added.
+    panelWashingPKR: panelWashingResult ? Math.round(rawPanelWashingPKR) : 0,
   };
 
   // Total is the SUM of the (already-rounded) breakdown lines, not a
@@ -1036,7 +1041,12 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     // no per-item override, just the sector default margin (same as
     // installationPKR above and calculateSystemPricing's siteWorksPKR).
     siteWorksPKR: round2(markUp(breakdown.siteWorksPKR, sectorDefaultMarginPercent)),
-    panelWashingPKR: panelWashingResult ? round2(markUp(breakdown.panelWashingPKR, sectorDefaultMarginPercent)) : 0,
+    // Panel Washing is deliberately NOT marked up — see the matching
+    // comment on ItemizedBreakdown.panelWashingPKR in
+    // calculateSystemPricing above; this exact-BOQ line must agree with
+    // the instant estimate so the two never disagree on what the
+    // customer sees for this line.
+    panelWashingPKR: panelWashingResult ? round2(breakdown.panelWashingPKR) : 0,
   };
 
   const exactClientPricePKR = Math.round(Object.values(markedUpBreakdown).reduce((sum, n) => sum + n, 0));
@@ -1433,17 +1443,17 @@ function panelWashingRawCostPKR(
 
 /** Standalone add-on pricing for the "System Upgrades & Washing" inquiry
  *  flow — Panel Washing has no BOQ/system sizing of its own, just the
- *  tiered rate above marked up by the sector's default margin (a flat
- *  admin rate, not a per-item RawVendorCost row, so there's no per-item
- *  override to apply here). */
-export async function calculatePanelWashingQuote(panelCount: number, sector: Sector): Promise<PanelWashingQuote> {
+ *  tiered rate above. Deliberately NOT marked up by any margin
+ *  (2026-08-21, explicit instruction) — `clientPricePKR` is exactly the
+ *  admin-configured tiered rate card's number, no percentage added on
+ *  top, so it can no longer vary by sector and takes no sector param. */
+export async function calculatePanelWashingQuote(panelCount: number): Promise<PanelWashingQuote> {
   if (!Number.isFinite(panelCount) || panelCount <= 0) {
     throw new PricingConfigurationError(`Invalid panel count (${panelCount}) for a washing quote.`);
   }
-  const [settings, sectorMargins] = await Promise.all([getGlobalPricingSettings(), getSectorDefaultMargins(new Date())]);
-  const marginPercent = sectorMargins.get(sector) ?? 15;
+  const settings = await getGlobalPricingSettings();
   const { rawCostPKR, ratePerPanel, isMinimumFeeApplied } = panelWashingRawCostPKR(panelCount, settings);
-  const clientPricePKR = Math.round(markUp(rawCostPKR, marginPercent));
+  const clientPricePKR = Math.round(rawCostPKR);
   return { panelCount, rawCostPKR, clientPricePKR, ratePerPanel, isMinimumFeeApplied };
 }
 

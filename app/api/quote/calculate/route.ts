@@ -26,14 +26,6 @@ import { DAYS_TO_DEPLOY_DEFAULT } from "@/lib/constants";
 const EV_CHARGER_INCLUDED_CABLE_METERS = 10;
 const EV_CHARGER_EXTRA_CABLE_RATE_PKR_PER_METER = 500;
 
-// "Monthly Subscription" panel-washing frequency is priced as a 20%
-// discount off the one-time per-visit rate calculatePanelWashingQuote()
-// already returns — there's no separate subscription rate in
-// GlobalPricingSettings, just this one flat discount applied client-
-// price-side, same placeholder-but-flagged spirit as the EV cable rate
-// above.
-const PANEL_WASHING_SUBSCRIPTION_DISCOUNT_PCT = 20;
-
 // ============================================================================
 // Constants — Zero-Export sizing & business defaults
 // ============================================================================
@@ -186,8 +178,10 @@ const calculateQuoteSchema = z
     city: z.string().trim().min(2).max(80).default("Lahore"),
 
     // ---- PANEL_WASHING-only fields ----
+    // "Monthly Subscription" (a 20%-off recurring option) was removed
+    // 2026-08-21 — this is always a one-time visit now, so there's no
+    // frequency field to accept.
     panelCount: z.number().int().positive().max(2000).optional(),
-    washFrequency: z.enum(["ONE_TIME", "MONTHLY_SUBSCRIPTION"]).optional().default("ONE_TIME"),
 
     // ---- EV_CHARGER-only fields ----
     evChargerRatingKw: z.number().positive().max(100).optional(),
@@ -575,29 +569,26 @@ async function handlePanelWashingQuote(input: CalculateQuoteInput): Promise<Next
   const sector = input.sector ?? "RESIDENTIAL";
 
   try {
-    const quote = await calculatePanelWashingQuote(panelCount, sector);
+    const quote = await calculatePanelWashingQuote(panelCount);
     // The REAL tier rate, not `rawCostPKR / panelCount` — those two only
     // agree when the minimum visit fee floor DIDN'T kick in (2026-08-21
     // tiered pricing); dividing a floored total back out would silently
     // report a fabricated "effective" per-panel rate instead of the rate
     // that actually applied.
     const costPerPanelPKR = quote.ratePerPanel;
+    // Exactly the backend's tiered rate — no margin/percentage added on
+    // top (2026-08-21, explicit instruction; see
+    // calculatePanelWashingQuote's doc comment in lib/db/admin.ts).
     const oneTimePricePKR = quote.clientPricePKR;
-    const monthlyPricePKR =
-      input.washFrequency === "MONTHLY_SUBSCRIPTION"
-        ? Math.round(oneTimePricePKR * (1 - PANEL_WASHING_SUBSCRIPTION_DISCOUNT_PCT / 100))
-        : null;
 
     return NextResponse.json({
       kind: "PANEL_WASHING",
       panelCount,
       sector,
-      washFrequency: input.washFrequency,
       costPerPanelPKR,
       isMinimumFeeApplied: quote.isMinimumFeeApplied,
       oneTimePricePKR,
-      monthlyPricePKR,
-      totalClientPricePKR: monthlyPricePKR ?? oneTimePricePKR,
+      totalClientPricePKR: oneTimePricePKR,
     });
   } catch (err) {
     if (err instanceof PricingConfigurationError) {

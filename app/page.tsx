@@ -318,20 +318,19 @@ const BATTERY_CAPACITY_PRESETS: { kwh: number; label: string }[] = [
 // from the Complete Solar QuoteResult type below; never mixed.
 // ----------------------------------------------------------------------
 
-type WashFrequency = "ONE_TIME" | "MONTHLY_SUBSCRIPTION";
-
 interface PanelWashingResult {
   kind: "PANEL_WASHING";
   panelCount: number;
   sector: Sector;
-  washFrequency: WashFrequency;
   costPerPanelPKR: number;
   /** True when the minimum visit fee floor (not the tiered per-panel
    *  rate) was the binding price — see PanelWashingQuote's doc comment
    *  in lib/db/admin.ts. */
   isMinimumFeeApplied: boolean;
+  /** Exactly the backend's tiered rate — no margin/percentage added on
+   *  top (2026-08-21). Always a one-time visit now — the old "Monthly
+   *  Subscription" option was removed. */
   oneTimePricePKR: number;
-  monthlyPricePKR: number | null;
   totalClientPricePKR: number;
 }
 
@@ -363,11 +362,6 @@ const EV_CHARGER_TYPES: { kw: number; description: string }[] = [
 // this string needs a matching update — flagged in both places.
 const EV_CHARGER_INCLUDED_CABLE_METERS = 10;
 const EV_CHARGER_EXTRA_CABLE_RATE_PKR_PER_METER = 500;
-
-// Mirrors PANEL_WASHING_SUBSCRIPTION_DISCOUNT_PCT in
-// app/api/quote/calculate/route.ts — display-only copy text, the actual
-// discount is always computed server-side.
-const PANEL_WASHING_SUBSCRIPTION_SAVINGS_PCT = 20;
 
 // Last-resort fallback for the BOQ's panel-count math
 // (Math.ceil((systemKw * 1000) / panelWattage)) if result.equipment.panel
@@ -445,7 +439,7 @@ const DISPLAY_DAILY_GENERATION_FACTOR = 4.1;
 const MASTER_SERVICES: { value: MasterService; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { value: "COMPLETE_SOLAR", label: "Complete Solar System", icon: SolarPanelIcon },
   { value: "EV_CHARGER", label: "EV Charger", icon: EVChargerIcon },
-  { value: "SYSTEM_UPGRADES", label: "System Upgrades & Washing", icon: WaterDropIcon },
+  { value: "SYSTEM_UPGRADES", label: "Panel Washing & Servicing", icon: WaterDropIcon },
 ];
 const MASTER_SERVICE_DESCRIPTION: Record<MasterService, string> = {
   COMPLETE_SOLAR: "Get a turnkey solar + battery solution. Sized instantly from your bill.",
@@ -928,7 +922,6 @@ function CalculatorCard() {
 
   // ---- Panel Washing (SYSTEM_UPGRADES) ----
   const [washPanelCount, setWashPanelCount] = useState("");
-  const [washFrequency, setWashFrequency] = useState<WashFrequency>("ONE_TIME");
   const [washPreview, setWashPreview] = useState<PanelWashingResult | null>(null);
   const [washPreviewLoading, setWashPreviewLoading] = useState(false);
   const [washPreviewError, setWashPreviewError] = useState<string | null>(null);
@@ -1316,7 +1309,7 @@ function CalculatorCard() {
     if (masterService !== "SYSTEM_UPGRADES") return;
     const count = Number(washPanelCount);
     if (!Number.isFinite(count) || count <= 0) return;
-    if (washPreview && count === washPreview.panelCount && washFrequency === washPreview.washFrequency) return;
+    if (washPreview && count === washPreview.panelCount) return;
 
     const timeoutId = setTimeout(async () => {
       setWashPreviewLoading(true);
@@ -1325,7 +1318,7 @@ function CalculatorCard() {
         const res = await fetch("/api/quote/calculate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ requestKind: "PANEL_WASHING", panelCount: count, washFrequency, sector }),
+          body: JSON.stringify({ requestKind: "PANEL_WASHING", panelCount: count, sector }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -1340,7 +1333,7 @@ function CalculatorCard() {
       }
     }, 500);
     return () => clearTimeout(timeoutId);
-  }, [masterService, washPanelCount, washFrequency, sector, washPreview]);
+  }, [masterService, washPanelCount, sector, washPreview]);
 
   // ---- EV Charger live preview ---- (same pattern as above)
   useEffect(() => {
@@ -1459,7 +1452,7 @@ function CalculatorCard() {
         const res = await fetch("/api/quote/calculate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ requestKind: "PANEL_WASHING", panelCount: count, washFrequency, sector }),
+          body: JSON.stringify({ requestKind: "PANEL_WASHING", panelCount: count, sector }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -1468,10 +1461,7 @@ function CalculatorCard() {
           return;
         }
         const priced = data as PanelWashingResult;
-        const priceLine =
-          priced.washFrequency === "MONTHLY_SUBSCRIPTION"
-            ? `${formatPKR(priced.monthlyPricePKR!)}/month (${priced.panelCount} panels, monthly subscription)`
-            : `${formatPKR(priced.oneTimePricePKR)} one-time (${priced.panelCount} panels)`;
+        const priceLine = `${formatPKR(priced.oneTimePricePKR)} one-time (${priced.panelCount} panels)`;
         const message = `Hi Solar Pixel! I'm ${fullName} and I'd like to request: ${serviceLabel}. Quote: ${priceLine}.${detailsLine}`;
         window.open(`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
         setAddOnResult(priced);
@@ -2456,26 +2446,6 @@ function CalculatorCard() {
                   placeholder="Or enter an exact count"
                   className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
                 />
-
-                <p className="mb-1.5 mt-4 block text-xs font-medium text-slate-600">Frequency</p>
-                <div className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1">
-                  {(["ONE_TIME", "MONTHLY_SUBSCRIPTION"] as WashFrequency[]).map((freq) => {
-                    const active = washFrequency === freq;
-                    return (
-                      <button
-                        key={freq}
-                        type="button"
-                        onClick={() => setWashFrequency(freq)}
-                        aria-pressed={active}
-                        className={`flex min-h-11 items-center justify-center rounded-lg px-2 py-2.5 text-center text-xs font-semibold leading-tight transition-colors duration-200 ${
-                          active ? "bg-violet-600 text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
-                        }`}
-                      >
-                        {freq === "ONE_TIME" ? "One-Time Wash" : `Monthly Subscription (Save ${PANEL_WASHING_SUBSCRIPTION_SAVINGS_PCT}%)`}
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
             )}
 
@@ -2549,8 +2519,7 @@ function CalculatorCard() {
                 (washPreview ? (
                   <>
                     <p className="mt-1.5 text-2xl font-bold text-slate-900">
-                      {formatPKR(washPreview.washFrequency === "MONTHLY_SUBSCRIPTION" ? washPreview.monthlyPricePKR! : washPreview.oneTimePricePKR)}
-                      {washPreview.washFrequency === "MONTHLY_SUBSCRIPTION" && <span className="ml-1 text-sm font-medium text-slate-500">/mo</span>}
+                      {formatPKR(washPreview.oneTimePricePKR)}
                       {washPreviewLoading && <Loader2 className="ml-2 inline h-4 w-4 animate-spin text-violet-400" />}
                     </p>
                     <p className="text-xs text-slate-500">
@@ -3463,8 +3432,8 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
 
   const waMessage = isWashing
     ? `Hi Solar Pixel! Following up on my Panel Washing quote — ${result.panelCount} panels, ${formatPKR(
-        result.washFrequency === "MONTHLY_SUBSCRIPTION" ? result.monthlyPricePKR! : result.oneTimePricePKR
-      )}${result.washFrequency === "MONTHLY_SUBSCRIPTION" ? "/month" : " one-time"}. Please confirm scheduling.`
+        result.oneTimePricePKR
+      )} one-time. Please confirm scheduling.`
     : `Hi Solar Pixel! Following up on my EV Charger installation quote — ${result.evChargerRatingKw} kW, ${formatPKR(
         result.totalClientPricePKR
       )} turnkey. Please confirm scheduling.`;
@@ -3495,29 +3464,9 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
             label="Cleaning Rate"
             value={result.isMinimumFeeApplied ? "Minimum call-out fee" : `${formatPKR(result.costPerPanelPKR)}/panel`}
           />
-          <Stat
-            label="Frequency"
-            value={result.washFrequency === "MONTHLY_SUBSCRIPTION" ? "Monthly Subscription" : "One-Time Wash"}
-          />
-          <div className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3">
-            <p className="text-[11px] text-stone-500">{result.washFrequency === "MONTHLY_SUBSCRIPTION" ? "Full One-Time Rate" : "—"}</p>
-            <p className="mt-0.5 text-lg font-bold text-stone-900">
-              {result.washFrequency === "MONTHLY_SUBSCRIPTION" ? formatPKR(result.oneTimePricePKR) : "—"}
-            </p>
-          </div>
           <div className="col-span-2 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-4">
-            <p className="text-xs text-stone-500">
-              {result.washFrequency === "MONTHLY_SUBSCRIPTION" ? "Monthly Subscription Price" : "Total (One-Time)"}
-            </p>
-            <p className="mt-1 text-2xl font-bold text-emerald-600">
-              {formatPKR(result.washFrequency === "MONTHLY_SUBSCRIPTION" ? result.monthlyPricePKR! : result.oneTimePricePKR)}
-              {result.washFrequency === "MONTHLY_SUBSCRIPTION" && <span className="ml-1 text-sm font-medium text-stone-500">/mo</span>}
-            </p>
-            {result.washFrequency === "MONTHLY_SUBSCRIPTION" && (
-              <p className="mt-1 text-[11px] text-emerald-600">
-                Saving {PANEL_WASHING_SUBSCRIPTION_SAVINGS_PCT}% vs. the one-time rate.
-              </p>
-            )}
+            <p className="text-xs text-stone-500">Total (One-Time Visit)</p>
+            <p className="mt-1 text-2xl font-bold text-emerald-600">{formatPKR(result.oneTimePricePKR)}</p>
           </div>
         </div>
       ) : (
