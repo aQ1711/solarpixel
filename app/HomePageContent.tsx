@@ -259,6 +259,12 @@ interface EquipmentSelections {
   /** A real BATTERY code, "OTHER", or NONE_CODE ("NONE") — the customer
    *  explicitly opted out of a battery. See NONE_CODE's doc comment. */
   batteryCode?: string;
+  /** Never sent by this client since the 2026-08-22 battery rework — the
+   *  Custom Builder now picks a specific real capacity SKU directly (via
+   *  batteryCode), the same way it already picks a specific inverter
+   *  model; there's no separate arbitrary-kWh input left to collect. Kept
+   *  in this type only because the server (lib/db/admin.ts) still
+   *  accepts it as a target for its own auto-sizing fallback. */
   batteryCapacityKwh?: number;
   dcCableCode?: string;
   acCableCode?: string;
@@ -307,10 +313,6 @@ const OTHER_CODE = "OTHER";
 // prices/resolves exactly like an ONGRID_ZERO_EXPORT system's battery-free
 // state, without changing the chosen ServiceType.
 const NONE_CODE = "NONE";
-// Mirrors lib/db/admin.ts's DEFAULT_BATTERY_KWH_PER_SYSTEM_KW — used only
-// as a fallback scale for the Battery row's price-delta math (see
-// batteryDeltaScaleKwh below), never for real pricing itself.
-const DEFAULT_BATTERY_KWH_PER_SYSTEM_KW = 1.2;
 // Mirrors lib/db/admin.ts's DEFAULT_EARTHING_BORE_QTY/
 // DEFAULT_LIGHTNING_ARRESTOR_QTY — the Site Works row's initial stepper
 // values before the customer touches them. Real pricing always comes from
@@ -325,17 +327,6 @@ const DEFAULT_LIGHTNING_ARRESTOR_QTY = 1;
 // tracking its own open/close via this same key so at most one row is
 // expanded at a time.
 type EquipmentSectionKey = "PANEL" | "INVERTER" | "BATTERY" | "CABLE" | "BREAKERS" | "STRUCTURE" | "SITE_WORKS";
-
-// Structured battery capacity presets — replaces the old free-text kWh
-// input. Values match common LiFePO4 module sizes (2.56 kWh ≈ one
-// 51.2V/50Ah module) so "Standard Home"/"Heavy Load" etc. line up with
-// what a Pakistani installer would actually rack.
-const BATTERY_CAPACITY_PRESETS: { kwh: number; label: string }[] = [
-  { kwh: 2.56, label: "Basic Backup" },
-  { kwh: 5.12, label: "Standard Home" },
-  { kwh: 10.24, label: "Heavy Load" },
-  { kwh: 14.3, label: "Commercial Grade" },
-];
 
 // ----------------------------------------------------------------------
 // Panel Washing & EV Charger — the two SYSTEM_UPGRADES/EV_CHARGER
@@ -1134,7 +1125,6 @@ function CalculatorCard() {
   const [panelCode, setPanelCode] = useState<string | null>(null);
   const [inverterCode, setInverterCode] = useState<string | null>(null);
   const [batteryCode, setBatteryCode] = useState<string | null>(null);
-  const [batteryCapacityKwh, setBatteryCapacityKwh] = useState("");
   const [cableCode, setCableCode] = useState<string | null>(null);
   const [breakersCode, setBreakersCode] = useState<string | null>(null);
   const [structureCode, setStructureCode] = useState<string | null>(null);
@@ -1273,11 +1263,39 @@ function CalculatorCard() {
   // The active battery slot's unit price, for swapDeltaLabel's diff math
   // in the Battery row below (Optional Battery, 2026-08-20). "No Battery"
   // isn't a real catalog row, so currentBatteryOption is null while it's
-  // active — treat that as a real Rs 0/kWh baseline (not "no baseline, hide
+  // active — treat that as a real Rs 0 baseline (not "no baseline, hide
   // pricing"), so every other card in the row correctly shows the full
   // "+ Rs X" cost of adding that battery back, instead of a generic
   // "Enter your bill to see pricing" placeholder.
   const currentBatteryUnitPricePKR = effectiveBatteryCode === NONE_CODE ? 0 : (currentBatteryOption?.unitPricePKR ?? null);
+
+  // Battery — Company then Capacity cascading picker (2026-08-22), same
+  // two-step pattern as Inverter's Company -> Model picker (see its doc
+  // comment above). Every real battery is now a specific, flat
+  // PER_PIECE-priced product (brand + real module kWh — see
+  // lib/db/admin.ts's rawBatteryPKR comment for why it's no longer a
+  // Rs/kWh rate a customer could dial to an arbitrary number), so
+  // "pick a capacity" resolves directly to one real SKU, exactly like
+  // the inverter picker. Unlike Inverter, "No Battery" (NONE_CODE) is
+  // its own top-level choice alongside the brand cards, not nested
+  // inside — see the JSX below.
+  const realBatteryOptions = batteryOptions.filter((o) => !o.isOtherOption);
+  const otherBatteryOption = batteryOptions.find((o) => o.isOtherOption) ?? null;
+  const batteryBrands = Array.from(new Set(realBatteryOptions.map((o) => o.brand ?? o.label)));
+  function batterySkusForBrand(brand: string): EquipmentOptionDTO[] {
+    return realBatteryOptions.filter((o) => (o.brand ?? o.label) === brand).sort((a, b) => (a.specValue ?? 0) - (b.specValue ?? 0));
+  }
+  function defaultBatterySkuForBrand(brand: string): EquipmentOptionDTO | null {
+    const skus = batterySkusForBrand(brand);
+    const inStockSkus = skus.filter((o) => o.inStock);
+    if (inStockSkus.length === 0) return skus[0] ?? null;
+    return inStockSkus.reduce((cheapest, o) => ((o.unitPricePKR ?? Infinity) < (cheapest.unitPricePKR ?? Infinity) ? o : cheapest));
+  }
+  const currentBatteryBrand =
+    effectiveBatteryCode !== OTHER_CODE && effectiveBatteryCode !== NONE_CODE
+      ? (currentBatteryOption?.brand ?? currentBatteryOption?.label ?? null)
+      : null;
+
   // Cable/Breakers/Structure Default & Swap rows (Part 5) — same
   // "resolve the actual active catalog row" pattern as Panel/Inverter/
   // Battery above.
@@ -1301,9 +1319,10 @@ function CalculatorCard() {
       ? {
           panelCode: effectivePanelCode ?? undefined,
           inverterCode: effectiveInverterCode ?? undefined,
+          // batteryCode alone is enough now (2026-08-22) — it's always a
+          // specific real capacity SKU (or NONE_CODE/OTHER), never a
+          // brand needing a separate capacity number to go with it.
           batteryCode: effectiveBatteryCode ?? undefined,
-          batteryCapacityKwh:
-            serviceType === "HYBRID_BATTERY" && batteryCapacityKwh.trim() !== "" ? Number(batteryCapacityKwh) : undefined,
           dcCableCode: effectiveCableCode ?? undefined,
           acCableCode: effectiveCableCode ?? undefined,
           breakersCode: effectiveBreakersCode ?? undefined,
@@ -1374,7 +1393,6 @@ function CalculatorCard() {
     effectivePanelCode,
     effectiveInverterCode,
     effectiveBatteryCode,
-    batteryCapacityKwh,
     effectiveCableCode,
     effectiveBreakersCode,
     effectiveStructureCode,
@@ -1708,23 +1726,18 @@ function CalculatorCard() {
     return <AddOnResultSummary result={addOnResult} onEdit={handleEditInputs} />;
   }
 
-  // Derived scale/active-price inputs for the Custom Equipment Builder's
-  // per-pill price hints (see pillPriceHint's doc comment). Panel/Inverter
-  // scale by the live-previewed system's total watts; Battery scales by
-  // its own capacity. All read null/0 gracefully before a bill is entered
-  // — pillPriceHint falls back to a flat per-unit rate in that case.
+  // Derived scale input for the Custom Equipment Builder's per-pill price
+  // hints (see pillPriceHint's doc comment) — Panel scales by the
+  // live-previewed system's total watts; reads 0 gracefully before a
+  // bill is entered (pillPriceHint falls back to a flat per-unit rate in
+  // that case). Battery no longer needs its own scale (2026-08-22) — the
+  // same flat scale=1 Inverter's swapDeltaLabel calls already use, since
+  // every battery card is now one specific real capacity SKU with its
+  // own flat price, not a rate to multiply.
   const systemWatts = (livePreview?.systemKw ?? 0) * 1000;
-  const activeBatteryCapacityKwh = Number(batteryCapacityKwh) || livePreview?.equipment.battery?.capacityKwh || 0;
-  // Fallback scale for the Battery row's price-delta math (Optional
-  // Battery, 2026-08-20) when NO battery is currently active — i.e.
-  // "No Battery" is selected, so livePreview carries no real capacity to
-  // scale by. Mirrors lib/db/admin.ts's DEFAULT_BATTERY_KWH_PER_SYSTEM_KW
-  // so a candidate battery card still shows a meaningful "+ Rs X" estimate
-  // (what re-adding a battery would cost) instead of a dead "Enter your
-  // bill to see pricing" placeholder. Once a real battery IS active,
-  // activeBatteryCapacityKwh above always wins.
-  const batteryDeltaScaleKwh =
-    activeBatteryCapacityKwh > 0 ? activeBatteryCapacityKwh : (livePreview?.systemKw ?? 0) * DEFAULT_BATTERY_KWH_PER_SYSTEM_KW;
+  // The active battery's real capacity, straight off the resolved
+  // catalog row — for the Battery row's "5.12kWh" display label only.
+  const activeBatteryCapacityKwh = currentBatteryOption?.specValue ?? 0;
 
   return (
     <form
@@ -2296,10 +2309,13 @@ function CalculatorCard() {
                         )}
                       </EquipmentSwapRow>
 
-                      {/* 3. Lithium Battery — Default & Swap, plus the
-                          capacity presets nested inside the same expanded
-                          row (capacity isn't a separate catalog item to
-                          "swap," it's a second dimension of the same pick). */}
+                      {/* 3. Lithium Battery — Company then Capacity,
+                          same two-step Default & Swap pattern as
+                          Inverter (see its doc comment above). "No
+                          Battery" is its own top-level card alongside
+                          the brand cards, not nested — opting out is a
+                          same-level choice as picking a brand, not a
+                          sub-choice under one. */}
                       {serviceType === "HYBRID_BATTERY" && (
                         <EquipmentSwapRow
                           title="Lithium Battery"
@@ -2308,7 +2324,9 @@ function CalculatorCard() {
                             effectiveBatteryCode === NONE_CODE
                               ? "No Battery Selected"
                               : currentBatteryOption
-                                ? `${currentBatteryOption.label} (${formatTrim(activeBatteryCapacityKwh)}kWh)`
+                                ? currentBatteryOption.isOtherOption
+                                  ? currentBatteryOption.label
+                                  : `${currentBatteryOption.label} (${formatTrim(activeBatteryCapacityKwh)}kWh)`
                                 : "Select a battery"
                           }
                           currentPriceLabel={
@@ -2321,23 +2339,31 @@ function CalculatorCard() {
                           isOpen={openEquipmentSection === "BATTERY"}
                           onToggleOpen={() => setOpenEquipmentSection((s) => (s === "BATTERY" ? null : "BATTERY"))}
                         >
+                          {/* Step 1: Company — one card per distinct
+                              battery brand, plus "No Battery" and
+                              "Other". Every real battery is now flat
+                              PER_PIECE-priced (see lib/db/admin.ts's
+                              rawBatteryPKR comment), so deltas below are
+                              plain price differences (scale=1), same as
+                              Inverter's Company cards. */}
                           <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
-                            {batteryOptions.map((o) => (
-                              <SwapOptionCard
-                                key={o.code}
-                                label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
-                                imageUrl={o.logoUrl}
-                                active={effectiveBatteryCode === o.code}
-                                inStock={o.inStock}
-                                onClick={() => setBatteryCode(o.code)}
-                                deltaLabel={swapDeltaLabel(
-                                  o.unitPricePKR,
-                                  currentBatteryUnitPricePKR,
-                                  batteryDeltaScaleKwh,
-                                  effectiveBatteryCode === o.code
-                                )}
-                              />
-                            ))}
+                            {batteryBrands.map((brand) => {
+                              const defaultSku = defaultBatterySkuForBrand(brand);
+                              const active = currentBatteryBrand === brand;
+                              return (
+                                <SwapOptionCard
+                                  key={brand}
+                                  label={brand}
+                                  imageUrl={defaultSku?.logoUrl ?? null}
+                                  active={active}
+                                  inStock={batterySkusForBrand(brand).some((o) => o.inStock)}
+                                  onClick={() => {
+                                    if (defaultSku) setBatteryCode(defaultSku.code);
+                                  }}
+                                  deltaLabel={swapDeltaLabel(defaultSku?.unitPricePKR ?? null, currentBatteryUnitPricePKR, 1, active)}
+                                />
+                              );
+                            })}
                             {/* "No Battery" opt-out (Optional Battery, 2026-08-20) —
                                 candidateUnitPricePKR of 0 makes swapDeltaLabel compute
                                 the FULL battery cost as a negative delta ("− Rs X"),
@@ -2347,26 +2373,42 @@ function CalculatorCard() {
                               imageUrl={null}
                               active={effectiveBatteryCode === NONE_CODE}
                               onClick={() => setBatteryCode(NONE_CODE)}
-                              deltaLabel={swapDeltaLabel(
-                                0,
-                                currentBatteryUnitPricePKR,
-                                batteryDeltaScaleKwh,
-                                effectiveBatteryCode === NONE_CODE
-                              )}
+                              deltaLabel={swapDeltaLabel(0, currentBatteryUnitPricePKR, 1, effectiveBatteryCode === NONE_CODE)}
                             />
+                            {otherBatteryOption && (
+                              <SwapOptionCard
+                                key={otherBatteryOption.code}
+                                label="Other / Specific Requirement"
+                                imageUrl={null}
+                                active={effectiveBatteryCode === OTHER_CODE}
+                                inStock={otherBatteryOption.inStock}
+                                onClick={() => setBatteryCode(OTHER_CODE)}
+                                deltaLabel={swapDeltaLabel(
+                                  otherBatteryOption.unitPricePKR,
+                                  currentBatteryUnitPricePKR,
+                                  1,
+                                  effectiveBatteryCode === OTHER_CODE
+                                )}
+                              />
+                            )}
                           </div>
 
-                          {effectiveBatteryCode !== NONE_CODE && (
-                            <div>
-                              <p className="mb-1.5 block text-xs font-medium text-slate-600">Battery Capacity</p>
+                          {/* Step 2: Capacity — only shown once a real
+                              company is selected and it has more than
+                              one module size on file. Each card IS a
+                              real distinct SKU (brand + kWh), same
+                              pattern as Inverter's Model step. */}
+                          {currentBatteryBrand && batterySkusForBrand(currentBatteryBrand).length > 1 && (
+                            <div className="mt-3">
+                              <p className="mb-1.5 block text-xs font-medium text-slate-600">Capacity</p>
                               <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
-                                {BATTERY_CAPACITY_PRESETS.map((preset) => (
+                                {batterySkusForBrand(currentBatteryBrand).map((o) => (
                                   <SpecCard
-                                    key={preset.kwh}
-                                    title={`${preset.kwh} kWh`}
-                                    description={preset.label}
-                                    active={Number(batteryCapacityKwh) === preset.kwh}
-                                    onClick={() => setBatteryCapacityKwh(String(preset.kwh))}
+                                    key={o.code}
+                                    title={o.specValue !== null ? `${formatTrim(o.specValue)}kWh` : o.label}
+                                    description={o.label}
+                                    active={effectiveBatteryCode === o.code}
+                                    onClick={() => setBatteryCode(o.code)}
                                   />
                                 ))}
                               </div>

@@ -285,37 +285,143 @@ async function main() {
       sortOrder: 99,
     },
 
-    // ---- Battery (Recommended default: PYLONTECH_LITHIUM), HYBRID_BATTERY only ----
+    // ---- Battery (2026-08-22 rework — real SKUs sourced from w11stop.com,
+    // Recommended default: PYLONTECH_5KWH), HYBRID_BATTERY only ----
+    // Replaced the old 3-brand "Lithium (LiFePO4)" placeholders (no real
+    // specValue, blended PER_KWH rate a customer could dial to any
+    // arbitrary number) with specific, real products — each a flat
+    // PER_PIECE price for its own fixed kWh capacity, exactly the same
+    // rework INVERTER already went through this same day. specValue is
+    // the module's real capacity in kWh (EquipmentOption.specValue's own
+    // doc comment already documented this exact use case).
+    //
+    // Only Pylontech and Dyness — Felicity (the third old placeholder
+    // brand) is NOT actually stocked on w11stop: every "felicity battery"
+    // search result's real listed brand was something totally unrelated
+    // (e.g. "Cooler Master"), confirmed live via the market-price scraper
+    // built the same day (see lib/scraper/marketPriceJob.ts) — not a
+    // search-relevance bug, w11stop simply doesn't carry it. Dropped
+    // rather than kept with a fabricated price.
     {
       componentType: "BATTERY",
-      code: "PYLONTECH_LITHIUM",
-      label: "Pylontech Lithium (LiFePO4)",
+      code: "PYLONTECH_2_8KWH",
+      label: "Pylontech UP2500 2.8kWh",
       brand: "Pylontech",
-      specValue: null,
+      specValue: 2.8,
+      applicableServiceType: "HYBRID_BATTERY",
+      sortOrder: 1,
+      cost: { unitCostRs: 185_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "BATTERY",
+      code: "PYLONTECH_5KWH",
+      label: "Pylontech FIDUS 5.12kWh (IP65)",
+      brand: "Pylontech",
+      specValue: 5.12,
       applicableServiceType: "HYBRID_BATTERY",
       isDefault: true,
-      sortOrder: 1,
-      cost: { unitCostRs: 190_000, unit: "PER_KWH" },
-    },
-    {
-      componentType: "BATTERY",
-      code: "DYNESS_LITHIUM",
-      label: "Dyness Lithium (LiFePO4)",
-      brand: "Dyness",
-      specValue: null,
-      applicableServiceType: "HYBRID_BATTERY",
       sortOrder: 2,
-      cost: { unitCostRs: 165_000, unit: "PER_KWH" },
+      cost: { unitCostRs: 250_000, unit: "PER_PIECE" },
     },
     {
       componentType: "BATTERY",
-      code: "FELICITY_LITHIUM",
-      label: "Felicity Lithium (LiFePO4)",
-      brand: "Felicity",
-      specValue: null,
+      code: "PYLONTECH_10KWH",
+      label: "Pylontech Force H3 10kWh (HV)",
+      brand: "Pylontech",
+      specValue: 10,
       applicableServiceType: "HYBRID_BATTERY",
       sortOrder: 3,
-      cost: { unitCostRs: 210_000, unit: "PER_KWH" },
+      cost: { unitCostRs: 793_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "BATTERY",
+      code: "PYLONTECH_20KWH",
+      label: "Pylontech Force H3 20kWh (HV)",
+      brand: "Pylontech",
+      specValue: 20,
+      applicableServiceType: "HYBRID_BATTERY",
+      sortOrder: 4,
+      cost: { unitCostRs: 1_355_000, unit: "PER_PIECE" },
+    },
+    // 25/30/35kWh added after live-testing revealed the 4-tier Pylontech
+    // range (max 20kWh) left large Commercial/Industrial systems (whose
+    // auto-sized TARGET capacity can exceed every SKU on file) falling
+    // back to the small admin-default battery instead of something
+    // actually sized for them — see findSmallestFittingInStockBattery's
+    // doc comment. Real w11stop prices, already sourced during this same
+    // catalog pass, not fabricated to plug the gap. Dyness's own catalog
+    // stays capped at 15kWh below — every Dyness HV listing past that
+    // (20-50kWh) showed no real price on w11stop ("Rs. 0/-"), so those
+    // were dropped rather than guessed.
+    {
+      componentType: "BATTERY",
+      code: "PYLONTECH_25KWH",
+      label: "Pylontech Force H3 25kWh (HV)",
+      brand: "Pylontech",
+      specValue: 25,
+      applicableServiceType: "HYBRID_BATTERY",
+      sortOrder: 5,
+      cost: { unitCostRs: 1_635_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "BATTERY",
+      code: "PYLONTECH_30KWH",
+      label: "Pylontech Force H3 30kWh (HV)",
+      brand: "Pylontech",
+      specValue: 30,
+      applicableServiceType: "HYBRID_BATTERY",
+      sortOrder: 6,
+      cost: { unitCostRs: 1_916_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "BATTERY",
+      code: "PYLONTECH_35KWH",
+      label: "Pylontech Force H3 35kWh (HV)",
+      brand: "Pylontech",
+      specValue: 35,
+      applicableServiceType: "HYBRID_BATTERY",
+      sortOrder: 7,
+      cost: { unitCostRs: 2_194_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "BATTERY",
+      code: "DYNESS_2_5KWH",
+      label: "Dyness DL2.5 2.56kWh",
+      brand: "Dyness",
+      specValue: 2.56,
+      applicableServiceType: "HYBRID_BATTERY",
+      sortOrder: 8,
+      cost: { unitCostRs: 135_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "BATTERY",
+      code: "DYNESS_5KWH",
+      label: "Dyness DL5.0C 5.12kWh",
+      brand: "Dyness",
+      specValue: 5.12,
+      applicableServiceType: "HYBRID_BATTERY",
+      sortOrder: 9,
+      cost: { unitCostRs: 255_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "BATTERY",
+      code: "DYNESS_10KWH",
+      label: "Dyness Powerbox G2 10.24kWh",
+      brand: "Dyness",
+      specValue: 10.24,
+      applicableServiceType: "HYBRID_BATTERY",
+      sortOrder: 10,
+      cost: { unitCostRs: 545_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "BATTERY",
+      code: "DYNESS_15KWH",
+      label: "Dyness 15kWh (HV)",
+      brand: "Dyness",
+      specValue: 15,
+      applicableServiceType: "HYBRID_BATTERY",
+      sortOrder: 11,
+      cost: { unitCostRs: 950_000, unit: "PER_PIECE" },
     },
     {
       componentType: "BATTERY",

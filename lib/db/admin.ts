@@ -253,7 +253,7 @@ const DEFAULT_INVERTER_CODE_BY_SERVICE_TYPE: Record<ServiceType, string> = {
   HYBRID_BATTERY: "GROWATT_10KW_HYBRID_1P",
   ONGRID_ZERO_EXPORT: "GOODWE_10KW_ONGRID",
 };
-const DEFAULT_BATTERY_CODE = "PYLONTECH_LITHIUM";
+const DEFAULT_BATTERY_CODE = "PYLONTECH_5KWH";
 // Same code used for both DC_CABLE and AC_CABLE rows — one "Cable Brand"
 // catalog entry (under DC_CABLE) drives both lookups, differentiated by
 // componentType alone; see app/page.tsx and prisma/seed.ts.
@@ -320,7 +320,7 @@ async function getDefaultCode(
   // inStock's doc comment). If the sole isDefault row for this slot goes
   // out of stock, this returns null and falls to `fallbackCode` below —
   // no "pick the next-best in-stock alternative" logic here, that's what
-  // the dedicated findSmallestInStockInverter()/findCheapestInStockBattery()
+  // the dedicated findSmallestFittingInStockInverter()/findSmallestFittingInStockBattery()
   // budget-tier helpers are for.
   const row = await adminPrisma.equipmentOption.findFirst({
     where: { componentType, applicableServiceType, isDefault: true, isActive: true, inStock: true },
@@ -445,6 +445,18 @@ export async function calculateSystemPricing(
     needsBattery &&
     (selections?.batteryCode === NONE_CODE || (effectiveBudgetTier === "UNDER_1M" && selections?.batteryCode === undefined));
 
+  // Target capacity (2026-08-22) — computed BEFORE the default-code
+  // Promise.all below, not after: with batteries now real fixed-
+  // capacity SKUs (see resolveBudgetTierBatteryCode's doc comment), the
+  // DEFAULT code resolution itself needs this number to pick a battery
+  // actually big enough, not just "the admin's marked default"
+  // regardless of size. `selections?.batteryCapacityKwh` is no longer a
+  // pricing multiplier — it's a TARGET the resolver searches for the
+  // smallest real SKU covering. Real installed capacity ends up being
+  // whichever SKU that resolves to (see resolvedEquipment.battery below).
+  const batteryCapacityKwh =
+    needsBattery && !batteryOptedOut ? (selections?.batteryCapacityKwh ?? systemKw * DEFAULT_BATTERY_KWH_PER_SYSTEM_KW) : 0;
+
   let hasCustomRequirements = false;
   /** "OTHER" -> flag it and fall back to the Recommended default for
    *  that slot (used as a placeholder cost); an explicit code passes
@@ -487,8 +499,11 @@ export async function calculateSystemPricing(
       // only happens for 1M_TO_1_5M/1_5M_PLUS — always the budget-tier
       // battery pick now, never the plain admin default (see this
       // function's doc comment on why "no preference" no longer means
-      // "admin default").
-      needsBattery && !batteryOptedOut ? resolveBudgetTierBatteryCode(serviceType) : Promise.resolve(DEFAULT_BATTERY_CODE),
+      // "admin default"). Now capacity-aware — see
+      // resolveBudgetTierBatteryCode's doc comment.
+      needsBattery && !batteryOptedOut
+        ? resolveBudgetTierBatteryCode(serviceType, batteryCapacityKwh)
+        : Promise.resolve(DEFAULT_BATTERY_CODE),
     ]);
 
   const panelCode = resolveSelection(selections?.panelCode, defaultPanelCode);
@@ -498,8 +513,6 @@ export async function calculateSystemPricing(
   const breakersCode = resolveSelection(selections?.breakersCode, defaultBreakersCode);
   const structureCode = resolveSelection(selections?.structureCode, defaultStructureCode);
   const batteryCode = needsBattery && !batteryOptedOut ? resolveSelection(selections?.batteryCode, defaultBatteryCode) : null;
-  const batteryCapacityKwh =
-    needsBattery && !batteryOptedOut ? (selections?.batteryCapacityKwh ?? systemKw * DEFAULT_BATTERY_KWH_PER_SYSTEM_KW) : 0;
 
   // "Site Works" quantities — Earthing/Lightning stay customer-set (see
   // resolveQty's doc comment below); Civil Blocks is computed further
@@ -545,7 +558,12 @@ export async function calculateSystemPricing(
       getGlobalPricingSettings(),
       needsBattery && batteryCode
         ? adminPrisma.rawVendorCost.findFirst({
-            where: activeFilter("BATTERY", "PER_KWH", batteryCode),
+            // PER_PIECE, not PER_KWH (2026-08-22) — every battery is now
+            // a real, specific product (brand + module capacity) with
+            // its own fixed price, exactly like INVERTER's rework —
+            // see rawBatteryPKR below for the matching no-longer-
+            // scaled-by-capacity fix.
+            where: activeFilter("BATTERY", "PER_PIECE", batteryCode),
             orderBy: { effectiveFrom: "desc" },
           })
         : null,
@@ -662,7 +680,12 @@ export async function calculateSystemPricing(
   const rawBreakersPKR = breakers!.unitCostRs.toNumber() * watts;
   const rawStructurePKR = structure!.unitCostRs.toNumber() * watts;
   const rawInstallationPKR = installationRateForSector(settings, sector) * watts;
-  const rawBatteryPKR = needsBattery && battery ? battery.unitCostRs.toNumber() * batteryCapacityKwh : 0;
+  // Flat PER_PIECE (2026-08-22, matching the inverter rework) — NOT
+  // multiplied by batteryCapacityKwh. That variable is now only a
+  // TARGET used to resolve which real SKU to price (see its own doc
+  // comment above) — the SKU's own flat price already reflects its
+  // real capacity.
+  const rawBatteryPKR = needsBattery && battery ? battery.unitCostRs.toNumber() : 0;
   const rawSiteWorksPKR =
     civilBlockQty * settings.civilWorkCostPerBlock +
     earthingBoreQty * settings.earthingCostPerBore +
@@ -744,7 +767,12 @@ export async function calculateSystemPricing(
             brand: batteryOption?.brand ?? null,
             label: batteryOption?.label ?? batteryCode,
             specValue: batteryOption?.specValue?.toNumber() ?? null,
-            capacityKwh: batteryCapacityKwh,
+            // The RESOLVED SKU's real capacity, not the raw target that
+            // was searched for (2026-08-22) — this is what's actually
+            // being installed/priced. Falls back to the target only for
+            // the OTHER/custom-requirement code (no real specValue on
+            // file to report).
+            capacityKwh: batteryOption?.specValue?.toNumber() ?? batteryCapacityKwh,
           }
         : null,
   };
@@ -801,7 +829,18 @@ export interface AdminBoqPricingInput {
    *  over equipmentSelections.batteryCapacityKwh when provided. Ignored
    *  for ONGRID_ZERO_EXPORT (no battery line at all regardless). Null/
    *  undefined falls back to the pre-survey estimate, same as before this
-   *  field existed. */
+   *  field existed.
+   *
+   *  Since 2026-08-22 (real fixed-capacity battery SKUs), this is a
+   *  TARGET, not an exact number priced directly — calculateAdminBoqPricing
+   *  resolves it to the smallest real, in-stock battery covering it (see
+   *  resolveBudgetTierBatteryCode), which ALSO overrides whatever brand
+   *  the customer originally picked pre-survey (this field winning is the
+   *  whole point: the Field Engineer/Checker's on-site number is more
+   *  trustworthy than a pre-survey guess). The Maker Survey form's
+   *  "Battery Capacity (kWh)" input and the Checker dashboard's own
+   *  recalculate field are UNCHANGED by this — both still just collect a
+   *  plain kWh number; the SKU resolution happens entirely server-side. */
   finalBatteryCapacityKwh?: number | null;
   /** The Target Budget tier the customer's original quote was priced
    *  under (Quote.targetBudgetTier, 2026-08-21) — persisted as the
@@ -905,6 +944,20 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
   // provided — see AdminBoqPricingInput.finalBatteryCapacityKwh's doc comment.
   const hasFinalCapacity = needsBattery && !batteryOptedOut && input.finalBatteryCapacityKwh != null;
 
+  // Target capacity, computed BEFORE code resolution (2026-08-22) — same
+  // reordering and same reasoning as calculateSystemPricing's matching
+  // comment: with real fixed-capacity battery SKUs, the CODE resolution
+  // itself needs this number now, not just the final priced line.
+  const batteryCapacityKwh =
+    needsBattery && !batteryOptedOut
+      ? hasFinalCapacity
+        ? input.finalBatteryCapacityKwh!
+        : (selections?.batteryCapacityKwh ?? systemKw * DEFAULT_BATTERY_KWH_PER_SYSTEM_KW)
+      : 0;
+  if (needsBattery && !batteryOptedOut && (!Number.isFinite(batteryCapacityKwh) || batteryCapacityKwh <= 0)) {
+    throw new PricingConfigurationError(`Invalid battery capacity (${batteryCapacityKwh} kWh) for sector=${sector}.`);
+  }
+
   // Resolve the ACTUAL equipment codes the customer's original quote
   // selected (falling back to the SAME budget-tier-aware default
   // calculateSystemPricing would have resolved for anything unset or
@@ -925,23 +978,23 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     resolveEquipmentCode("BREAKERS", null, selections?.breakersCode, DEFAULT_BREAKERS_CODE),
     // batteryOptedOut is already true whenever effectiveBudgetTier is
     // UNDER_1M (see above), so reaching here only happens for
-    // 1M_TO_1_5M/1_5M_PLUS — always the budget-tier battery pick now,
-    // same reasoning as calculateSystemPricing's matching comment.
-    needsBattery && !batteryOptedOut
-      ? resolveBudgetTierBatteryCode(serviceType).then((defaultBatteryCode) =>
-          resolveEquipmentCode("BATTERY", serviceType, selections?.batteryCode, defaultBatteryCode)
-        )
-      : Promise.resolve(null),
-  ]);
-  const batteryCapacityKwh =
+    // 1M_TO_1_5M/1_5M_PLUS. Two sub-cases (2026-08-22, real fixed-
+    // capacity SKUs): if the Field Engineer supplied a confirmed
+    // on-site capacity (hasFinalCapacity), that OVERRIDES whatever
+    // brand/SKU the customer pre-selected online — same "Checker's
+    // confirmed capacity wins" precedence this field has always had,
+    // just now expressed as "re-resolve to the smallest real SKU
+    // covering the surveyed number" instead of "re-scale the price."
+    // Otherwise, same as before: explicit customer pick wins, else the
+    // budget-tier/capacity-resolved default.
     needsBattery && !batteryOptedOut
       ? hasFinalCapacity
-        ? input.finalBatteryCapacityKwh!
-        : (selections?.batteryCapacityKwh ?? systemKw * DEFAULT_BATTERY_KWH_PER_SYSTEM_KW)
-      : 0;
-  if (needsBattery && !batteryOptedOut && (!Number.isFinite(batteryCapacityKwh) || batteryCapacityKwh <= 0)) {
-    throw new PricingConfigurationError(`Invalid battery capacity (${batteryCapacityKwh} kWh) for sector=${sector}.`);
-  }
+        ? resolveBudgetTierBatteryCode(serviceType, batteryCapacityKwh)
+        : resolveBudgetTierBatteryCode(serviceType, batteryCapacityKwh).then((defaultBatteryCode) =>
+            resolveEquipmentCode("BATTERY", serviceType, selections?.batteryCode, defaultBatteryCode)
+          )
+      : Promise.resolve(null),
+  ]);
 
   // Earthing/Lightning — same "no separate site-survey re-measurement,
   // just re-resolve from the original equipmentSelections" reasoning as
@@ -959,8 +1012,22 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
   });
 
-  const [panel, inverter, breakers, battery, structure, settings, dcCable, acCable, dataCable, dbUpgrade, marginRule, panelOption, inverterOption] =
-    await Promise.all([
+  const [
+    panel,
+    inverter,
+    breakers,
+    battery,
+    structure,
+    settings,
+    dcCable,
+    acCable,
+    dataCable,
+    dbUpgrade,
+    marginRule,
+    panelOption,
+    inverterOption,
+    batteryOption,
+  ] = await Promise.all([
       adminPrisma.rawVendorCost.findFirst({ where: activeCostFilter("SOLAR_PANEL", panelCode), orderBy: { effectiveFrom: "desc" } }),
       // PER_PIECE, not PER_WATT (2026-08-22) — matches
       // calculateSystemPricing's own inverter lookup exactly (this used
@@ -972,8 +1039,15 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
         orderBy: { effectiveFrom: "desc" },
       }),
       adminPrisma.rawVendorCost.findFirst({ where: activeCostFilter("BREAKERS", breakersCode), orderBy: { effectiveFrom: "desc" } }),
+      // unit: "PER_PIECE" (2026-08-22) — matches calculateSystemPricing's
+      // own battery lookup exactly (this used to be the one spot the two
+      // engines could disagree on battery, the same historical gap the
+      // inverter rework already closed for INVERTER).
       needsBattery && batteryCode
-        ? adminPrisma.rawVendorCost.findFirst({ where: activeCostFilter("BATTERY", batteryCode), orderBy: { effectiveFrom: "desc" } })
+        ? adminPrisma.rawVendorCost.findFirst({
+            where: { ...activeCostFilter("BATTERY", batteryCode), unit: "PER_PIECE" },
+            orderBy: { effectiveFrom: "desc" },
+          })
         : null,
       adminPrisma.rawVendorCost.findFirst({
         where: activeCostFilter("MOUNTING_STRUCTURE", structureChoice),
@@ -1008,6 +1082,11 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     // FALLBACK_PANEL_WATTAGE_W / "no cap," same as there.
     adminPrisma.equipmentOption.findFirst({ where: { componentType: "SOLAR_PANEL", code: panelCode } }),
     adminPrisma.equipmentOption.findFirst({ where: { componentType: "INVERTER", code: inverterCode } }),
+    // Real resolved battery capacity for the returned batteryCapacityKwh
+    // field below (2026-08-22) — without this, that field would only
+    // ever report the raw TARGET searched for, not what the resolved
+    // SKU actually holds.
+    needsBattery && batteryCode ? adminPrisma.equipmentOption.findFirst({ where: { componentType: "BATTERY", code: batteryCode } }) : null,
   ]);
 
   const missing = [
@@ -1083,7 +1162,10 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     // Flat PER_PIECE (2026-08-22) — see calculateSystemPricing's matching
     // rawInverterPKR comment; not scaled by watts.
     inverterPKR: round2(inv.unitCostRs.toNumber()),
-    batteryPKR: needsBattery && battery ? round2(battery.unitCostRs.toNumber() * batteryCapacityKwh) : 0,
+    // Flat PER_PIECE (2026-08-22) — see calculateSystemPricing's matching
+    // rawBatteryPKR comment; not scaled by batteryCapacityKwh (that's a
+    // TARGET used to resolve which SKU to price, not a multiplier).
+    batteryPKR: needsBattery && battery ? round2(battery.unitCostRs.toNumber()) : 0,
     breakersPKR: round2(brk.unitCostRs.toNumber() * watts),
     structurePKR: round2(struct.unitCostRs.toNumber() * watts),
     installationPKR: round2(installationRateForSector(settings, sector) * watts),
@@ -1142,7 +1224,11 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     profitPercent,
     breakdown,
     markedUpBreakdown,
-    batteryCapacityKwh: needsBattery && !batteryOptedOut ? batteryCapacityKwh : null,
+    // The RESOLVED SKU's real capacity, not the raw target searched for
+    // (2026-08-22) — same reasoning as calculateSystemPricing's matching
+    // resolvedEquipment.battery.capacityKwh fix. Falls back to the
+    // target only for the OTHER/custom-requirement code.
+    batteryCapacityKwh: needsBattery && !batteryOptedOut ? (batteryOption?.specValue?.toNumber() ?? batteryCapacityKwh) : null,
     siteWorks: { civilBlockQty, earthingBoreQty, lightningArrestorQty },
     panelWashing: panelWashingResult
       ? { panelCount: effectivePanelCount, ratePerPanel: panelWashingResult.ratePerPanel, isMinimumFeeApplied: panelWashingResult.isMinimumFeeApplied }
@@ -1417,47 +1503,30 @@ async function findOversizedInStockInverter(systemKw: number, serviceType: Servi
   return rows[0]?.code ?? findSmallestFittingInStockInverter(systemKw, serviceType);
 }
 
-/** Cheapest in-stock battery by its own per-kWh VENDOR cost (not the
- *  customer-facing marked-up price — "cheapest" is a real-cost/
- *  procurement concept, consistent with this whole file's confidential
- *  boundary). Joins EquipmentOption (inStock/isActive) to RawVendorCost
- *  (the actual PKR/kWh rate) by code === itemName, the established
- *  convention throughout this file. Returns null if nothing qualifies —
+/** Smallest in-stock battery (for this service type) whose own real
+ *  capacity (specValue, kWh) covers the target — "smallest that fits,"
+ *  the exact same principle as findSmallestFittingInStockInverter above
+ *  (2026-08-22 rework: batteries are now real, specific products with a
+ *  fixed kWh capacity each, not a blended Rs/kWh rate a customer could
+ *  dial to any arbitrary number — see EquipmentOption catalog's BATTERY
+ *  section in prisma/seed.ts for the real w11stop-sourced SKUs this
+ *  resolves against). Batteries with no specValue on file are excluded.
+ *  Returns null if nothing in-stock actually covers the target —
  *  callers fall back to getDefaultCode(). */
-async function findCheapestInStockBattery(serviceType: ServiceType): Promise<string | null> {
-  const now = new Date();
-  const options = await adminPrisma.equipmentOption.findMany({
-    where: { componentType: "BATTERY", applicableServiceType: serviceType, isActive: true, inStock: true, isOtherOption: false },
-    select: { code: true },
-  });
-  if (options.length === 0) return null;
-
-  const costs = await adminPrisma.rawVendorCost.findMany({
+async function findSmallestFittingInStockBattery(targetKwh: number, serviceType: ServiceType): Promise<string | null> {
+  const rows = await adminPrisma.equipmentOption.findMany({
     where: {
       componentType: "BATTERY",
-      itemName: { in: options.map((o) => o.code) },
+      applicableServiceType: serviceType,
       isActive: true,
-      effectiveFrom: { lte: now },
-      OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+      inStock: true,
+      isOtherOption: false,
+      specValue: { gte: targetKwh },
     },
-    orderBy: { effectiveFrom: "desc" },
+    orderBy: { specValue: "asc" },
+    take: 1,
   });
-  // Most-recent active cost row per itemName wins — same "first hit"
-  // pattern used everywhere else in this file costs are deduped.
-  const costByItem = new Map<string, number>();
-  for (const c of costs) {
-    if (!costByItem.has(c.itemName)) costByItem.set(c.itemName, c.unitCostRs.toNumber());
-  }
-
-  let cheapestCode: string | null = null;
-  let cheapestCost = Infinity;
-  for (const [itemName, cost] of costByItem) {
-    if (cost < cheapestCost) {
-      cheapestCost = cost;
-      cheapestCode = itemName;
-    }
-  }
-  return cheapestCode;
+  return rows[0]?.code ?? null;
 }
 
 /** Resolves the budget-tier-driven inverter default — smallest-fitting
@@ -1472,12 +1541,17 @@ async function resolveBudgetTierInverterCode(tier: BudgetTier, systemKw: number,
   return code ?? getDefaultCode("INVERTER", serviceType, DEFAULT_INVERTER_CODE_BY_SERVICE_TYPE[serviceType]);
 }
 
-/** Resolves the budget-tier-driven battery default — cheapest in-stock,
- *  for the two tiers that include a battery at all (UNDER_1M forces
- *  NONE_CODE instead, handled separately via batteryOptedOut). Falls
- *  back to the ordinary admin default when nothing in-stock qualifies. */
-async function resolveBudgetTierBatteryCode(serviceType: ServiceType): Promise<string> {
-  const code = await findCheapestInStockBattery(serviceType);
+/** Resolves the budget-tier-driven battery default — smallest REAL,
+ *  in-stock SKU that covers `targetKwh` (2026-08-22: was "cheapest
+ *  in-stock regardless of capacity," which stopped making sense once
+ *  batteries became fixed-capacity products — the cheapest SKU overall
+ *  is almost always the smallest one, which could be badly undersized
+ *  for a Commercial/Industrial system). Used for both tiers that
+ *  include a battery at all (UNDER_1M forces NONE_CODE instead, handled
+ *  separately via batteryOptedOut). Falls back to the ordinary admin
+ *  default when nothing in-stock actually covers the target. */
+async function resolveBudgetTierBatteryCode(serviceType: ServiceType, targetKwh: number): Promise<string> {
+  const code = await findSmallestFittingInStockBattery(targetKwh, serviceType);
   return code ?? getDefaultCode("BATTERY", serviceType, DEFAULT_BATTERY_CODE);
 }
 
