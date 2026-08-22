@@ -22,7 +22,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import Link from "next/link";
-import { AccessGate } from "@/components/internal/AccessGate";
+import { useAdminAuth } from "@/components/admin/AdminAuthContext";
 import { internalFetch } from "@/lib/internal/access";
 import { formatGoogleDriveLink } from "@/lib/utils/googleDrive";
 
@@ -198,11 +198,8 @@ function ToastStack({ toasts }: { toasts: ToastMessage[] }) {
 // ============================================================================
 
 export default function PricingAdminPage() {
-  return (
-    <AccessGate role="ADMIN" title="Equipment & Pricing Control Engine">
-      {({ onUnauthorized }) => <PricingDashboard onUnauthorized={onUnauthorized} />}
-    </AccessGate>
-  );
+  const { onUnauthorized } = useAdminAuth();
+  return <PricingDashboard onUnauthorized={onUnauthorized} />;
 }
 
 function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {

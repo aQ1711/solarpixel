@@ -14,7 +14,7 @@ import {
   UserCog,
 } from "lucide-react";
 import Link from "next/link";
-import { AccessGate } from "@/components/internal/AccessGate";
+import { useAdminAuth } from "@/components/admin/AdminAuthContext";
 import { internalFetch } from "@/lib/internal/access";
 
 // ============================================================================
@@ -115,11 +115,8 @@ const STRUCTURE_LABELS: Record<string, string> = {
 // ============================================================================
 
 export default function CheckerDashboardPage() {
-  return (
-    <AccessGate role="ADMIN" title="Super Admin Access">
-      {({ onUnauthorized }) => <CheckerDashboard onUnauthorized={onUnauthorized} />}
-    </AccessGate>
-  );
+  const { onUnauthorized } = useAdminAuth();
+  return <CheckerDashboard onUnauthorized={onUnauthorized} />;
 }
 
 function CheckerDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {

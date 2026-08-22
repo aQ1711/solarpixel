@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2, RefreshCw, Plus, KeyRound, Copy, Check, X, ShieldCheck, UserPlus } from "lucide-react";
-import { AccessGate } from "@/components/internal/AccessGate";
+import { useAdminAuth } from "@/components/admin/AdminAuthContext";
 import { internalFetch } from "@/lib/internal/access";
 
 // ============================================================================
@@ -45,11 +45,8 @@ const MODULE_LABELS: Record<AdminModule, string> = { LEADS: "Leads", CHECKER: "C
 const ALL_MODULES: AdminModule[] = ["LEADS", "CHECKER"];
 
 export default function AdminTeamPage() {
-  return (
-    <AccessGate role="ADMIN" title="Solar Pixel · Admin">
-      {({ onUnauthorized }) => <TeamDashboard onUnauthorized={onUnauthorized} />}
-    </AccessGate>
-  );
+  const { onUnauthorized } = useAdminAuth();
+  return <TeamDashboard onUnauthorized={onUnauthorized} />;
 }
 
 function TeamDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {

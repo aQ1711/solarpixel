@@ -105,6 +105,18 @@ export interface AdminIdentity {
   name: string;
 }
 
+/** AdminIdentity + every module this identity can actually reach — the
+ *  Super Admin always gets the full module list (they reach everything
+ *  regardless of any AdminModuleGrant row), so a caller never needs a
+ *  separate "or is Super Admin" check alongside `modules.includes(...)`
+ *  for module-gated routes. PRICING/TEAM/MARKET_PRICES aren't AdminModule
+ *  values at all (see that type's doc comment) — those stay Super-Admin-
+ *  only, so `kind === "SUPER_ADMIN"` is still the right check for them,
+ *  same as every existing assertSuperAdminAccess call site. */
+export interface AdminIdentityWithModules extends AdminIdentity {
+  modules: AdminModule[];
+}
+
 /** SHA-256 hex digest — codes are looked up by this hash
  *  (`User.accessCodeHash`), never stored or compared in plaintext. A
  *  plain fast hash (not bcrypt/argon2) is deliberate here: this is an
@@ -124,6 +136,35 @@ export function generateAccessCode(): string {
   return randomBytes(16).toString("hex");
 }
 
+const ALL_ADMIN_MODULES: AdminModule[] = ["LEADS", "CHECKER"];
+
+/**
+ * Resolves WHO is making this request and every module they can reach,
+ * without requiring any specific one — unlike assertAdminModuleAccess
+ * below, this never throws for "valid credential, wrong module," only
+ * for "no valid credential at all." Added 2026-08-22 for the unified
+ * admin sidebar (components/admin/AdminSidebar.tsx / app/admin/
+ * layout.tsx), which needs to know the FULL set of reachable modules up
+ * front to decide which nav links to render — a single "does this pass
+ * for module X" check can't answer that.
+ */
+export async function resolveAdminIdentity(req: NextRequest): Promise<AdminIdentityWithModules> {
+  const provided = req.headers.get("x-internal-token");
+  if (!provided) throw new InternalAuthError();
+
+  if (isSuperAdminSecret(provided)) {
+    return { kind: "SUPER_ADMIN", userId: null, name: "Super Admin", modules: ALL_ADMIN_MODULES };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { accessCodeHash: hashAccessCode(provided) },
+    select: { id: true, name: true, role: true, isActive: true, adminModuleGrants: { select: { module: true } } },
+  });
+  if (!user || !user.isActive || user.role !== "ADMIN") throw new InternalAuthError();
+
+  return { kind: "ADMIN", userId: user.id, name: user.name, modules: user.adminModuleGrants.map((g) => g.module) };
+}
+
 /**
  * Authorizes a request against ONE specific admin module (Leads or
  * Checker). Passes if the request carries EITHER the Super Admin's
@@ -133,24 +174,14 @@ export function generateAccessCode(): string {
  * genuinely valid Admin code that just isn't granted THIS module, which
  * deliberately looks identical to an invalid code from the caller's
  * perspective (no information about which modules exist/are granted
- * leaks to a request that fails auth).
+ * leaks to a request that fails auth). Built on resolveAdminIdentity
+ * above — same identity resolution, just with the one-module check this
+ * function's existing callers all need.
  */
 export async function assertAdminModuleAccess(req: NextRequest, module: AdminModule): Promise<AdminIdentity> {
-  const provided = req.headers.get("x-internal-token");
-  if (!provided) throw new InternalAuthError();
-
-  if (isSuperAdminSecret(provided)) {
-    return { kind: "SUPER_ADMIN", userId: null, name: "Super Admin" };
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { accessCodeHash: hashAccessCode(provided) },
-    select: { id: true, name: true, role: true, isActive: true, adminModuleGrants: { select: { module: true } } },
-  });
-  if (!user || !user.isActive || user.role !== "ADMIN") throw new InternalAuthError();
-  if (!user.adminModuleGrants.some((g) => g.module === module)) throw new InternalAuthError();
-
-  return { kind: "ADMIN", userId: user.id, name: user.name };
+  const identity = await resolveAdminIdentity(req);
+  if (!identity.modules.includes(module)) throw new InternalAuthError();
+  return identity;
 }
 
 // ============================================================================

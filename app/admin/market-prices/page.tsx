@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ShieldCheck, RefreshCw, Play, ExternalLink, Clock, AlertTriangle } from "lucide-react";
-import { AccessGate } from "@/components/internal/AccessGate";
+import { useAdminAuth } from "@/components/admin/AdminAuthContext";
 import { internalFetch } from "@/lib/internal/access";
 
 // ============================================================================
@@ -50,11 +50,8 @@ function formatPkr(n: number): string {
 }
 
 export default function MarketPricesAdminPage() {
-  return (
-    <AccessGate role="ADMIN" title="Market Price Scraper">
-      {({ onUnauthorized }) => <MarketPricesDashboard onUnauthorized={onUnauthorized} />}
-    </AccessGate>
-  );
+  const { onUnauthorized } = useAdminAuth();
+  return <MarketPricesDashboard onUnauthorized={onUnauthorized} />;
 }
 
 function MarketPricesDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {

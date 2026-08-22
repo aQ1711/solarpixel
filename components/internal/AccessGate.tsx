@@ -19,7 +19,7 @@ export function AccessGate({
 }: {
   role: InternalRole;
   title: string;
-  children: (opts: { onUnauthorized: () => void }) => ReactNode;
+  children: (opts: { onUnauthorized: (reason?: string) => void }) => ReactNode;
 }) {
   // Deliberately starts false on every render, server AND client, so the
   // initial client render always matches the server-rendered markup —
@@ -48,11 +48,16 @@ export function AccessGate({
     setError(null);
   }
 
-  function handleUnauthorized() {
+  // Optional `reason` (2026-08-22, for app/admin/layout.tsx's sidebar
+  // "Log out" button) — a deliberate logout isn't an auth FAILURE, so it
+  // shouldn't reuse the default "Invalid access code" copy; every
+  // existing call site still calls this with no args and gets that
+  // original message unchanged.
+  function handleUnauthorized(reason = "Invalid access code — try again.") {
     clearStoredToken(role);
     setUnlocked(false);
     setCode("");
-    setError("Invalid access code — try again.");
+    setError(reason);
   }
 
   if (!unlocked) {

@@ -21,7 +21,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import Link from "next/link";
-import { AccessGate } from "@/components/internal/AccessGate";
+import { useAdminAuth } from "@/components/admin/AdminAuthContext";
 import { internalFetch } from "@/lib/internal/access";
 
 // ============================================================================
@@ -189,11 +189,8 @@ const STATUS_ORDER: LeadStatus[] = ["NEW", "CONTACTED", "SURVEY_BOOKED", "WON", 
 // ============================================================================
 
 export default function AdminLeadsPage() {
-  return (
-    <AccessGate role="ADMIN" title="Solar Pixel · Admin">
-      {({ onUnauthorized }) => <LeadsDashboard onUnauthorized={onUnauthorized} />}
-    </AccessGate>
-  );
+  const { onUnauthorized } = useAdminAuth();
+  return <LeadsDashboard onUnauthorized={onUnauthorized} />;
 }
 
 function LeadsDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
