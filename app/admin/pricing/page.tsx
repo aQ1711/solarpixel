@@ -18,6 +18,8 @@ import {
   FileText,
   Image as ImageIcon,
   TrendingUp,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import Link from "next/link";
 import { AccessGate } from "@/components/internal/AccessGate";
@@ -110,6 +112,13 @@ interface GlobalRules {
   sectorMargins: Record<Sector, number>;
 }
 
+interface TickerSettings {
+  showSolarPanels: boolean;
+  showOnGridInverters: boolean;
+  showHybridInverters: boolean;
+  showBatteries: boolean;
+}
+
 interface Admin {
   id: string;
   name: string;
@@ -199,6 +208,7 @@ export default function PricingAdminPage() {
 function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
   const [items, setItems] = useState<MaterialItem[] | null>(null);
   const [globalRules, setGlobalRules] = useState<GlobalRules | null>(null);
+  const [tickerSettings, setTickerSettings] = useState<TickerSettings | null>(null);
   const [admins, setAdmins] = useState<Admin[]>([]);
   const [actingAdminId, setActingAdminId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -215,19 +225,23 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
     setLoading(true);
     setLoadError(null);
     try {
-      const [pricingRes, adminsRes] = await Promise.all([
+      const [pricingRes, adminsRes, tickerRes] = await Promise.all([
         internalFetch("ADMIN", "/api/admin/pricing"),
         internalFetch("ADMIN", "/api/admin/checker/admins"),
+        internalFetch("ADMIN", "/api/admin/ticker-settings"),
       ]);
-      if (pricingRes.status === 401 || adminsRes.status === 401) return onUnauthorized();
+      if (pricingRes.status === 401 || adminsRes.status === 401 || tickerRes.status === 401) return onUnauthorized();
 
       const pricingData = await pricingRes.json();
       const adminsData = await adminsRes.json();
+      const tickerData = await tickerRes.json();
       if (!pricingRes.ok) throw new Error(pricingData?.error ?? "Could not load pricing data.");
       if (!adminsRes.ok) throw new Error(adminsData?.error ?? "Could not load admins.");
+      if (!tickerRes.ok) throw new Error(tickerData?.error ?? "Could not load ticker settings.");
 
       setItems(pricingData.items ?? []);
       setGlobalRules(pricingData.globalRules ?? null);
+      setTickerSettings(tickerData.tickerSettings ?? null);
       setAdmins(adminsData.admins ?? []);
       setActingAdminId((prev) => prev || adminsData.admins?.[0]?.id || "");
     } catch (err) {
@@ -299,6 +313,32 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
       if (!res.ok) throw new Error(data?.error ?? "Save failed.");
       setGlobalRules(data.globalRules);
       pushSuccess("Rate updated.");
+      return true;
+    } catch (err) {
+      pushError(err instanceof Error ? err.message : "Save failed.");
+      return false;
+    }
+  }
+
+  // Market Watch ticker row visibility — instant click-to-toggle, same
+  // "fire the PATCH, update state on success" pattern as the material
+  // table's In Stock/Out of Stock toggle.
+  async function saveTickerSettings(patch: Partial<TickerSettings>) {
+    if (!actingAdminId) {
+      pushError("Select an admin identity before saving.");
+      return false;
+    }
+    try {
+      const res = await internalFetch("ADMIN", "/api/admin/ticker-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updatedById: actingAdminId, ...patch }),
+      });
+      if (res.status === 401) return onUnauthorized(), false;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Save failed.");
+      setTickerSettings(data.tickerSettings);
+      pushSuccess("Ticker updated.");
       return true;
     } catch (err) {
       pushError(err instanceof Error ? err.message : "Save failed.");
@@ -455,6 +495,8 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
             onSaveLightningArrestorRate={(v) => saveGlobalPricingRates({ lightningArrestorCostPerUnit: v })}
           />
         )}
+
+        {tickerSettings && <TickerSettingsCard settings={tickerSettings} onToggle={(field) => saveTickerSettings({ [field]: !tickerSettings[field] })} />}
 
         {items && (
           <>
@@ -717,6 +759,47 @@ function KpiCard({ label, children }: { label: string; suffix?: string; children
     <div className="rounded-2xl border border-stone-200 bg-white p-4">
       <p className="text-xs font-medium text-stone-500">{label}</p>
       <div className="mt-2">{children}</div>
+    </div>
+  );
+}
+
+const TICKER_ROWS: { key: keyof TickerSettings; label: string }[] = [
+  { key: "showSolarPanels", label: "Solar Panels" },
+  { key: "showOnGridInverters", label: "On-Grid Inverters" },
+  { key: "showHybridInverters", label: "Hybrid Inverters" },
+  { key: "showBatteries", label: "Batteries" },
+];
+
+/** Storefront Market Watch ticker row visibility — 4 instant-toggle
+ *  pills, same "click immediately fires the save" pattern as the
+ *  material table's In Stock/Out of Stock button (no separate Save
+ *  button, no local-only draft state). A row hidden here disappears
+ *  from the live ticker on the next page load — see
+ *  MarketWatchTicker in app/page.tsx, which reads these same 4 booleans
+ *  off /api/equipment-options's response. */
+function TickerSettingsCard({ settings, onToggle }: { settings: TickerSettings; onToggle: (field: keyof TickerSettings) => void }) {
+  return (
+    <div className="mt-3 rounded-2xl border border-stone-200 bg-white p-4">
+      <p className="text-xs font-medium text-stone-500">Market Watch Ticker — Visible Rows</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {TICKER_ROWS.map(({ key, label }) => {
+          const visible = settings[key];
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onToggle(key)}
+              title={visible ? `${label} — visible on the ticker, click to hide` : `${label} — hidden from the ticker, click to show`}
+              className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors duration-200 ${
+                visible ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-stone-200 bg-stone-50 text-stone-400"
+              }`}
+            >
+              {visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+              {label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

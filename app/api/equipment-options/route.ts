@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Sector } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { getPublicUnitPricesPKR } from "@/lib/db/admin";
+import { getTickerSettings } from "@/lib/db/tickerSettings";
 
 const VALID_SECTORS: Sector[] = ["RESIDENTIAL", "COMMERCIAL", "INDUSTRIAL"];
 
@@ -21,13 +22,20 @@ const VALID_SECTORS: Sector[] = ["RESIDENTIAL", "COMMERCIAL", "INDUSTRIAL"];
  * required — this is a display nicety, not the authoritative price (the
  * live SOLAR_PREVIEW total is), so a missing/invalid sector degrading to
  * a default is fine.
+ *
+ * `tickerSettings` — the Market Watch ticker's admin-editable row
+ * visibility toggles (see TickerSettings's doc comment in
+ * schema.prisma). Bundled into this same response rather than a
+ * separate endpoint: MarketWatchTicker already fetches this route once
+ * on mount for its own item data, and the ticker is the only consumer
+ * of tickerSettings, so a second round trip would be pure overhead.
  */
 export async function GET(req: NextRequest) {
   try {
     const sectorParam = req.nextUrl.searchParams.get("sector");
     const sector: Sector = VALID_SECTORS.includes(sectorParam as Sector) ? (sectorParam as Sector) : "RESIDENTIAL";
 
-    const [options, unitPrices] = await Promise.all([
+    const [options, unitPrices, tickerSettings] = await Promise.all([
       prisma.equipmentOption.findMany({
         where: { isActive: true },
         orderBy: [{ componentType: "asc" }, { sortOrder: "asc" }],
@@ -57,6 +65,7 @@ export async function GET(req: NextRequest) {
         },
       }),
       getPublicUnitPricesPKR(sector),
+      getTickerSettings(),
     ]);
 
     const serialized = options.map((o) => ({
@@ -81,7 +90,7 @@ export async function GET(req: NextRequest) {
       (grouped[option.componentType] ??= []).push(option);
     }
 
-    return NextResponse.json({ options: grouped });
+    return NextResponse.json({ options: grouped, tickerSettings });
   } catch (err) {
     console.error("[GET /api/equipment-options]", err);
     return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });

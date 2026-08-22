@@ -300,6 +300,10 @@ model User {
   // updates they made (see GlobalPricingSettings)
   globalPricingSettingsUpdated GlobalPricingSettings[] @relation("GlobalPricingSettingsUpdatedBy")
 
+  // SUPER_ADMIN: Market Watch ticker visibility toggle updates they made
+  // (see TickerSettings)
+  tickerSettingsUpdated TickerSettings[] @relation("TickerSettingsUpdatedBy")
+
   // Workflow actions this user performed (approvals, dispatches, etc.)
   auditLogsAsActor AuditLog[] @relation("AuditLogActor")
 
@@ -877,4 +881,34 @@ model MarketPriceSnapshot {
   @@index([searchBrand])
   @@map("market_price_snapshots")
   @@schema("vendor_private")
+}
+
+/** Storefront Market Watch ticker visibility toggles (2026-08-22) — one
+ *  boolean per ticker row, admin-editable from /admin/pricing. Lives in
+ *  the PUBLIC schema, not vendor_private: this is pure display config
+ *  (which rows to show), never a price or cost figure, and the
+ *  anonymous storefront itself needs to read it directly —
+ *  app_public_role has zero grants on vendor_private (see this file's
+ *  top doc comment), so anything the public page reads on its own must
+ *  live here. Singleton row, same "find the one row, update it in
+ *  place" pattern GlobalPricingSettings uses — but the read/write
+ *  functions live in lib/db/tickerSettings.ts (the public-safe `prisma`
+ *  client from lib/db/client.ts), not lib/db/admin.ts, since there's no
+ *  vendor-cost boundary to cross for this table. */
+model TickerSettings {
+  id String @id @default(cuid())
+
+  showSolarPanels     Boolean @default(true)
+  showOnGridInverters Boolean @default(true)
+  showHybridInverters Boolean @default(true)
+  showBatteries       Boolean @default(true)
+
+  updatedById String
+  updatedBy   User   @relation("TickerSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ticker_settings")
+  @@schema("public")
 }

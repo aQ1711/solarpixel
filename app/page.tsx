@@ -553,10 +553,31 @@ function toTickerItems(options: EquipmentOptionDTO[] | undefined): TickerItem[] 
     .map((o) => ({ label: o.label, value: `Rs ${Math.round(o.unitPricePKR)}${o.unit ? UNIT_SUFFIX[o.unit] : "/W"}` }));
 }
 
+/** Admin-editable Market Watch row visibility (2026-08-22) — see
+ *  TickerSettings's doc comment in schema.prisma and the toggle UI on
+ *  /admin/pricing. Mirrors the server DTO exactly. */
+interface TickerVisibility {
+  showSolarPanels: boolean;
+  showOnGridInverters: boolean;
+  showHybridInverters: boolean;
+  showBatteries: boolean;
+}
+// Every row visible until the real settings load — matches
+// TickerSettings' own DB-side default, so a slow/failed settings fetch
+// never silently hides a row the admin actually wants shown.
+const DEFAULT_TICKER_VISIBILITY: TickerVisibility = {
+  showSolarPanels: true,
+  showOnGridInverters: true,
+  showHybridInverters: true,
+  showBatteries: true,
+};
+
 function MarketWatchTicker() {
   const [panelItems, setPanelItems] = useState<TickerItem[] | null>(null);
   const [hybridInverterItems, setHybridInverterItems] = useState<TickerItem[] | null>(null);
   const [ongridInverterItems, setOngridInverterItems] = useState<TickerItem[] | null>(null);
+  const [batteryItems, setBatteryItems] = useState<TickerItem[] | null>(null);
+  const [visibility, setVisibility] = useState<TickerVisibility>(DEFAULT_TICKER_VISIBILITY);
 
   useEffect(() => {
     let cancelled = false;
@@ -574,6 +595,8 @@ function MarketWatchTicker() {
         const allInverters = options.INVERTER ?? [];
         setHybridInverterItems(toTickerItems(allInverters.filter((o) => o.applicableServiceType === "HYBRID_BATTERY")));
         setOngridInverterItems(toTickerItems(allInverters.filter((o) => o.applicableServiceType === "ONGRID_ZERO_EXPORT")));
+        setBatteryItems(toTickerItems(options.BATTERY));
+        if (data.tickerSettings) setVisibility(data.tickerSettings);
       })
       // Purely decorative — a failed fetch just leaves the ticker empty
       // rather than ever falling back to stale/fabricated numbers.
@@ -583,19 +606,46 @@ function MarketWatchTicker() {
     };
   }, []);
 
-  // Fixed-height placeholder while loading (or if the catalog genuinely
-  // has nothing priced yet) — same three-row height as the real ticker, so
-  // Header/Hero below never jump once real data arrives. Each row is
-  // ~28.5px (py-1.5 + text-xs line height, measured live) so 3 rows ≈ 86px.
-  if (!panelItems?.length || !hybridInverterItems?.length || !ongridInverterItems?.length) {
-    return <div aria-hidden className="safe-top-thin w-full bg-zinc-950" style={{ height: "86px" }} />;
+  const stillLoading = panelItems === null || hybridInverterItems === null || ongridInverterItems === null || batteryItems === null;
+
+  // Only a row that's BOTH admin-enabled AND has at least one real,
+  // priced item actually renders — an enabled row with zero items would
+  // just be an empty animated strip, and a disabled row never shows
+  // regardless of how much real data it has.
+  const rows: { key: string; items: TickerItem[]; tag: string; direction: "left" | "right" }[] = [];
+  if (visibility.showSolarPanels && panelItems?.length) rows.push({ key: "panels", items: panelItems, tag: "PANELS", direction: "left" });
+  if (visibility.showHybridInverters && hybridInverterItems?.length)
+    rows.push({ key: "hybrid", items: hybridInverterItems, tag: "HYBRID", direction: "right" });
+  if (visibility.showOnGridInverters && ongridInverterItems?.length)
+    rows.push({ key: "ongrid", items: ongridInverterItems, tag: "ON-GRID", direction: "left" });
+  if (visibility.showBatteries && batteryItems?.length) rows.push({ key: "batteries", items: batteryItems, tag: "BATTERIES", direction: "right" });
+
+  // Fixed-height placeholder while loading, sized for the DEFAULT
+  // (all-4-visible) case — the common one — so Header/Hero below don't
+  // jump once real data arrives. Each row is ~28.5px (py-1.5 + text-xs
+  // line height, measured live), so 4 rows ≈ 115px. If an admin has
+  // actually hidden a row, the placeholder is briefly taller than the
+  // real (shorter) ticker for one paint — a one-time, minor mismatch,
+  // not a fabricated-data issue.
+  if (stillLoading) {
+    return <div aria-hidden className="safe-top-thin w-full bg-zinc-950" style={{ height: "115px" }} />;
   }
+
+  // Every enabled row turned out empty (or every row is admin-hidden) —
+  // nothing real to show, so show nothing rather than an empty shell.
+  if (rows.length === 0) return null;
 
   return (
     <div aria-hidden className="safe-top-thin relative w-full overflow-hidden bg-zinc-950 font-mono text-xs">
-      <TickerRow items={panelItems} direction="left" tag="PANELS" />
-      <TickerRow items={hybridInverterItems} direction="right" tag="HYBRID" className="border-t border-zinc-800" />
-      <TickerRow items={ongridInverterItems} direction="left" tag="ON-GRID" className="border-t border-zinc-800" />
+      {rows.map((row, i) => (
+        <TickerRow
+          key={row.key}
+          items={row.items}
+          direction={row.direction}
+          tag={row.tag}
+          className={i > 0 ? "border-t border-zinc-800" : undefined}
+        />
+      ))}
     </div>
   );
 }
