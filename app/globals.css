@@ -145,8 +145,17 @@ body {
   animation: drawer-in 0.25s ease-out both;
 }
 
-/* Market Watch ticker — two infinite marquee rows (app/page.tsx's
-   MarketWatchTicker). The row's item list is rendered twice back-to-back
+/* Market Watch ticker — three infinite marquee rows (Panels / Hybrid
+   Inverters / On-Grid Inverters, app/page.tsx's MarketWatchTicker). The
+   32s/36s durations below are just a fallback for the brief pre-hydration
+   paint — TickerRow always overrides `animation-duration` with an inline
+   style computed from that row's real item count (see
+   TICKER_SECONDS_PER_ITEM), so every row scrolls at the same perceived
+   pace regardless of how many SKUs it has. A fixed duration here alone
+   was the original "inverter row got fast" bug: once the inverter
+   catalog grew from ~5-6 items to 12, the same 36s now had to cover
+   roughly double the scroll distance for the same perceived speed.
+   The row's item list is rendered twice back-to-back
    and translated by exactly -50%/+50% — always precisely one copy's
    width no matter the actual pixel width, so the loop never stutters or
    visibly jumps at the seam the way a fixed-px translateX would.

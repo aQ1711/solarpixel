@@ -540,13 +540,13 @@ interface TickerItem {
   value: string;
 }
 
-/** SOLAR_PANEL and INVERTER options are both priced PER_WATT in this
- *  catalog (see EquipmentOption's doc comment) — so both rows show a
- *  "Rs X/W" rate, not a fabricated flat "Rs 310,000"-style unit price for
- *  a specific inverter capacity the way the old hardcoded copy did.
- *  Drops "Other / Specific Requirement" (no real price to show) and any
- *  item with a null unitPricePKR (a real data-entry gap) — never shows a
- *  made-up number, same convention as everywhere else this DTO is used. */
+/** Each row shows real unit prices in whatever CostUnit they're actually
+ *  denominated in — PER_WATT for panels, PER_PIECE for inverters (see
+ *  `unit`/UNIT_SUFFIX) — never a fabricated flat number the way the old
+ *  hardcoded copy did. Drops "Other / Specific Requirement" (no real price
+ *  to show) and any item with a null unitPricePKR (a real data-entry gap)
+ *  — never shows a made-up number, same convention as everywhere else this
+ *  DTO is used. */
 function toTickerItems(options: EquipmentOptionDTO[] | undefined): TickerItem[] {
   return (options ?? [])
     .filter((o): o is EquipmentOptionDTO & { unitPricePKR: number } => !o.isOtherOption && o.unitPricePKR !== null)
@@ -555,7 +555,8 @@ function toTickerItems(options: EquipmentOptionDTO[] | undefined): TickerItem[] 
 
 function MarketWatchTicker() {
   const [panelItems, setPanelItems] = useState<TickerItem[] | null>(null);
-  const [inverterItems, setInverterItems] = useState<TickerItem[] | null>(null);
+  const [hybridInverterItems, setHybridInverterItems] = useState<TickerItem[] | null>(null);
+  const [ongridInverterItems, setOngridInverterItems] = useState<TickerItem[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -565,7 +566,14 @@ function MarketWatchTicker() {
         if (cancelled) return;
         const options: EquipmentOptionsByType = data.options ?? {};
         setPanelItems(toTickerItems(options.SOLAR_PANEL));
-        setInverterItems(toTickerItems(options.INVERTER));
+        // Inverters now span two genuinely different product lines (Hybrid
+        // w/ battery vs. On-Grid) with real, different SKUs each — a single
+        // combined row was misleading (a Hybrid price could read next to an
+        // On-Grid label with no way to tell which was which), so they get
+        // their own rows, filtered by applicableServiceType.
+        const allInverters = options.INVERTER ?? [];
+        setHybridInverterItems(toTickerItems(allInverters.filter((o) => o.applicableServiceType === "HYBRID_BATTERY")));
+        setOngridInverterItems(toTickerItems(allInverters.filter((o) => o.applicableServiceType === "ONGRID_ZERO_EXPORT")));
       })
       // Purely decorative — a failed fetch just leaves the ticker empty
       // rather than ever falling back to stale/fabricated numbers.
@@ -576,16 +584,18 @@ function MarketWatchTicker() {
   }, []);
 
   // Fixed-height placeholder while loading (or if the catalog genuinely
-  // has nothing priced yet) — same two-row height as the real ticker, so
-  // Header/Hero below never jump once real data arrives.
-  if (!panelItems?.length || !inverterItems?.length) {
-    return <div aria-hidden className="safe-top-thin w-full bg-zinc-950" style={{ height: "57px" }} />;
+  // has nothing priced yet) — same three-row height as the real ticker, so
+  // Header/Hero below never jump once real data arrives. Each row is
+  // ~28.5px (py-1.5 + text-xs line height, measured live) so 3 rows ≈ 86px.
+  if (!panelItems?.length || !hybridInverterItems?.length || !ongridInverterItems?.length) {
+    return <div aria-hidden className="safe-top-thin w-full bg-zinc-950" style={{ height: "86px" }} />;
   }
 
   return (
     <div aria-hidden className="safe-top-thin relative w-full overflow-hidden bg-zinc-950 font-mono text-xs">
-      <TickerRow items={panelItems} direction="left" />
-      <TickerRow items={inverterItems} direction="right" className="border-t border-zinc-800" />
+      <TickerRow items={panelItems} direction="left" tag="PANELS" />
+      <TickerRow items={hybridInverterItems} direction="right" tag="HYBRID" className="border-t border-zinc-800" />
+      <TickerRow items={ongridInverterItems} direction="left" tag="ON-GRID" className="border-t border-zinc-800" />
     </div>
   );
 }
@@ -601,8 +611,35 @@ function MarketWatchTicker() {
  *  keeps the row from ever being allowed to affect document width/wrap
  *  even if a future change nests this component somewhere the outer
  *  div's overflow-hidden doesn't reach. */
-function TickerRow({ items, direction, className }: { items: TickerItem[]; direction: "left" | "right"; className?: string }) {
+/** How many seconds of scroll time each ticker item "deserves" — tuned
+ *  against the original panel row (32s for 3 real panels ≈ 10.67s/item),
+ *  which read at a "normal" pace. A FIXED duration regardless of item
+ *  count (the old bug) made any row that grew past its original item
+ *  count scroll proportionally faster for the same distance — this is
+ *  what made the inverter row feel fast once it grew from ~5-6 items to
+ *  12. Computing duration = items.length * this constant keeps every
+ *  row's perceived speed the same no matter how many SKUs the catalog
+ *  ends up with. */
+const TICKER_SECONDS_PER_ITEM = 32 / 3;
+const TICKER_MIN_SECONDS = 16;
+
+function TickerRow({
+  items,
+  direction,
+  tag,
+  className,
+}: {
+  items: TickerItem[];
+  direction: "left" | "right";
+  /** Short pinned label (e.g. "HYBRID" / "ON-GRID") at the row's left
+   *  edge, static and non-scrolling — the visual differentiator between
+   *  the two inverter rows the ticker items themselves don't otherwise
+   *  carry (their label text is just the product name). */
+  tag?: string;
+  className?: string;
+}) {
   const doubled = [...items, ...items];
+  const durationSeconds = Math.max(TICKER_MIN_SECONDS, Math.round(items.length * TICKER_SECONDS_PER_ITEM));
   return (
     // pl-4 lives here, on the non-animated overflow-hidden wrapper, NOT
     // on the translating row below — it used to be on the row itself,
@@ -610,7 +647,12 @@ function TickerRow({ items, direction, className }: { items: TickerItem[]; direc
     // first copy, none after the second) and broke the "translate by
     // exactly -50%" seamless-loop assumption. That was only HALF the bug
     // though (see below).
-    <div className={`flex w-full overflow-hidden whitespace-nowrap pl-4 ${className ?? ""}`}>
+    <div className={`flex w-full items-center overflow-hidden whitespace-nowrap pl-4 ${className ?? ""}`}>
+      {tag ? (
+        <span className="mr-3 shrink-0 rounded-sm bg-zinc-800 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-400">
+          {tag}
+        </span>
+      ) : null}
       {/* No `gap-*` on this row — flex `gap` only inserts spacing BETWEEN
           elements (n-1 gaps for n items), which is inherently asymmetric
           once you duplicate the list for the loop: two copies of 3 items
@@ -628,6 +670,7 @@ function TickerRow({ items, direction, className }: { items: TickerItem[]; direc
         className={`flex shrink-0 items-center whitespace-nowrap py-1.5 ${
           direction === "left" ? "animate-marquee-left" : "animate-marquee-right"
         }`}
+        style={{ animationDuration: `${durationSeconds}s` }}
       >
         {doubled.map((item, i) => (
           <span key={i} className="flex items-center gap-1.5 pr-20">
