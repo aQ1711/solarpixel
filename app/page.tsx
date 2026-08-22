@@ -25,7 +25,7 @@ import HomePageContent from "./HomePageContent";
 export const metadata: Metadata = {
   title: "Live Solar Calculator & Quotations in Lahore | Solar Pixel",
   description:
-    "Get an instant solar system quote for your home or business in Lahore. Compare real Longi, Jinko, Huawei, Solis & Growatt panel and inverter prices, size your system in seconds, and go live in 48 hours — no WAPDA net metering paperwork.",
+    "Get an instant solar system quote for your home or business in Lahore. Compare real Longi, Jinko, Huawei, Solis & Growatt panel and inverter prices, size your system in seconds, and go live in 48 hours, with no WAPDA net metering paperwork.",
   alternates: {
     canonical: "/",
   },

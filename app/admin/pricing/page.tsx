@@ -242,7 +242,7 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
       setAdmins(adminsData.admins ?? []);
       setActingAdminId((prev) => prev || adminsData.admins?.[0]?.id || "");
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Network error — please try again.");
+      setLoadError(err instanceof Error ? err.message : "Network error. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -777,7 +777,7 @@ const TICKER_ROWS: { key: keyof TickerSettings; label: string }[] = [
 function TickerSettingsCard({ settings, onToggle }: { settings: TickerSettings; onToggle: (field: keyof TickerSettings) => void }) {
   return (
     <div className="mt-3 rounded-2xl border border-stone-200 bg-white p-4">
-      <p className="text-xs font-medium text-stone-500">Market Watch Ticker — Visible Rows</p>
+      <p className="text-xs font-medium text-stone-500">Market Watch Ticker: Visible Rows</p>
       <div className="mt-2 flex flex-wrap gap-2">
         {TICKER_ROWS.map(({ key, label }) => {
           const visible = settings[key];
@@ -786,7 +786,7 @@ function TickerSettingsCard({ settings, onToggle }: { settings: TickerSettings; 
               key={key}
               type="button"
               onClick={() => onToggle(key)}
-              title={visible ? `${label} — visible on the ticker, click to hide` : `${label} — hidden from the ticker, click to show`}
+              title={visible ? `${label}: visible on the ticker, click to hide` : `${label}: hidden from the ticker, click to show`}
               className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors duration-200 ${
                 visible ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-stone-200 bg-stone-50 text-stone-400"
               }`}
@@ -945,7 +945,7 @@ function MaterialTable({
   if (items.length === 0) {
     return (
       <div className="mt-4 rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center text-sm text-stone-500">
-        No active materials in this category yet — add one to get started.
+        No active materials in this category yet. Add one to get started.
       </div>
     );
   }
@@ -1071,7 +1071,7 @@ function MaterialTable({
                   <button
                     type="button"
                     onClick={() => onSaveMaterial(item.id, { inStock: !item.inStock })}
-                    title={item.inStock ? "In stock — click to mark out of stock" : "Out of stock — click to restock"}
+                    title={item.inStock ? "In stock, click to mark out of stock" : "Out of stock, click to restock"}
                     className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors duration-200 ${
                       item.inStock
                         ? "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -1442,7 +1442,7 @@ function MaterialModal({
                   disabled={isEdit}
                   className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-sm text-stone-900 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <option value="">— Select —</option>
+                  <option value="">Select…</option>
                   <option value="SINGLE_PHASE">Single Phase</option>
                   <option value="THREE_PHASE">Three Phase</option>
                 </select>
@@ -1479,7 +1479,7 @@ function MaterialModal({
 
           <div>
             <label className="mb-1.5 block text-xs font-medium text-stone-600">
-              Margin % <span className="font-normal text-stone-400">(optional — defaults to Residential&apos;s {residentialMargin}%)</span>
+              Margin % <span className="font-normal text-stone-400">(optional, defaults to Residential&apos;s {residentialMargin}%)</span>
             </label>
             <input
               value={marginPercentOverride}

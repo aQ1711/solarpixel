@@ -212,7 +212,7 @@ function LeadsDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
       setLeads(data.leads ?? []);
       setViewer(data.viewer ?? null);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Network error — please try again.");
+      setLoadError(err instanceof Error ? err.message : "Network error. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -297,7 +297,7 @@ function LeadsDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
           </div>
         ) : leads && leads.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center text-sm text-stone-500">
-            No leads yet — they&apos;ll show up here as customers submit quotes on the storefront.
+            No leads yet. They&apos;ll show up here as customers submit quotes on the storefront.
           </div>
         ) : (
           <LeadsTable
@@ -381,7 +381,7 @@ function RecommendedSystemCalculator() {
           paybackYears: data.paybackYears,
         });
       } catch {
-        setError("Network error — please try again.");
+        setError("Network error. Please try again.");
         setPreview(null);
       } finally {
         setLoading(false);
@@ -488,7 +488,7 @@ function RecommendedSystemCalculator() {
                   </p>
                   <p>
                     <span className="font-semibold text-stone-900">3. Solar Output:</span> A {preview.systemKw} kW system produces ~
-                    {dailySolarOutputKwh.toFixed(1)} kWh/day in Lahore — sized to cover that daytime demand.
+                    {dailySolarOutputKwh.toFixed(1)} kWh/day in Lahore, sized to cover that daytime demand.
                   </p>
                   {serviceType === "HYBRID_BATTERY" && (
                     <p>
@@ -497,7 +497,7 @@ function RecommendedSystemCalculator() {
                     </p>
                   )}
                   <p className="border-t border-stone-200 pt-1.5 font-semibold text-violet-700">
-                    Result: Sized to offset ~{Math.round(daytimeUsagePct * 100)}% of the bill — the portion used during daylight hours,
+                    Result: Sized to offset ~{Math.round(daytimeUsagePct * 100)}% of the bill, the portion used during daylight hours,
                     without exporting anything back to the grid.
                   </p>
                 </div>
@@ -650,7 +650,7 @@ function StatusSelect({
           value={status}
           onChange={(e) => handleChange(e.target.value as LeadStatus)}
           disabled={saving}
-          aria-label={`Status for this lead — currently ${cfg.label}`}
+          aria-label={`Status for this lead: currently ${cfg.label}`}
           className="cursor-pointer appearance-none bg-transparent py-1 pr-6 pl-1.5 text-xs font-medium outline-none disabled:cursor-wait"
         >
           {STATUS_ORDER.map((s) => (
@@ -662,7 +662,7 @@ function StatusSelect({
       </span>
       {saving && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-stone-400" />}
       {error && (
-        <span className="text-[10px] text-red-600" title="Could not save — reverted">
+        <span className="text-[10px] text-red-600" title="Could not save, reverted">
           !
         </span>
       )}
@@ -702,7 +702,7 @@ function LeadDetailDrawer({
         if (!res.ok) throw new Error(data?.error ?? "Could not load this lead.");
         if (!cancelled) setDetail(data as LeadDetail);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Network error — please try again.");
+        if (!cancelled) setError(err instanceof Error ? err.message : "Network error. Please try again.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -839,7 +839,7 @@ function LeadDetailContent({
             )}
             {quote.breakdownIsEstimate && !quote.breakdownError && (
               <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800">
-                This quote predates saved pricing snapshots — figures below are reconstructed from today&apos;s
+                This quote predates saved pricing snapshots. Figures below are reconstructed from today&apos;s
                 catalog prices, not necessarily what the customer originally saw.
               </p>
             )}

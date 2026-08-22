@@ -190,7 +190,7 @@ export async function assertAdminModuleAccess(req: NextRequest, module: AdminMod
 
 export class NoSuperAdminConfiguredError extends Error {
   constructor() {
-    super("No active SUPER_ADMIN user exists in the database — run prisma/seed.ts (or seed one manually) first.");
+    super("No active SUPER_ADMIN user exists in the database. Run prisma/seed.ts (or seed one manually) first.");
   }
 }
 

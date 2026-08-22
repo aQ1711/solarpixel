@@ -50,7 +50,7 @@ export default function TermsPage() {
       </p>
       <p>
         Solar Pixel does separately warrant the quality of its own installation workmanship for a period to be
-        confirmed in your installation contract — this is distinct from, and does not extend, any manufacturer
+        confirmed in your installation contract. This is distinct from, and does not extend, any manufacturer
         equipment warranty.
       </p>
 
@@ -86,7 +86,7 @@ export default function TermsPage() {
       <p>These Terms are governed by the laws of Pakistan, and any dispute will be subject to the jurisdiction of the courts of Lahore, Punjab.</p>
 
       <h2>9. Contact Us</h2>
-      <p>Questions about these Terms? Reach us on WhatsApp or by email — see the footer below.</p>
+      <p>Questions about these Terms? Reach us on WhatsApp or by email. See the footer below.</p>
     </LegalPageShell>
   );
 }

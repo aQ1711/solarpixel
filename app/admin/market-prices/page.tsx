@@ -121,7 +121,7 @@ function MarketPricesDashboard({ onUnauthorized }: { onUnauthorized: () => void 
             </p>
             <h1 className="mt-0.5 text-xl font-bold text-stone-900">Market Price Scraper</h1>
             <p className="mt-1 text-sm text-stone-500">
-              Real vendor listings from w11stop.com — reference only, never auto-applied to the live catalog.
+              Real vendor listings from w11stop.com, reference only, never auto-applied to the live catalog.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -154,7 +154,7 @@ function MarketPricesDashboard({ onUnauthorized }: { onUnauthorized: () => void 
               {snapshots?.length ?? 0} listings
             </span>
           ) : (
-            <span>No snapshot yet — click Run Now, or wait for the daily 7:00 AM (PKT) automatic run.</span>
+            <span>No snapshot yet. Click Run Now, or wait for the daily 7:00 AM (PKT) automatic run.</span>
           )}
         </div>
 

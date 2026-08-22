@@ -42,7 +42,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ us
     }
     const { isActive, modules } = parsed.data;
     if (isActive === undefined && modules === undefined) {
-      return NextResponse.json({ error: "Nothing to update — pass isActive and/or modules." }, { status: 400 });
+      return NextResponse.json({ error: "Nothing to update. Pass isActive and/or modules." }, { status: 400 });
     }
 
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
@@ -60,7 +60,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ us
       } catch (err) {
         if (err instanceof NoSuperAdminConfiguredError) {
           return NextResponse.json(
-            { error: "No Super Admin user is configured in the database — cannot attribute this action." },
+            { error: "No Super Admin user is configured in the database. Cannot attribute this action." },
             { status: 503 }
           );
         }

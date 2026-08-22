@@ -10,7 +10,7 @@ import { ImageResponse } from "next/og";
  * violet-600 accent matches the hero's "Up to 80%" highlight in
  * app/HomePageContent.tsx) — not an invented color scheme.
  */
-export const alt = "Solar Pixel — Solar Installation Lahore";
+export const alt = "Solar Pixel: Solar Installation Lahore";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 

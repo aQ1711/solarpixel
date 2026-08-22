@@ -39,7 +39,7 @@ export const metadata: Metadata = {
     template: "%s | Solar Pixel",
   },
   description:
-    "Solar Pixel installs Hybrid (Battery) and On-Grid solar systems for homes and businesses across Lahore and Punjab. Get an instant, real-pricing solar calculator quote and go live in 48 hours — no WAPDA net metering paperwork.",
+    "Solar Pixel installs Hybrid (Battery) and On-Grid solar systems for homes and businesses across Lahore and Punjab. Get an instant, real-pricing solar calculator quote and go live in 48 hours, with no WAPDA net metering paperwork.",
   keywords: [
     "Solar Installation Lahore",
     "Solar Calculator Pakistan",
@@ -77,7 +77,7 @@ export const metadata: Metadata = {
     title: "Solar Installation Lahore | Solar Pixel",
     description:
       "Instant solar sizing and pricing for Lahore homes and businesses. Real brand pricing, live in 48 hours, no WAPDA net metering paperwork.",
-    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "Solar Pixel — Solar Installation Lahore" }],
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "Solar Pixel: Solar Installation Lahore" }],
   },
   twitter: {
     card: "summary_large_image",

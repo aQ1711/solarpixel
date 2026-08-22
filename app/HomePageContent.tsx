@@ -1912,7 +1912,7 @@ function CalculatorCard() {
                           </p>
                           <p>
                             <span className="font-semibold text-slate-900">3. Solar Output:</span> A {livePreview.systemKw} kW system
-                            produces ~{dailySolarOutputKwh.toFixed(1)} kWh/day in Lahore — sized to cover that daytime demand.
+                            produces ~{dailySolarOutputKwh.toFixed(1)} kWh/day in Lahore, sized to cover that daytime demand.
                           </p>
                           {serviceType === "HYBRID_BATTERY" && (
                             <p>
@@ -1924,7 +1924,7 @@ function CalculatorCard() {
                             <p>
                               <span className="font-semibold text-slate-900">5. Budget Strategy:</span>{" "}
                               {targetBudgetTier === "UNDER_1M" &&
-                                "Smallest in-stock hybrid inverter that fits your system, no battery — lowest upfront cost."}
+                                "Smallest in-stock hybrid inverter that fits your system, no battery, for the lowest upfront cost."}
                               {targetBudgetTier === "1M_TO_1_5M" &&
                                 "Smallest in-stock hybrid inverter that fits your system, plus our cheapest in-stock battery."}
                               {targetBudgetTier === "1_5M_PLUS" &&
@@ -1932,7 +1932,7 @@ function CalculatorCard() {
                             </p>
                           )}
                           <p className="border-t border-slate-200 pt-2 font-semibold text-violet-700">
-                            Result: Sized to offset ~{offsetPct}% of your bill — the portion used during daylight hours, without
+                            Result: Sized to offset ~{offsetPct}% of your bill, the portion used during daylight hours, without
                             exporting anything back to the grid.
                           </p>
                         </div>
@@ -2237,7 +2237,7 @@ function CalculatorCard() {
 
                       {/* 2. Inverter — Default & Swap */}
                       <EquipmentSwapRow
-                        title={`Inverter — ${SERVICE_TYPE_LABEL[serviceType]}`}
+                        title={`Inverter: ${SERVICE_TYPE_LABEL[serviceType]}`}
                         icon={InverterIcon}
                         currentLabel={currentInverterOption?.label ?? "Select an inverter"}
                         currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.inverterPKR) : null}
@@ -2573,7 +2573,7 @@ function CalculatorCard() {
                         <ServiceToggleCard
                           title="One-Time Panel Washing Visit"
                           icon={WaterDropIcon}
-                          description="A single professional cleaning visit after installation — not a recurring plan."
+                          description="A single professional cleaning visit after installation, not a recurring plan."
                           active={includePanelWashing}
                           onToggle={() => setIncludePanelWashing((s) => !s)}
                           priceLabel={livePreview?.panelWashing ? formatPKR(livePreview.breakdown.panelWashingPKR) : null}
@@ -2865,7 +2865,7 @@ function CalculatorCard() {
                       <Wrench className="h-3.5 w-3.5" /> Custom Pricing
                     </span>
                     <p className="mt-2 text-sm leading-relaxed text-slate-500">
-                      Select a panel count on the left to see an instant estimate, or just send your request — our
+                      Select a panel count on the left to see an instant estimate, or just send your request. Our
                       team will follow up with a custom quote.
                     </p>
                   </>
@@ -3360,7 +3360,7 @@ function BillDetailsPanel({ details, source }: { details: UploadedBillDetails; s
         </span>
       </div>
       <p className="mt-1 text-[10px] text-stone-500">
-        Extracted automatically — please double-check the numbers below against your bill.
+        Extracted automatically. Please double-check the numbers below against your bill.
       </p>
 
       {details.address && <p className="mt-1.5 text-[11px] text-stone-500">{details.address}</p>}
@@ -3730,7 +3730,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
         </div>
 
         <p className="mt-3 text-center text-[10px] text-slate-500 print:hidden">
-          Instant estimate — your exact price is confirmed after an on-site engineering survey (Rs 5,000 fee applies).
+          Instant estimate. Your exact price is confirmed after an on-site engineering survey (Rs 5,000 fee applies).
         </p>
       </div>
 
@@ -3754,10 +3754,10 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
   const isWashing = result.kind === "PANEL_WASHING";
 
   const waMessage = isWashing
-    ? `Hi Solar Pixel! Following up on my Panel Washing quote — ${result.panelCount} panels, ${formatPKR(
+    ? `Hi Solar Pixel! Following up on my Panel Washing quote: ${result.panelCount} panels, ${formatPKR(
         result.oneTimePricePKR
       )} one-time. Please confirm scheduling.`
-    : `Hi Solar Pixel! Following up on my EV Charger installation quote — ${result.evChargerRatingKw} kW, ${formatPKR(
+    : `Hi Solar Pixel! Following up on my EV Charger installation quote: ${result.evChargerRatingKw} kW, ${formatPKR(
         result.totalClientPricePKR
       )} turnkey. Please confirm scheduling.`;
   const waHref = `https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(waMessage)}`;
@@ -3819,7 +3819,7 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
         Message Us on WhatsApp
       </a>
 
-      <p className="mt-3 text-[11px] text-stone-500">Instant estimate — your exact price is confirmed after a free consultation.</p>
+      <p className="mt-3 text-[11px] text-stone-500">Instant estimate. Your exact price is confirmed after a free consultation.</p>
 
       <FloatingWhatsAppButton message={waMessage} source={isWashing ? "floating_badge_panel_washing_report" : "floating_badge_ev_charger_report"} />
     </div>
@@ -3898,7 +3898,7 @@ function PrintableReport({
 
       <p className="mt-6 text-[9px] text-stone-500">
         This is an instant, indicative estimate. Final pricing is confirmed after an on-site engineering survey (Rs 5,000 fee applies).
-        Solar Pixel — Smart Solar systems for Residential, Commercial &amp; Industrial.
+        Solar Pixel: Smart Solar systems for Residential, Commercial &amp; Industrial.
       </p>
     </div>
   );

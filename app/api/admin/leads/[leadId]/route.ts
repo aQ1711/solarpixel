@@ -70,7 +70,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ lead
       } catch (err) {
         if (err instanceof PricingConfigurationError) {
           console.error("[GET /api/admin/leads/:leadId] recompute pricing error:", err.message);
-          breakdownError = "Vendor cost / margin configuration is incomplete — cannot reconstruct this legacy quote's breakdown.";
+          breakdownError = "Vendor cost / margin configuration is incomplete. Cannot reconstruct this legacy quote's breakdown.";
         } else {
           throw err;
         }

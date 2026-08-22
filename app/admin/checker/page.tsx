@@ -151,7 +151,7 @@ function CheckerDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
       setViewer(quotesData.viewer ?? null);
       setApprovedIds(new Set());
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Network error — please try again.");
+      setLoadError(err instanceof Error ? err.message : "Network error. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -176,7 +176,7 @@ function CheckerDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
             </p>
             <h1 className="mt-0.5 text-xl font-bold text-[var(--color-ink)]">Approval Dashboard</h1>
             <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
-              Quotes awaiting review — {quotes?.filter((q) => !approvedIds.has(q.id)).length ?? 0} pending
+              Quotes awaiting review, {quotes?.filter((q) => !approvedIds.has(q.id)).length ?? 0} pending
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -300,7 +300,7 @@ function QuoteReviewCard({
         }
         setPricing(data.pricing as Pricing);
       } catch {
-        setRecalcError("Network error — please try again.");
+        setRecalcError("Network error. Please try again.");
       } finally {
         setRecalculating(false);
       }
@@ -342,7 +342,7 @@ function QuoteReviewCard({
       setResult(data as ApproveResult);
       onApproved(quote.id);
     } catch {
-      setApproveError("Network error — please try again.");
+      setApproveError("Network error. Please try again.");
     } finally {
       setApproving(false);
     }
@@ -354,7 +354,7 @@ function QuoteReviewCard({
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 text-[var(--color-neon)]" />
           <p className="text-sm font-semibold text-[var(--color-ink)]">
-            {quote.quoteNumber} approved — {formatPKR(result.quote.finalPriceRs)}
+            {quote.quoteNumber} approved: {formatPKR(result.quote.finalPriceRs)}
           </p>
         </div>
         <a
@@ -446,7 +446,7 @@ function QuoteReviewCard({
           />
           <p className="mt-1 text-[10px] text-[var(--color-ink-faint)]">
             Confirm or override the engineer&apos;s on-site request (or the pre-survey estimate, if no survey figure
-            was given) — the Quotation price above updates automatically.
+            was given). The Quotation price above updates automatically.
           </p>
           {recalcError && <p className="mt-1 text-[11px] text-red-400">{recalcError}</p>}
         </div>
@@ -489,7 +489,7 @@ function QuoteReviewCard({
       {pricing ? (
         <div className="mt-4 rounded-xl border border-dashed border-[var(--color-amber)]/40 bg-[var(--color-amber)]/5 p-3.5">
           <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-[var(--color-amber)]">
-            <ShieldAlert className="h-3.5 w-3.5" /> Confidential — Super Admin Only
+            <ShieldAlert className="h-3.5 w-3.5" /> Confidential: Super Admin Only
           </p>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
             <SurveyStat label="Raw Cost" value={formatPKR(pricing.exactRawCostPKR)} />

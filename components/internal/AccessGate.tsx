@@ -53,7 +53,7 @@ export function AccessGate({
   // shouldn't reuse the default "Invalid access code" copy; every
   // existing call site still calls this with no args and gets that
   // original message unchanged.
-  function handleUnauthorized(reason = "Invalid access code — try again.") {
+  function handleUnauthorized(reason = "Invalid access code. Try again.") {
     clearStoredToken(role);
     setUnlocked(false);
     setCode("");

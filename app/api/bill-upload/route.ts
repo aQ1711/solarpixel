@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     }
     if (file.size > MAX_FILE_BYTES) {
       return NextResponse.json(
-        { error: `File is too large — max ${MAX_FILE_BYTES / (1024 * 1024)}MB.` },
+        { error: `File is too large. Max ${MAX_FILE_BYTES / (1024 * 1024)}MB.` },
         { status: 400 }
       );
     }

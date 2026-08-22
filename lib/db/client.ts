@@ -26,7 +26,7 @@ function createPublicClient(): PrismaClient {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error(
-      "DATABASE_URL is not set. This must be an app_public_role connection string — see .env.example."
+      "DATABASE_URL is not set. This must be an app_public_role connection string. See .env.example."
     );
   }
   const adapter = new PrismaPg({ connectionString });

@@ -85,6 +85,6 @@ export function buildContractMessage(input: ContractMessageInput): string {
     `Final Price: ${pkrFormatter.format(finalPriceRs)}`,
     `Live in: ${daysToDeploy} days from confirmation`,
     "",
-    "No WAPDA net-metering paperwork — reply YES to confirm and we'll lock in your installation slot.",
+    "No WAPDA net-metering paperwork. Reply YES to confirm and we'll lock in your installation slot.",
   ].join("\n");
 }

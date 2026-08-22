@@ -20,20 +20,20 @@ export default function PrivacyPolicyPage() {
       <p>When you use our calculator or request a quote, we collect:</p>
       <ul>
         <li>
-          <strong>Contact details</strong> — your name and WhatsApp/phone number, so we can send you your quotation
+          <strong>Contact details:</strong> your name and WhatsApp/phone number, so we can send you your quotation
           and follow up.
         </li>
         <li>
-          <strong>Electricity bill information</strong> — your average monthly bill amount, and if you choose to
+          <strong>Electricity bill information:</strong> your average monthly bill amount, and if you choose to
           upload one, the electricity bill itself (PDF or photo, typically from WAPDA/LESCO). We use this only to
           size and price your solar system accurately.
         </li>
         <li>
-          <strong>System preferences</strong> — the property type, service type, and equipment choices you select
+          <strong>System preferences:</strong> the property type, service type, and equipment choices you select
           while configuring a quote.
         </li>
         <li>
-          <strong>Site survey data</strong> — if you proceed to a paid site survey, our field engineer records
+          <strong>Site survey data:</strong> if you proceed to a paid site survey, our field engineer records
           measurements (roof type, cabling distances, existing electrical setup) needed to finalize your
           quotation.
         </li>
@@ -51,7 +51,7 @@ export default function PrivacyPolicyPage() {
       <h2>WhatsApp Communication</h2>
       <p>
         Quotes, follow-ups, and scheduling are primarily handled over WhatsApp. When you click a &quot;Message Us
-        on WhatsApp&quot; button, you&apos;re taken to WhatsApp with a prefilled message — that conversation is
+        on WhatsApp&quot; button, you&apos;re taken to WhatsApp with a prefilled message, and that conversation is
         then subject to WhatsApp&apos;s own privacy practices as well as ours.
       </p>
 
@@ -79,7 +79,7 @@ export default function PrivacyPolicyPage() {
       <p>This policy is governed by the laws of Pakistan.</p>
 
       <h2>Contact Us</h2>
-      <p>Questions about this policy? Reach us on WhatsApp or by email — see the footer below.</p>
+      <p>Questions about this policy? Reach us on WhatsApp or by email. See the footer below.</p>
     </LegalPageShell>
   );
 }

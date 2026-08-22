@@ -77,7 +77,7 @@ function TeamDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
       if (!res.ok) throw new Error(data?.error ?? "Could not load admins.");
       setAdmins(data.admins ?? []);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Network error — please try again.");
+      setLoadError(err instanceof Error ? err.message : "Network error. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -93,7 +93,7 @@ function TeamDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
       if (!res.ok) throw new Error(data?.error ?? "Could not load field engineers.");
       setEngineers(data.engineers ?? []);
     } catch (err) {
-      setEngineersLoadError(err instanceof Error ? err.message : "Network error — please try again.");
+      setEngineersLoadError(err instanceof Error ? err.message : "Network error. Please try again.");
     } finally {
       setEngineersLoading(false);
     }
@@ -173,7 +173,7 @@ function TeamDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
         ) : admins && admins.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center text-sm text-stone-500">
             <UserPlus className="mx-auto mb-2 h-6 w-6 text-stone-300" />
-            No delegated admins yet — create one to hand out Leads/Checker access without sharing your own code.
+            No delegated admins yet. Create one to hand out Leads/Checker access without sharing your own code.
           </div>
         ) : (
           <div className="space-y-3">
@@ -248,7 +248,7 @@ function TeamDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
         ) : engineers && engineers.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-stone-300 bg-white p-10 text-center text-sm text-stone-500">
             <UserPlus className="mx-auto mb-2 h-6 w-6 text-stone-300" />
-            No field engineers yet — create one so they show up in the site-survey form.
+            No field engineers yet. Create one so they show up in the site-survey form.
           </div>
         ) : (
           <div className="space-y-3">
@@ -296,7 +296,7 @@ function AccessCodeReveal({ forName, code, onClose }: { forName: string; code: s
         </button>
       </div>
       <p className="mt-1 text-xs text-amber-800">
-        Copy this now and hand it to {forName} yourself — it will not be shown again. Losing it just means
+        Copy this now and hand it to {forName} yourself. It will not be shown again. Losing it just means
         regenerating a new one (which invalidates this one).
       </p>
       <div className="mt-2.5 flex items-center gap-2">
@@ -362,7 +362,7 @@ function CreateAdminForm({
       }
       onCreated(data.admin, data.accessCode);
     } catch {
-      setError("Network error — please try again.");
+      setError("Network error. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -483,7 +483,7 @@ function AdminRow({
       }
       onUpdated(data.admin);
     } catch {
-      setError("Network error — please try again.");
+      setError("Network error. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -507,7 +507,7 @@ function AdminRow({
       }
       onCodeRegenerated(data.accessCode);
     } catch {
-      setError("Network error — please try again.");
+      setError("Network error. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -624,7 +624,7 @@ function CreateEngineerForm({
       }
       onCreated(data.engineer);
     } catch {
-      setError("Network error — please try again.");
+      setError("Network error. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -717,7 +717,7 @@ function EngineerRow({
       }
       onUpdated(data.engineer);
     } catch {
-      setError("Network error — please try again.");
+      setError("Network error. Please try again.");
     } finally {
       setBusy(false);
     }

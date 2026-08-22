@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
       if (err instanceof NoSuperAdminConfiguredError) {
         console.error("[POST /api/admin/team]", err.message);
         return NextResponse.json(
-          { error: "No Super Admin user is configured in the database — cannot attribute this action." },
+          { error: "No Super Admin user is configured in the database. Cannot attribute this action." },
           { status: 503 }
         );
       }

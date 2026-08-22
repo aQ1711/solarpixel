@@ -142,7 +142,7 @@ function QuoteLookupAndSurvey({
       }
       setQuote(data.quote);
     } catch {
-      setLookupError("Network error — please check your connection and try again.");
+      setLookupError("Network error. Please check your connection and try again.");
     } finally {
       setLookupLoading(false);
     }
@@ -289,7 +289,7 @@ function SurveyForm({
       }
       onSubmitted();
     } catch {
-      setSubmitError("Network error — please check your connection and try again.");
+      setSubmitError("Network error. Please check your connection and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -405,7 +405,7 @@ function SurveyForm({
             onChange={setSurveyedBatteryCapacityKwh}
           />
           <p className="mt-2 text-[11px] text-[var(--color-ink-faint)]">
-            Pre-filled with the web estimate — overwrite it if the customer wants a different capacity.
+            Pre-filled with the web estimate. Overwrite it if the customer wants a different capacity.
           </p>
         </fieldset>
       )}

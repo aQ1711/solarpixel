@@ -32,7 +32,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ quot
     // as a follow-up, not silently allowed.
     if (quote.status !== "AUTOMATED_ESTIMATE" && quote.status !== "SURVEY_SCHEDULED") {
       return NextResponse.json(
-        { error: `This quote is already at status "${quote.status}" — it can't take a new survey submission.` },
+        { error: `This quote is already at status "${quote.status}". It can't take a new survey submission.` },
         { status: 409 }
       );
     }
