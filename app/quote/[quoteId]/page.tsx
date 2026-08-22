@@ -192,8 +192,8 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
           </div>
 
           <p className="mt-6 text-xs text-stone-400">
-            This is an instant estimate — the exact price is confirmed after a free on-site survey. No WAPDA net-metering
-            paperwork required.
+            This is an instant estimate — the exact price is confirmed after an on-site engineering survey (Rs 5,000 fee
+            applies). No WAPDA net-metering paperwork required.
           </p>
         </div>
 

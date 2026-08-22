@@ -2,9 +2,10 @@ import type { MetadataRoute } from "next";
 import { SITE_URL } from "./layout";
 
 /**
- * Dynamic XML sitemap (2026-08-22, Local SEO task) — GET /sitemap.xml.
- * Deliberately just ONE entry: the homepage is currently the only real
- * public, indexable page this app has.
+ * Dynamic XML sitemap (2026-08-22, Local SEO task; updated same day for
+ * the 3 new trust/legal pages) — GET /sitemap.xml. Lists every real
+ * public, indexable page this app has: the homepage and the 3 static
+ * trust pages (About/Privacy/Terms).
  *
  * Everything else is intentionally excluded, not an oversight:
  *   - /admin/*, /maker/survey — internal tools behind a shared-secret
@@ -18,12 +19,31 @@ import { SITE_URL } from "./layout";
  * See app/robots.ts for the matching Disallow rules.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
+  const now = new Date();
   return [
     {
       url: SITE_URL,
-      lastModified: new Date(),
+      lastModified: now,
       changeFrequency: "weekly",
       priority: 1,
+    },
+    {
+      url: `${SITE_URL}/about`,
+      lastModified: now,
+      changeFrequency: "monthly",
+      priority: 0.6,
+    },
+    {
+      url: `${SITE_URL}/privacy-policy`,
+      lastModified: now,
+      changeFrequency: "yearly",
+      priority: 0.3,
+    },
+    {
+      url: `${SITE_URL}/terms`,
+      lastModified: now,
+      changeFrequency: "yearly",
+      priority: 0.3,
     },
   ];
 }

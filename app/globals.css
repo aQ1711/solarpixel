@@ -264,3 +264,43 @@ body {
   }
 }
 
+/* Hand-rolled prose styling for the 3 static legal/trust pages (About,
+   Privacy Policy, Terms of Service — see components/legal/
+   LegalPageShell.tsx). No @tailwindcss/typography plugin installed in
+   this project, so this is a small, deliberately narrow ruleset rather
+   than pulling in a new dependency for 3 pages of plain body copy. */
+.legal-prose h2 {
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-stone-900, #1c1917);
+}
+.legal-prose h2:first-child {
+  margin-top: 0;
+}
+.legal-prose p {
+  margin-top: 0.75rem;
+  line-height: 1.7;
+  color: var(--color-stone-600, #57534e);
+}
+.legal-prose ul {
+  margin-top: 0.75rem;
+  padding-left: 1.25rem;
+  list-style-type: disc;
+  color: var(--color-stone-600, #57534e);
+}
+.legal-prose li {
+  margin-top: 0.35rem;
+  line-height: 1.6;
+}
+.legal-prose strong {
+  color: var(--color-stone-900, #1c1917);
+  font-weight: 600;
+}
+.legal-prose a {
+  color: var(--color-violet-600, #7c3aed);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+

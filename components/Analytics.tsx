@@ -1,17 +1,28 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Script from "next/script";
+import { getCookieConsent, onCookieConsentChange } from "@/lib/cookieConsent";
 
 /**
  * Conditionally loads the Meta Pixel base snippet and/or Google Analytics
- * (gtag.js), ONLY if the corresponding env var is actually set. Neither
- * is configured out of the box — this project has no Pixel ID or GA
- * Measurement ID today (2026-08-21). That's deliberate, not a stub left
- * half-done: both are third-party trackers with real privacy/consent
- * implications (Meta Pixel's base snippet fires a `PageView` event on
- * every single page load, not just on the WhatsApp-click events
- * lib/analytics.ts sends), and this site currently has zero cookie-
- * consent infrastructure. Flip them on by setting the env var below —
- * nothing else needs to change, lib/analytics.ts's trackWhatsAppClick()
- * already checks for `window.fbq`/`window.gtag` before calling either.
+ * (gtag.js) — gated on BOTH of two independent conditions:
+ *   1. The corresponding env var is actually set. Neither is configured
+ *      out of the box — this project has no Pixel ID or GA Measurement
+ *      ID today (2026-08-21). Flip one on by setting the env var below;
+ *      lib/analytics.ts's trackWhatsAppClick() already checks for
+ *      `window.fbq`/`window.gtag` before calling either, so nothing else
+ *      needs to change.
+ *   2. The visitor has actually accepted cookies via
+ *      components/CookieConsent.tsx (2026-08-22 — this project's cookie-
+ *      consent infrastructure, which didn't exist when this file's first
+ *      version was written; see that component's own doc comment). A
+ *      declined or not-yet-decided visitor gets neither script, even if
+ *      both env vars are set.
+ * This is now a Client Component (it wasn't before) specifically because
+ * consent lives in localStorage — client-only, and the whole reason
+ * these scripts must NOT fire on the very first server-rendered paint
+ * before that choice is known.
  *
  * Set in .env (see .env.example):
  *   NEXT_PUBLIC_META_PIXEL_ID="123456789012345"
@@ -21,6 +32,21 @@ const META_PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID;
 const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
 
 export function Analytics() {
+  // Starts false on both server and client — same "don't read an
+  // external-to-React source inside a useState initializer" reasoning as
+  // AccessGate/CookieConsent's own state. Consent is checked once on
+  // mount, then kept in sync live via onCookieConsentChange so accepting
+  // the banner fires these scripts immediately, with no reload needed.
+  const [hasConsent, setHasConsent] = useState(false);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHasConsent(getCookieConsent() === "accepted");
+    return onCookieConsentChange((value) => setHasConsent(value === "accepted"));
+  }, []);
+
+  if (!hasConsent) return null;
+
   return (
     <>
       {META_PIXEL_ID && (

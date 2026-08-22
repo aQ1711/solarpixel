@@ -30,6 +30,7 @@ import {
   Phone,
   Globe,
   Calculator,
+  Info,
 } from "lucide-react";
 
 // ============================================================================
@@ -3729,7 +3730,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
         </div>
 
         <p className="mt-3 text-center text-[10px] text-slate-500 print:hidden">
-          Instant estimate — your exact price is confirmed after a free on-site survey.
+          Instant estimate — your exact price is confirmed after an on-site engineering survey (Rs 5,000 fee applies).
         </p>
       </div>
 
@@ -3896,7 +3897,7 @@ function PrintableReport({
       )}
 
       <p className="mt-6 text-[9px] text-stone-500">
-        This is an instant, indicative estimate. Final pricing is confirmed after a free on-site engineering survey.
+        This is an instant, indicative estimate. Final pricing is confirmed after an on-site engineering survey (Rs 5,000 fee applies).
         Solar Pixel — Smart Solar systems for Residential, Commercial &amp; Industrial.
       </p>
     </div>
@@ -3949,10 +3950,17 @@ function CornerBrackets() {
 // question anyway: rather than hand-drawing brand marks for accounts
 // that don't exist, "Social" lists the one channel this business
 // genuinely uses for that kind of direct engagement (WhatsApp) plus the
-// public site URL. "Legal" items render as plain text, not links —
-// there's no Privacy Policy/Terms page anywhere in this app yet, and a
-// styled link that 404s (or silently goes nowhere via href="#") is worse
-// than an honest label.
+// public site URL.
+//
+// 2026-08-22 (Legal Trust Pages task): "Legal" items are now real links
+// — app/about, app/privacy-policy, and app/terms all exist now (see
+// components/legal/LegalPageShell.tsx), closing the gap this comment
+// used to describe (a styled link that 404s is worse than an honest
+// label — that's no longer the tradeoff). Gained a 4th "Company" column
+// (About Us + Live Calculator, the latter a plain #calculator hash link
+// — works on this page via native anchor scroll, and works from any
+// OTHER page via a full navigation back to "/" that lands on the
+// section, no JS wiring needed either way).
 const WEBSITE_URL = "https://www.solarpixel.pk";
 const CONTACT_EMAIL = "solarpixelpk@gmail.com";
 const CONTACT_PHONE_DISPLAY = "+92 328 2155550";
@@ -3979,7 +3987,16 @@ function Footer() {
 
         {/* CENTER: standard footer link columns */}
         <div className="flex-1 px-6 py-16 sm:px-10 sm:py-20">
-          <div className="mx-auto grid max-w-3xl gap-10 text-center sm:grid-cols-3 sm:text-left">
+          <div className="mx-auto grid max-w-4xl gap-10 text-center sm:grid-cols-2 sm:text-left lg:grid-cols-4">
+            <FooterColumn title="Company">
+              <FooterLink href="/about" icon={Info}>
+                About Us
+              </FooterLink>
+              <FooterLink href="/#calculator" icon={Calculator}>
+                Live Calculator
+              </FooterLink>
+            </FooterColumn>
+
             <FooterColumn title="Contact">
               <FooterLink
                 href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(GENERAL_INQUIRY_WA_MESSAGE)}`}
@@ -4010,8 +4027,12 @@ function Footer() {
             </FooterColumn>
 
             <FooterColumn title="Legal">
-              <span className="block text-sm text-white/40">Privacy Policy</span>
-              <span className="block text-sm text-white/40">Terms of Service</span>
+              <a href="/privacy-policy" className="block text-sm text-white/70 transition-colors duration-200 hover:text-white">
+                Privacy Policy
+              </a>
+              <a href="/terms" className="block text-sm text-white/70 transition-colors duration-200 hover:text-white">
+                Terms of Service
+              </a>
             </FooterColumn>
           </div>
 
@@ -4021,8 +4042,8 @@ function Footer() {
               system that goes live fast.
             </p>
             <p className="mt-2">
-              © {new Date().getFullYear()} Solar Pixel. Estimates are indicative and confirmed after a free site
-              survey.
+              © {new Date().getFullYear()} Solar Pixel. Estimates are indicative and confirmed after an on-site
+              engineering survey (Rs 5,000 fee applies).
             </p>
           </div>
         </div>
