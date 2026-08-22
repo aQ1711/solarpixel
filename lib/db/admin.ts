@@ -1542,7 +1542,21 @@ export async function getEvChargerInstallationFeePKR(): Promise<number> {
  * authoritative price, so it should degrade quietly rather than take the
  * whole equipment catalog down.
  */
-export async function getPublicUnitPricesPKR(sector: Sector): Promise<Record<string, number>> {
+/** Client-safe per-code pricing basis — the marked-up PKR price alongside
+ *  which `CostUnit` it's priced against (PER_WATT/PER_KWH/PER_PIECE/…).
+ *  `unit` is NOT sensitive (it reveals nothing about raw cost or margin,
+ *  just "how this number should be read") but lives only on the
+ *  confidential `RawVendorCost` row — this is the ONE sanctioned way for
+ *  a public-facing surface (the Market Watch ticker, Custom Builder price
+ *  labels) to know it, added 2026-08-22 after the ticker was found
+ *  hardcoding every item as "/W" regardless of its real unit (a flat
+ *  PER_PIECE inverter showed as "Rs 525,000/W" instead of "/pc"). */
+export interface PublicUnitPrice {
+  pricePKR: number;
+  unit: CostUnit;
+}
+
+export async function getPublicUnitPricesPKR(sector: Sector): Promise<Record<string, PublicUnitPrice>> {
   const now = new Date();
   const [options, costs, sectorMargins] = await Promise.all([
     adminPrisma.equipmentOption.findMany({ where: { isActive: true, isOtherOption: false } }),
@@ -1563,11 +1577,14 @@ export async function getPublicUnitPricesPKR(sector: Sector): Promise<Record<str
     if (!costByKey.has(key)) costByKey.set(key, cost);
   }
 
-  const prices: Record<string, number> = {};
+  const prices: Record<string, PublicUnitPrice> = {};
   for (const option of options) {
     const cost = costByKey.get(`${option.componentType}::${option.code}`);
     if (!cost) continue;
-    prices[option.code] = round2(markUp(cost.unitCostRs.toNumber(), effectiveMarginPercent(cost, sectorDefaultMarginPercent)));
+    prices[option.code] = {
+      pricePKR: round2(markUp(cost.unitCostRs.toNumber(), effectiveMarginPercent(cost, sectorDefaultMarginPercent))),
+      unit: cost.unit,
+    };
   }
   return prices;
 }

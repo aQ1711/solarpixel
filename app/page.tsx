@@ -38,6 +38,19 @@ import {
 
 type Sector = "RESIDENTIAL" | "COMMERCIAL" | "INDUSTRIAL";
 type ServiceType = "HYBRID_BATTERY" | "ONGRID_ZERO_EXPORT";
+// Mirrors Prisma's CostUnit enum — which basis a catalog item's
+// unitPricePKR is actually denominated in (see EquipmentOptionDTO.unit's
+// doc comment). Used to label prices correctly (ticker, price hints)
+// instead of always assuming "/W".
+type CostUnit = "PER_WATT" | "PER_METER" | "PER_KWH" | "PER_UNIT" | "PER_PIECE" | "LUMP_SUM";
+const UNIT_SUFFIX: Record<CostUnit, string> = {
+  PER_WATT: "/W",
+  PER_METER: "/m",
+  PER_KWH: "/kWh",
+  PER_UNIT: "/unit",
+  PER_PIECE: "/pc",
+  LUMP_SUM: " flat",
+};
 // Provenance of the bill amount — mirrors Prisma's BillSource enum.
 type BillSource = "MANUAL" | "UPLOADED_PDF" | "UPLOADED_IMAGE";
 type UploadState = "idle" | "uploading" | "success" | "error";
@@ -210,11 +223,16 @@ interface EquipmentOptionDTO {
    *  formatGoogleDriveLink in lib/utils/googleDrive.ts) — null if the
    *  admin hasn't set one for this item yet. */
   logoUrl: string | null;
-  /** Marked-up, client-safe PKR/W (or PKR/kWh for BATTERY) unit price at
-   *  the sector the catalog was fetched for — see
-   *  getPublicUnitPricesPKR's doc comment in lib/db/admin.ts. Null for
-   *  "Other / Specific Requirement" or the rare data-entry gap. */
+  /** Marked-up, client-safe unit price (see `unit` below for what basis
+   *  it's actually in — NOT always PER_WATT) at the sector the catalog
+   *  was fetched for — see getPublicUnitPricesPKR's doc comment in
+   *  lib/db/admin.ts. Null for "Other / Specific Requirement" or the
+   *  rare data-entry gap. */
   unitPricePKR: number | null;
+  /** Which CostUnit `unitPricePKR` is denominated in — e.g. a flat
+   *  PER_PIECE inverter must never be labeled "/W" the way every
+   *  PER_WATT item is. Null in the same cases unitPricePKR is null. */
+  unit: CostUnit | null;
   /** Inventory guardrail (2026-08-20) — false means the Custom Builder
    *  must grey this option out, disable its button, and show an "Out of
    *  Stock" badge; the app must never let a customer select it. See
@@ -567,7 +585,7 @@ interface TickerItem {
 function toTickerItems(options: EquipmentOptionDTO[] | undefined): TickerItem[] {
   return (options ?? [])
     .filter((o): o is EquipmentOptionDTO & { unitPricePKR: number } => !o.isOtherOption && o.unitPricePKR !== null)
-    .map((o) => ({ label: o.label, value: `Rs ${Math.round(o.unitPricePKR)}/W` }));
+    .map((o) => ({ label: o.label, value: `Rs ${Math.round(o.unitPricePKR)}${o.unit ? UNIT_SUFFIX[o.unit] : "/W"}` }));
 }
 
 function MarketWatchTicker() {

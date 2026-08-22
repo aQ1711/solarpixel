@@ -60,7 +60,14 @@ export async function GET(req: NextRequest) {
       // null for "Other / Specific Requirement" (no real catalog item to
       // price) or the rare data-entry gap — see getPublicUnitPricesPKR's
       // doc comment. Never a fabricated number.
-      unitPricePKR: unitPrices[o.code] ?? null,
+      unitPricePKR: unitPrices[o.code]?.pricePKR ?? null,
+      // Which CostUnit unitPricePKR is actually denominated in — NOT
+      // sensitive (reveals nothing about raw cost/margin), but needed so
+      // a public surface can label a price correctly (e.g. "/pc" for a
+      // flat-priced item, not always "/W" — see PublicUnitPrice's doc
+      // comment in lib/db/admin.ts for the bug this closes). Null in the
+      // same cases unitPricePKR is null.
+      unit: unitPrices[o.code]?.unit ?? null,
     }));
 
     // Group by componentType so the frontend doesn't have to.
