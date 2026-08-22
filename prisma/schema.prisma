@@ -219,6 +219,21 @@ enum CostUnit {
 // PUBLIC SCHEMA — client, engineer & admin-facing data
 // ============================================================================
 
+/** Inverter electrical phase (2026-08-22) — meaningful only for
+ *  componentType=INVERTER; every other component leaves
+ *  EquipmentOption.phase null. Not sensitive (unlike CostUnit, this one
+ *  DOES belong on the public EquipmentOption row directly — it's a real
+ *  spec, not a pricing detail). Drives the Custom Equipment Builder's
+ *  inverter picker the same way brand/wattage already drive the panel
+ *  picker (see lib/db/admin.ts's INVERTER catalog doc comment for the
+ *  2026-08-22 real-SKU-per-brand rework this was added alongside). */
+enum InverterPhase {
+  SINGLE_PHASE
+  THREE_PHASE
+
+  @@schema("public")
+}
+
 model User {
   id           String  @id @default(cuid())
   name         String
@@ -615,6 +630,11 @@ model EquipmentOption {
    *  Inverter" option only relevant when HYBRID_BATTERY is selected).
    *  Null = applies regardless of service type. */
   applicableServiceType ServiceType?
+
+  /** Electrical phase (2026-08-22) — meaningful only for
+   *  componentType=INVERTER, null for every other component. See
+   *  InverterPhase's own doc comment. */
+  phase InverterPhase?
 
   /** The reserved "Other / Specific Requirement" entry every component
    *  type has exactly one of — selecting it means no RawVendorCost

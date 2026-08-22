@@ -39,6 +39,11 @@ export async function GET(req: NextRequest) {
           brand: true,
           specValue: true,
           applicableServiceType: true,
+          // Electrical phase (2026-08-22) — only ever set for INVERTER,
+          // null otherwise. Public, non-sensitive spec (unlike CostUnit,
+          // this one lives directly on EquipmentOption). Powers the
+          // Custom Equipment Builder's inverter Company -> Model picker.
+          phase: true,
           isOtherOption: true,
           // Google Drive brand-logo URL (see EquipmentOption.logoUrl's doc
           // comment) — client-safe, cost-free media, same reasoning as

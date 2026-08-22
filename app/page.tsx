@@ -51,6 +51,12 @@ const UNIT_SUFFIX: Record<CostUnit, string> = {
   PER_PIECE: "/pc",
   LUMP_SUM: " flat",
 };
+// Mirrors Prisma's InverterPhase enum (2026-08-22).
+type InverterPhase = "SINGLE_PHASE" | "THREE_PHASE";
+const PHASE_LABEL: Record<InverterPhase, string> = {
+  SINGLE_PHASE: "Single Phase",
+  THREE_PHASE: "Three Phase",
+};
 // Provenance of the bill amount — mirrors Prisma's BillSource enum.
 type BillSource = "MANUAL" | "UPLOADED_PDF" | "UPLOADED_IMAGE";
 type UploadState = "idle" | "uploading" | "success" | "error";
@@ -233,6 +239,9 @@ interface EquipmentOptionDTO {
    *  PER_PIECE inverter must never be labeled "/W" the way every
    *  PER_WATT item is. Null in the same cases unitPricePKR is null. */
   unit: CostUnit | null;
+  /** Electrical phase (2026-08-22) — only ever set for componentType
+   *  INVERTER; null for everything else. */
+  phase: InverterPhase | null;
   /** Inventory guardrail (2026-08-20) — false means the Custom Builder
    *  must grey this option out, disable its button, and show an "Out of
    *  Stock" badge; the app must never let a customer select it. See
@@ -327,50 +336,6 @@ const BATTERY_CAPACITY_PRESETS: { kwh: number; label: string }[] = [
   { kwh: 10.24, label: "Heavy Load" },
   { kwh: 14.3, label: "Commercial Grade" },
 ];
-
-// Inverter Capacity presets (2026-08-21) — same "select capacity, not
-// just a brand" UX as Battery Capacity above, applied to Inverter.
-// UNLIKE battery capacity, this is NOT a separate customer-adjustable
-// multiplier (an inverter is one fixed unit, not stackable kWh) — a
-// click resolves to whichever REAL catalog inverter (for the current
-// serviceType) most closely covers the target kW, via
-// resolveInverterCodeForCapacity below. KNOWN CATALOG GAP, shipped
-// anyway per explicit instruction: as of 2026-08-21 only ONE inverter
-// model (Solis, 10kW) has a specValue on file — Huawei Hybrid/On-Grid,
-// Sofar, and Growatt don't (see EquipmentOption.specValue's doc comment
-// in schema.prisma) — so every preset currently resolves to whichever
-// single known-capacity option exists, not a genuinely different match
-// per preset. This is expected to self-correct with zero further code
-// changes once an admin fills in real specValue ratings for the other
-// models via /admin/pricing. The picker is hidden entirely (replaced by
-// an explanatory note) when NO inverter for the current serviceType has
-// a known specValue at all, rather than showing preset buttons that
-// would all silently resolve to nothing.
-const INVERTER_CAPACITY_PRESETS: { kw: number; label: string }[] = [
-  { kw: 3, label: "Small Home" },
-  { kw: 5, label: "Standard Home" },
-  { kw: 8, label: "Large Home" },
-  { kw: 10, label: "Commercial" },
-  { kw: 15, label: "Heavy Commercial" },
-];
-
-/** "Smallest fitting" first (mirrors the server's own
- *  findSmallestFittingInStockInverter/resolveBudgetTierInverterCode
- *  philosophy in lib/db/admin.ts — never undersize what's presented as
- *  covering the target), falling back to the largest available
- *  known-capacity option if nothing actually reaches the target. Only
- *  ever considers real (non-"Other") options with a known specValue —
- *  returns null when none exist, so the caller can leave the current
- *  selection untouched instead of guessing. */
-function resolveInverterCodeForCapacity(targetKw: number, options: EquipmentOptionDTO[]): string | null {
-  const withSpec = options.filter(
-    (o): o is EquipmentOptionDTO & { specValue: number } => !o.isOtherOption && o.specValue !== null
-  );
-  if (withSpec.length === 0) return null;
-  const fitting = withSpec.filter((o) => o.specValue >= targetKw).sort((a, b) => a.specValue - b.specValue);
-  if (fitting.length > 0) return fitting[0].code;
-  return [...withSpec].sort((a, b) => b.specValue - a.specValue)[0].code;
-}
 
 // ----------------------------------------------------------------------
 // Panel Washing & EV Charger — the two SYSTEM_UPGRADES/EV_CHARGER
@@ -1180,6 +1145,28 @@ function CalculatorCard() {
   const currentPanelBrand =
     effectivePanelCode !== OTHER_CODE ? (currentPanelOption?.brand ?? currentPanelOption?.label ?? null) : null;
   const currentInverterOption = inverterOptionsForServiceType.find((o) => o.code === effectiveInverterCode) ?? null;
+
+  // Inverter — Company then Model cascading picker (2026-08-22), same
+  // two-step pattern as Solar Panel's Company -> Wattage picker (see its
+  // doc comment above). Every real inverter is now a specific, flat
+  // PER_PIECE-priced product (brand + rated kW + phase — see
+  // lib/db/admin.ts's rawInverterPKR comment for why it's no longer
+  // scaled by system watts), so "pick a model" resolves directly to one
+  // real SKU, exactly like the panel picker.
+  const realInverterOptions = inverterOptionsForServiceType.filter((o) => !o.isOtherOption);
+  const otherInverterOption = inverterOptionsForServiceType.find((o) => o.isOtherOption) ?? null;
+  const inverterBrands = Array.from(new Set(realInverterOptions.map((o) => o.brand ?? o.label)));
+  function inverterSkusForBrand(brand: string): EquipmentOptionDTO[] {
+    return realInverterOptions.filter((o) => (o.brand ?? o.label) === brand).sort((a, b) => (a.specValue ?? 0) - (b.specValue ?? 0));
+  }
+  function defaultInverterSkuForBrand(brand: string): EquipmentOptionDTO | null {
+    const skus = inverterSkusForBrand(brand);
+    const inStockSkus = skus.filter((o) => o.inStock);
+    if (inStockSkus.length === 0) return skus[0] ?? null;
+    return inStockSkus.reduce((cheapest, o) => ((o.unitPricePKR ?? Infinity) < (cheapest.unitPricePKR ?? Infinity) ? o : cheapest));
+  }
+  const currentInverterBrand =
+    effectiveInverterCode !== OTHER_CODE ? (currentInverterOption?.brand ?? currentInverterOption?.label ?? null) : null;
   const currentBatteryOption = batteryOptions.find((o) => o.code === effectiveBatteryCode) ?? null;
   // The active battery slot's unit price, for swapDeltaLabel's diff math
   // in the Battery row below (Optional Battery, 2026-08-20). "No Battery"
@@ -2141,55 +2128,70 @@ function CalculatorCard() {
                         isOpen={openEquipmentSection === "INVERTER"}
                         onToggleOpen={() => setOpenEquipmentSection((s) => (s === "INVERTER" ? null : "INVERTER"))}
                       >
+                        {/* Step 1: Company — one card per distinct
+                            inverter brand, plus "Other". Every real
+                            inverter is now flat PER_PIECE-priced (see
+                            lib/db/admin.ts's rawInverterPKR comment), so
+                            deltas below are plain price differences, NOT
+                            scaled by systemWatts the way Panel/Cable/
+                            Structure deltas still are. */}
                         <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
-                          {inverterOptionsForServiceType.map((o) => (
+                          {inverterBrands.map((brand) => {
+                            const defaultSku = defaultInverterSkuForBrand(brand);
+                            const active = currentInverterBrand === brand;
+                            return (
+                              <SwapOptionCard
+                                key={brand}
+                                label={brand}
+                                imageUrl={defaultSku?.logoUrl ?? null}
+                                active={active}
+                                inStock={inverterSkusForBrand(brand).some((o) => o.inStock)}
+                                onClick={() => {
+                                  if (defaultSku) setInverterCode(defaultSku.code);
+                                }}
+                                deltaLabel={swapDeltaLabel(defaultSku?.unitPricePKR ?? null, currentInverterOption?.unitPricePKR ?? null, 1, active)}
+                              />
+                            );
+                          })}
+                          {otherInverterOption && (
                             <SwapOptionCard
-                              key={o.code}
-                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
-                              imageUrl={o.logoUrl}
-                              active={effectiveInverterCode === o.code}
-                              inStock={o.inStock}
-                              onClick={() => setInverterCode(o.code)}
+                              key={otherInverterOption.code}
+                              label="Other / Specific Requirement"
+                              imageUrl={null}
+                              active={effectiveInverterCode === OTHER_CODE}
+                              inStock={otherInverterOption.inStock}
+                              onClick={() => setInverterCode(OTHER_CODE)}
                               deltaLabel={swapDeltaLabel(
-                                o.unitPricePKR,
+                                otherInverterOption.unitPricePKR,
                                 currentInverterOption?.unitPricePKR ?? null,
-                                systemWatts,
-                                effectiveInverterCode === o.code
+                                1,
+                                effectiveInverterCode === OTHER_CODE
                               )}
                             />
-                          ))}
-                        </div>
-
-                        {/* Inverter Capacity presets — see
-                            INVERTER_CAPACITY_PRESETS' doc comment for the
-                            real catalog-data gap this currently ships
-                            with (only Solis has a known rating today). */}
-                        <div className="mt-3">
-                          {inverterOptionsForServiceType.some((o) => !o.isOtherOption && o.specValue !== null) ? (
-                            <>
-                              <p className="mb-1.5 block text-xs font-medium text-slate-600">Inverter Capacity</p>
-                              <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
-                                {INVERTER_CAPACITY_PRESETS.map((preset) => (
-                                  <SpecCard
-                                    key={preset.kw}
-                                    title={`${preset.kw} kW`}
-                                    description={preset.label}
-                                    active={currentInverterOption?.specValue === preset.kw}
-                                    onClick={() => {
-                                      const code = resolveInverterCodeForCapacity(preset.kw, inverterOptionsForServiceType);
-                                      if (code) setInverterCode(code);
-                                    }}
-                                  />
-                                ))}
-                              </div>
-                            </>
-                          ) : (
-                            <p className="text-[11px] text-slate-400">
-                              Capacity presets aren&apos;t configured yet for {SERVICE_TYPE_LABEL[serviceType]} inverters —
-                              pick a brand above instead.
-                            </p>
                           )}
                         </div>
+
+                        {/* Step 2: Model — only shown once a real company
+                            is selected and it has more than one model on
+                            file. Each card IS a real distinct SKU (brand +
+                            rated kW + phase), same pattern as Panel's
+                            Wattage step. */}
+                        {currentInverterBrand && inverterSkusForBrand(currentInverterBrand).length > 1 && (
+                          <div className="mt-3">
+                            <p className="mb-1.5 block text-xs font-medium text-slate-600">Model</p>
+                            <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
+                              {inverterSkusForBrand(currentInverterBrand).map((o) => (
+                                <SpecCard
+                                  key={o.code}
+                                  title={o.specValue !== null ? `${o.specValue}kW` : o.label}
+                                  description={o.phase ? PHASE_LABEL[o.phase] : o.label}
+                                  active={effectiveInverterCode === o.code}
+                                  onClick={() => setInverterCode(o.code)}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </EquipmentSwapRow>
 
                       {/* 3. Lithium Battery — Default & Swap, plus the

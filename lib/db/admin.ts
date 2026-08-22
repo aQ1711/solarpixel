@@ -1,5 +1,13 @@
 import "server-only";
-import { PrismaClient, Prisma, type ComponentType, type CostUnit, type Sector, type ServiceType } from "@prisma/client";
+import {
+  PrismaClient,
+  Prisma,
+  type ComponentType,
+  type CostUnit,
+  type Sector,
+  type ServiceType,
+  type InverterPhase,
+} from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { formatGoogleDriveLink } from "@/lib/utils/googleDrive";
 
@@ -237,9 +245,13 @@ export function parseEquipmentSelections(json: unknown): EquipmentSelections | u
 // schema.prisma). Must match prisma/seed.ts's seeded codes exactly, and
 // each has a corresponding RawVendorCost row with itemName = the code.
 const DEFAULT_PANEL_CODE = "LONGI_TOPCON_610W";
+// Updated 2026-08-22 when the old vague HUAWEI_HYBRID/HUAWEI_ONGRID
+// placeholders (no real specValue, PER_WATT) were retired in favor of
+// real, specific, flat PER_PIECE-priced SKUs sourced from w11stop.com —
+// see that day's catalog update in project memory for the full list.
 const DEFAULT_INVERTER_CODE_BY_SERVICE_TYPE: Record<ServiceType, string> = {
-  HYBRID_BATTERY: "HUAWEI_HYBRID",
-  ONGRID_ZERO_EXPORT: "HUAWEI_ONGRID",
+  HYBRID_BATTERY: "GROWATT_10KW_HYBRID_1P",
+  ONGRID_ZERO_EXPORT: "GOODWE_10KW_ONGRID",
 };
 const DEFAULT_BATTERY_CODE = "PYLONTECH_LITHIUM";
 // Same code used for both DC_CABLE and AC_CABLE rows — one "Cable Brand"
@@ -503,7 +515,10 @@ export async function calculateSystemPricing(
         orderBy: { effectiveFrom: "desc" },
       }),
       adminPrisma.rawVendorCost.findFirst({
-        where: activeFilter("INVERTER", "PER_WATT", inverterCode),
+        // PER_PIECE, not PER_WATT (2026-08-22) — an inverter is one fixed
+        // real product with its own flat price, not a rate that scales
+        // with the customer's system size. See rawInverterPKR below.
+        where: activeFilter("INVERTER", "PER_PIECE", inverterCode),
         orderBy: { effectiveFrom: "desc" },
       }),
       adminPrisma.rawVendorCost.findFirst({
@@ -635,7 +650,13 @@ export async function calculateSystemPricing(
   // derived system), not an oversight; flagged here so it's an easy
   // follow-up if a future spec wants every line to scale.
   const rawPanelPKR = panel!.unitCostRs.toNumber() * (effectivePanelCount * panelWattage);
-  const rawInverterPKR = inverter!.unitCostRs.toNumber() * watts;
+  // Flat PER_PIECE (2026-08-22, explicit instruction) — NOT multiplied by
+  // watts. Every inverter in the catalog is now a real, specific product
+  // (brand + rated kW + phase) with its own fixed price; the customer's
+  // system size only determines which SKUs are big enough to cover it
+  // (see resolveInverterCodeForCapacity/the Custom Builder's Company ->
+  // SKU picker), it doesn't scale the price of whichever one is chosen.
+  const rawInverterPKR = inverter!.unitCostRs.toNumber();
   const rawDcCablePKR = dcCable!.unitCostRs.toNumber() * watts;
   const rawAcCablePKR = acCable!.unitCostRs.toNumber() * watts;
   const rawBreakersPKR = breakers!.unitCostRs.toNumber() * watts;
@@ -941,7 +962,15 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
   const [panel, inverter, breakers, battery, structure, settings, dcCable, acCable, dataCable, dbUpgrade, marginRule, panelOption, inverterOption] =
     await Promise.all([
       adminPrisma.rawVendorCost.findFirst({ where: activeCostFilter("SOLAR_PANEL", panelCode), orderBy: { effectiveFrom: "desc" } }),
-      adminPrisma.rawVendorCost.findFirst({ where: activeCostFilter("INVERTER", inverterCode), orderBy: { effectiveFrom: "desc" } }),
+      // PER_PIECE, not PER_WATT (2026-08-22) — matches
+      // calculateSystemPricing's own inverter lookup exactly (this used
+      // to be the one spot the two engines could disagree: this filter
+      // had no unit check at all, calculateSystemPricing's did). See
+      // rawInverterPKR below for the matching no-longer-scaled-by-watts fix.
+      adminPrisma.rawVendorCost.findFirst({
+        where: { ...activeCostFilter("INVERTER", inverterCode), unit: "PER_PIECE" },
+        orderBy: { effectiveFrom: "desc" },
+      }),
       adminPrisma.rawVendorCost.findFirst({ where: activeCostFilter("BREAKERS", breakersCode), orderBy: { effectiveFrom: "desc" } }),
       needsBattery && batteryCode
         ? adminPrisma.rawVendorCost.findFirst({ where: activeCostFilter("BATTERY", batteryCode), orderBy: { effectiveFrom: "desc" } })
@@ -1051,7 +1080,9 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     // Only panelPKR scales with the adjusted count — same deliberate v1
     // simplification as calculateSystemPricing (see its comment).
     panelPKR: round2(p.unitCostRs.toNumber() * (effectivePanelCount * panelWattage)),
-    inverterPKR: round2(inv.unitCostRs.toNumber() * watts),
+    // Flat PER_PIECE (2026-08-22) — see calculateSystemPricing's matching
+    // rawInverterPKR comment; not scaled by watts.
+    inverterPKR: round2(inv.unitCostRs.toNumber()),
     batteryPKR: needsBattery && battery ? round2(battery.unitCostRs.toNumber() * batteryCapacityKwh) : 0,
     breakersPKR: round2(brk.unitCostRs.toNumber() * watts),
     structurePKR: round2(struct.unitCostRs.toNumber() * watts),
@@ -1177,6 +1208,8 @@ export interface MaterialCatalogItem {
   brand: string | null;
   specValue: number | null;
   applicableServiceType: ServiceType | null;
+  /** Electrical phase (2026-08-22) — only ever set for INVERTER rows. */
+  phase: InverterPhase | null;
   isDefault: boolean;
   isActive: boolean;
   /** Inventory guardrail — see its doc comment in schema.prisma. */
@@ -1665,6 +1698,7 @@ export async function listMaterialCatalog(): Promise<MaterialCatalogResponse> {
       brand: opt.brand,
       specValue: opt.specValue?.toNumber() ?? null,
       applicableServiceType: opt.applicableServiceType,
+      phase: opt.phase,
       isDefault: opt.isDefault,
       isActive: opt.isActive,
       inStock: opt.inStock,
@@ -1725,6 +1759,7 @@ async function toMaterialCatalogItem(
     brand: string | null;
     specValue: { toNumber(): number } | null;
     applicableServiceType: ServiceType | null;
+    phase: InverterPhase | null;
     isDefault: boolean;
     isActive: boolean;
     inStock: boolean;
@@ -1752,6 +1787,7 @@ async function toMaterialCatalogItem(
     brand: option.brand,
     specValue: option.specValue?.toNumber() ?? null,
     applicableServiceType: option.applicableServiceType,
+    phase: option.phase,
     isDefault: option.isDefault,
     isActive: option.isActive,
     inStock: option.inStock,
@@ -1777,6 +1813,11 @@ export interface CreateMaterialInput {
   brand?: string | null;
   specValue?: number | null;
   applicableServiceType?: ServiceType | null;
+  /** Electrical phase (2026-08-22) — only meaningful for
+   *  componentType=INVERTER; ignored/left null for everything else.
+   *  Immutable after creation, same as specValue/applicableServiceType/
+   *  unit — see UpdateMaterialInput's doc comment for why. */
+  phase?: InverterPhase | null;
   unit: CostUnit;
   vendorCostRs: number;
   vendorName?: string | null;
@@ -1823,6 +1864,7 @@ export async function createMaterialItem(input: CreateMaterialInput): Promise<Ma
       brand: input.brand ?? null,
       specValue: input.specValue ?? null,
       applicableServiceType: input.applicableServiceType ?? null,
+      phase: input.phase ?? null,
       isDefault: input.isDefault ?? false,
       sortOrder: 50,
       isActive: true,

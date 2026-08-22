@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { ComponentType, CostUnit, ServiceType, Sector } from "@prisma/client";
+import { ComponentType, CostUnit, ServiceType, Sector, InverterPhase } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import {
   listMaterialCatalog,
@@ -51,6 +51,10 @@ const createMaterialSchema = z.object({
   brand: z.string().trim().max(80).optional(),
   specValue: z.number().positive().max(100_000).optional(),
   applicableServiceType: z.nativeEnum(ServiceType).optional(),
+  // Only meaningful for componentType=INVERTER (2026-08-22) — ignored
+  // for everything else, same "accepted but only used where relevant"
+  // pattern as applicableServiceType/specValue.
+  phase: z.nativeEnum(InverterPhase).optional(),
   unit: z.nativeEnum(CostUnit),
   vendorCostRs: z.number().positive().max(10_000_000),
   vendorName: z.string().trim().max(120).optional(),
@@ -142,6 +146,7 @@ export async function POST(req: NextRequest) {
         brand: input.brand,
         specValue: input.specValue,
         applicableServiceType: input.applicableServiceType,
+        phase: input.phase,
         unit: input.unit,
         vendorCostRs: input.vendorCostRs,
         vendorName: input.vendorName,

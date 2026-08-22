@@ -1,5 +1,12 @@
 import "dotenv/config";
-import { PrismaClient, type ComponentType, type CostUnit, type Sector, type ServiceType } from "@prisma/client";
+import {
+  PrismaClient,
+  type ComponentType,
+  type CostUnit,
+  type Sector,
+  type ServiceType,
+  type InverterPhase,
+} from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 // One-time DBA-style setup script — connects with the full-access
@@ -66,6 +73,8 @@ async function main() {
     brand: string | null;
     specValue: number | null;
     applicableServiceType: ServiceType | null;
+    /** Only meaningful for componentType=INVERTER (2026-08-22). */
+    phase?: InverterPhase | null;
     isOtherOption?: boolean;
     /** The Recommended-path default for this componentType (+
      *  applicableServiceType) — must match lib/db/admin.ts's DEFAULT_*
@@ -122,64 +131,148 @@ async function main() {
       sortOrder: 99,
     },
 
-    // ---- Inverter (Recommended default: HUAWEI_HYBRID / HUAWEI_ONGRID) ----
+    // ---- Inverter (2026-08-22 rework — real SKUs sourced from w11stop.com,
+    // Recommended default: GROWATT_10KW_HYBRID_1P / GOODWE_10KW_ONGRID) ----
+    // Replaced the old vague "Huawei Hybrid Inverter"-style placeholders
+    // (no real specValue, blended PER_WATT rate) with specific, real
+    // products — each a flat PER_PIECE price (an inverter is one fixed
+    // unit, never scaled by the customer's system size — see
+    // calculateSystemPricing's rawInverterPKR doc comment in
+    // lib/db/admin.ts) plus a real `phase` (Single/Three Phase). Costs
+    // below are w11stop's real retail price per model — this catalog's
+    // sector margins currently sit at 0% (see project memory), so these
+    // numbers ARE the customer-facing price today, not a raw cost with
+    // markup layered on top.
     {
       componentType: "INVERTER",
-      code: "HUAWEI_HYBRID",
-      label: "Huawei Hybrid Inverter",
-      brand: "Huawei",
-      specValue: null,
-      applicableServiceType: "HYBRID_BATTERY",
-      isDefault: true,
-      sortOrder: 1,
-      cost: { unitCostRs: 15, unit: "PER_WATT" },
-    },
-    {
-      componentType: "INVERTER",
-      code: "SOFAR_HYBRID",
-      label: "Sofar Hybrid Inverter",
-      brand: "Sofar",
-      specValue: null,
-      applicableServiceType: "HYBRID_BATTERY",
-      sortOrder: 2,
-      cost: { unitCostRs: 13, unit: "PER_WATT" },
-    },
-    {
-      // Named "Solis 10kW Hybrid" in the admin catalog spec — specValue
-      // is informational (kW rating), same as SOLAR_PANEL's wattage;
-      // pricing stays PER_WATT/blended like every other inverter, not a
-      // fixed-unit price, since sizing a quote around discrete inverter
-      // SKUs would need real quantity/bin-packing logic this system
-      // doesn't have (see EquipmentOption.specValue's doc comment).
-      componentType: "INVERTER",
-      code: "SOLIS_HYBRID_10KW",
-      label: "Solis 10kW Hybrid Inverter",
+      code: "SOLIS_10KW_HYBRID_1P",
+      label: "Solis 10kW Hybrid Inverter (Single Phase)",
       brand: "Solis",
       specValue: 10,
       applicableServiceType: "HYBRID_BATTERY",
-      sortOrder: 3,
-      cost: { unitCostRs: 11, unit: "PER_WATT" },
+      phase: "SINGLE_PHASE",
+      sortOrder: 1,
+      cost: { unitCostRs: 390_000, unit: "PER_PIECE" },
     },
     {
       componentType: "INVERTER",
-      code: "HUAWEI_ONGRID",
-      label: "Huawei On-Grid Inverter",
+      code: "SOLIS_12KW_HYBRID_3P",
+      label: "Solis 12kW Hybrid Inverter (Three Phase)",
+      brand: "Solis",
+      specValue: 12,
+      applicableServiceType: "HYBRID_BATTERY",
+      phase: "THREE_PHASE",
+      sortOrder: 2,
+      cost: { unitCostRs: 570_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "INVERTER",
+      code: "GROWATT_10KW_HYBRID_1P",
+      label: "Growatt 10kW Hybrid Inverter (Single Phase)",
+      brand: "Growatt",
+      specValue: 10,
+      applicableServiceType: "HYBRID_BATTERY",
+      phase: "SINGLE_PHASE",
+      isDefault: true,
+      sortOrder: 3,
+      cost: { unitCostRs: 380_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "INVERTER",
+      code: "GROWATT_10KW_HYBRID_3P",
+      label: "Growatt 10kW Hybrid Inverter (Three Phase)",
+      brand: "Growatt",
+      specValue: 10,
+      applicableServiceType: "HYBRID_BATTERY",
+      phase: "THREE_PHASE",
+      sortOrder: 4,
+      cost: { unitCostRs: 550_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "INVERTER",
+      code: "GOODWE_10KW_HYBRID_1P",
+      label: "Goodwe 10kW Hybrid Inverter (Single Phase)",
+      brand: "Goodwe",
+      specValue: 10,
+      applicableServiceType: "HYBRID_BATTERY",
+      phase: "SINGLE_PHASE",
+      sortOrder: 5,
+      cost: { unitCostRs: 393_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "INVERTER",
+      code: "GOODWE_20KW_HYBRID_3P",
+      label: "Goodwe 20kW Hybrid Inverter (Three Phase)",
+      brand: "Goodwe",
+      specValue: 20,
+      applicableServiceType: "HYBRID_BATTERY",
+      phase: "THREE_PHASE",
+      sortOrder: 6,
+      cost: { unitCostRs: 765_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "INVERTER",
+      code: "HUAWEI_10KW_ONGRID",
+      label: "Huawei 10kW On-Grid Inverter",
       brand: "Huawei",
-      specValue: null,
+      // Phase omitted (null) — w11stop's own listing for this model
+      // doesn't state it, unlike the Solis/Growatt/Goodwe hybrid models
+      // above, which explicitly do. Left unknown rather than guessed.
+      specValue: 10,
+      applicableServiceType: "ONGRID_ZERO_EXPORT",
+      sortOrder: 7,
+      cost: { unitCostRs: 336_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "INVERTER",
+      code: "HUAWEI_20KW_ONGRID",
+      label: "Huawei 20kW On-Grid Inverter",
+      brand: "Huawei",
+      specValue: 20,
+      applicableServiceType: "ONGRID_ZERO_EXPORT",
+      sortOrder: 8,
+      cost: { unitCostRs: 445_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "INVERTER",
+      code: "GROWATT_10KW_ONGRID",
+      label: "Growatt 10kW On-Grid Inverter (X2 Pro)",
+      brand: "Growatt",
+      specValue: 10,
+      applicableServiceType: "ONGRID_ZERO_EXPORT",
+      sortOrder: 9,
+      cost: { unitCostRs: 188_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "INVERTER",
+      code: "GROWATT_20KW_ONGRID",
+      label: "Growatt 20kW On-Grid Inverter",
+      brand: "Growatt",
+      specValue: 20,
+      applicableServiceType: "ONGRID_ZERO_EXPORT",
+      sortOrder: 10,
+      cost: { unitCostRs: 320_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "INVERTER",
+      code: "GOODWE_10KW_ONGRID",
+      label: "Goodwe 10kW On-Grid Inverter",
+      brand: "Goodwe",
+      specValue: 10,
       applicableServiceType: "ONGRID_ZERO_EXPORT",
       isDefault: true,
-      sortOrder: 4,
-      cost: { unitCostRs: 12, unit: "PER_WATT" },
+      sortOrder: 11,
+      cost: { unitCostRs: 185_000, unit: "PER_PIECE" },
     },
     {
       componentType: "INVERTER",
-      code: "GROWATT_ONGRID",
-      label: "Growatt On-Grid Inverter",
-      brand: "Growatt",
-      specValue: null,
+      code: "GOODWE_20KW_ONGRID",
+      label: "Goodwe 20kW On-Grid Inverter",
+      brand: "Goodwe",
+      specValue: 20,
       applicableServiceType: "ONGRID_ZERO_EXPORT",
-      sortOrder: 5,
-      cost: { unitCostRs: 10, unit: "PER_WATT" },
+      sortOrder: 12,
+      cost: { unitCostRs: 275_000, unit: "PER_PIECE" },
     },
     {
       componentType: "INVERTER",
@@ -386,6 +479,7 @@ async function main() {
           brand: entry.brand,
           specValue: entry.specValue,
           applicableServiceType: entry.applicableServiceType,
+          phase: entry.phase ?? null,
           isOtherOption: entry.isOtherOption ?? false,
           isDefault: entry.isDefault ?? false,
           sortOrder: entry.sortOrder,

@@ -40,6 +40,9 @@ type ComponentType = "SOLAR_PANEL" | "INVERTER" | "BATTERY" | "DC_CABLE" | "AC_C
 type ServiceType = "HYBRID_BATTERY" | "ONGRID_ZERO_EXPORT";
 type CostUnit = "PER_WATT" | "PER_METER" | "PER_KWH" | "PER_UNIT" | "PER_PIECE" | "LUMP_SUM";
 type Sector = "RESIDENTIAL" | "COMMERCIAL" | "INDUSTRIAL";
+// Mirrors Prisma's InverterPhase enum (2026-08-22) — only meaningful for
+// componentType=INVERTER.
+type InverterPhase = "SINGLE_PHASE" | "THREE_PHASE";
 
 interface SpecEntry {
   key: string;
@@ -54,6 +57,8 @@ interface MaterialItem {
   brand: string | null;
   specValue: number | null;
   applicableServiceType: ServiceType | null;
+  /** Only ever set for componentType=INVERTER. */
+  phase: InverterPhase | null;
   isDefault: boolean;
   isActive: boolean;
   /** Inventory guardrail — see its doc comment in schema.prisma. */
@@ -809,10 +814,16 @@ const COMPONENT_TYPE_ICON: Record<ComponentType, typeof Sun> = {
   BREAKERS: Cable,
 };
 
+const PHASE_LABEL: Record<InverterPhase, string> = { SINGLE_PHASE: "Single Phase", THREE_PHASE: "Three Phase" };
+
 function specDisplay(item: MaterialItem): string {
+  if (item.componentType === "INVERTER") {
+    const kw = item.specValue != null ? `${item.specValue}kW` : "—";
+    const phaseLabel = item.phase ? PHASE_LABEL[item.phase] : null;
+    return phaseLabel ? `${kw} · ${phaseLabel}` : kw;
+  }
   if (item.specValue == null) return "—";
   if (item.componentType === "SOLAR_PANEL") return `${item.specValue}W`;
-  if (item.componentType === "INVERTER") return `${item.specValue}kW`;
   return String(item.specValue);
 }
 
@@ -1031,6 +1042,8 @@ interface CreateMaterialInput {
   brand?: string;
   specValue?: number;
   applicableServiceType?: ServiceType;
+  /** Only meaningful for componentType=INVERTER. */
+  phase?: InverterPhase;
   unit: CostUnit;
   vendorCostRs: number;
   marginPercentOverride?: number;
@@ -1153,12 +1166,23 @@ function MaterialModal({
   const [applicableServiceType, setApplicableServiceType] = useState<ServiceType | "">(
     editingItem?.applicableServiceType ?? ""
   );
-  // BATTERY prices PER_KWH, everything else in this catalog PER_WATT —
-  // match the resolved starting componentType (not a blind PER_WATT
-  // default) so switching tabs before opening the modal doesn't leave a
-  // silently-wrong unit an admin has to remember to fix by hand.
+  // Only meaningful for componentType=INVERTER — see InverterPhase's doc
+  // comment in schema.prisma.
+  const [phase, setPhase] = useState<InverterPhase | "">(editingItem?.phase ?? "");
+  // BATTERY prices PER_KWH, INVERTER is always flat PER_PIECE (2026-08-22
+  // — see rawInverterPKR's doc comment in lib/db/admin.ts, an inverter is
+  // one real fixed-price product, never scaled by system watts),
+  // everything else in this catalog PER_WATT — match the resolved
+  // starting componentType (not a blind PER_WATT default) so switching
+  // tabs before opening the modal doesn't leave a silently-wrong unit an
+  // admin has to remember to fix by hand.
   const [unit, setUnit] = useState<CostUnit>(
-    editingItem?.unit ?? ((defaultComponentType ?? "SOLAR_PANEL") === "BATTERY" ? "PER_KWH" : "PER_WATT")
+    editingItem?.unit ??
+      ((defaultComponentType ?? "SOLAR_PANEL") === "BATTERY"
+        ? "PER_KWH"
+        : defaultComponentType === "INVERTER"
+          ? "PER_PIECE"
+          : "PER_WATT")
   );
   const [vendorCostRs, setVendorCostRs] = useState(editingItem?.unitCostRs != null ? String(editingItem.unitCostRs) : "");
   const [marginPercentOverride, setMarginPercentOverride] = useState(
@@ -1230,6 +1254,7 @@ function MaterialModal({
             brand: brand.trim(),
             specValue: specValue.trim() !== "" ? Number(specValue) : undefined,
             applicableServiceType: needsServiceType && applicableServiceType ? applicableServiceType : undefined,
+            phase: componentType === "INVERTER" && phase ? phase : undefined,
             unit,
             vendorCostRs: costNum,
             marginPercentOverride: marginPercentOverride.trim() !== "" ? Number(marginPercentOverride) : undefined,
@@ -1316,6 +1341,21 @@ function MaterialModal({
                   <option value="">Both</option>
                   <option value="HYBRID_BATTERY">Hybrid + Battery</option>
                   <option value="ONGRID_ZERO_EXPORT">On-Grid</option>
+                </select>
+              </div>
+            )}
+            {componentType === "INVERTER" && (
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-stone-600">Phase</label>
+                <select
+                  value={phase}
+                  onChange={(e) => setPhase(e.target.value as InverterPhase | "")}
+                  disabled={isEdit}
+                  className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-sm text-stone-900 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <option value="">— Select —</option>
+                  <option value="SINGLE_PHASE">Single Phase</option>
+                  <option value="THREE_PHASE">Three Phase</option>
                 </select>
               </div>
             )}
