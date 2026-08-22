@@ -17,7 +17,9 @@ import {
   Pencil,
   FileText,
   Image as ImageIcon,
+  TrendingUp,
 } from "lucide-react";
+import Link from "next/link";
 import { AccessGate } from "@/components/internal/AccessGate";
 import { internalFetch } from "@/lib/internal/access";
 import { formatGoogleDriveLink } from "@/lib/utils/googleDrive";
@@ -393,6 +395,13 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
             <p className="mt-1 text-sm text-stone-500">Every save here changes the live customer quote calculator immediately.</p>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href="/admin/market-prices"
+              className="flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-600 shadow-sm transition hover:text-stone-900"
+            >
+              <TrendingUp className="h-3.5 w-3.5" />
+              Market Prices
+            </Link>
             <select
               value={actingAdminId}
               onChange={(e) => setActingAdminId(e.target.value)}

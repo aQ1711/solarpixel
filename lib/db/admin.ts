@@ -2152,3 +2152,87 @@ export async function updateGlobalPricingSettings(input: UpdateGlobalPricingSett
     sectorMargins: Object.fromEntries(ALL_SECTORS.map((s) => [s, sectorMargins.get(s) ?? 0])) as Record<Sector, number>,
   };
 }
+
+// ============================================================================
+// Market Price Scraper (2026-08-22) — daily w11stop.com price snapshots.
+// ============================================================================
+// Persistence-only boundary for lib/scraper/marketPriceJob.ts, same
+// discipline as the rest of this file: the scraper module itself never
+// imports `adminPrisma` directly, only these two functions. See
+// MarketPriceSnapshot's doc comment in schema.prisma for why this lives
+// in vendor_private (confidentiality) even though the source is a public
+// website, and why it's a separate table rather than writing into
+// RawVendorCost — this is reference data for a human to review, never
+// auto-applied to live customer-facing pricing.
+// ============================================================================
+
+export interface MarketPriceSnapshotInput {
+  componentType: ComponentType;
+  searchBrand: string;
+  brand: string | null;
+  model: string | null;
+  itemName: string;
+  priceRs: number;
+  oldPriceRs: number | null;
+  sourceUrl: string;
+}
+
+/** Inserts one scrape run's worth of rows, all sharing a single
+ *  `fetchedAt` timestamp generated here (not per-item) — that's what
+ *  lets `listLatestMarketPriceSnapshots` below group "the most recent
+ *  run" by a single exact timestamp match rather than a fuzzy time
+ *  window. Returns the count actually written. */
+export async function recordMarketPriceSnapshots(items: MarketPriceSnapshotInput[]): Promise<number> {
+  if (items.length === 0) return 0;
+  const fetchedAt = new Date();
+  const result = await adminPrisma.marketPriceSnapshot.createMany({
+    data: items.map((item) => ({ ...item, fetchedAt })),
+  });
+  return result.count;
+}
+
+export interface MarketPriceSnapshotDTO {
+  id: string;
+  componentType: ComponentType;
+  searchBrand: string;
+  brand: string | null;
+  model: string | null;
+  itemName: string;
+  priceRs: number;
+  oldPriceRs: number | null;
+  sourceUrl: string;
+  sourceSite: string;
+  fetchedAt: string;
+}
+
+/** Every row from the single most recent scrape run only (matched by
+ *  exact `fetchedAt`, see recordMarketPriceSnapshots above) — older runs
+ *  stay in the table as history but aren't surfaced here. Returns `[]`
+ *  on a fresh/never-scraped DB, same "no data yet" convention as every
+ *  other list function in this file (never fabricates a row). */
+export async function listLatestMarketPriceSnapshots(): Promise<MarketPriceSnapshotDTO[]> {
+  const latest = await adminPrisma.marketPriceSnapshot.findFirst({
+    orderBy: { fetchedAt: "desc" },
+    select: { fetchedAt: true },
+  });
+  if (!latest) return [];
+
+  const rows = await adminPrisma.marketPriceSnapshot.findMany({
+    where: { fetchedAt: latest.fetchedAt },
+    orderBy: [{ componentType: "asc" }, { searchBrand: "asc" }, { priceRs: "asc" }],
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    componentType: row.componentType,
+    searchBrand: row.searchBrand,
+    brand: row.brand,
+    model: row.model,
+    itemName: row.itemName,
+    priceRs: row.priceRs.toNumber(),
+    oldPriceRs: row.oldPriceRs ? row.oldPriceRs.toNumber() : null,
+    sourceUrl: row.sourceUrl,
+    sourceSite: row.sourceSite,
+    fetchedAt: row.fetchedAt.toISOString(),
+  }));
+}

@@ -823,3 +823,58 @@ model GlobalPricingSettings {
   @@map("global_pricing_settings")
   @@schema("vendor_private")
 }
+
+/** A raw scraped market-price observation for one product listing from an
+ *  external vendor site (currently w11stop.com — see
+ *  lib/scraper/w11stop.ts). Purely informational: an admin's reference
+ *  for spotting real price movements against the catalog's own
+ *  RawVendorCost figures, NEVER auto-applied to them — same "protect
+ *  live pricing integrity" principle this session has followed
+ *  throughout (see EquipmentOption/RawVendorCost's own doc comments).
+ *  Lives in vendor_private, same confidentiality boundary as
+ *  RawVendorCost, even though the source is a public website: it's
+ *  still vendor pricing intelligence, and keeping it out of the public
+ *  schema means the DB-role split (see this file's top doc comment)
+ *  protects it automatically without a separate app-layer decision
+ *  every time it's read. One row per scraped listing; one scrape run
+ *  shares a single `fetchedAt` across all its rows (see
+ *  lib/db/admin.ts's recordMarketPriceSnapshots doc comment). */
+model MarketPriceSnapshot {
+  id String @id @default(cuid())
+
+  componentType ComponentType
+
+  /** The brand we searched w11stop for (e.g. "Longi") — distinct from
+   *  the listing's own `brand` text below; used to filter out
+   *  irrelevant search-result noise (a real observed issue live-testing
+   *  this: a "longi" search once surfaced an unrelated "Dongjin"
+   *  battery in the results). */
+  searchBrand String
+  /** Scraped, not normalized — the listing's own displayed brand/model
+   *  text, exactly as w11stop shows it. */
+  brand String?
+  model String?
+  itemName String @db.Text
+
+  priceRs Decimal @db.Decimal(12, 2)
+  /** The struck-through "was" price, when the listing shows a discount
+   *  (w11stop's `.price-old` span) — null for a single-price listing. */
+  oldPriceRs Decimal? @db.Decimal(12, 2)
+
+  sourceUrl  String @db.Text
+  sourceSite String @default("w11stop.com")
+
+  /** When this specific scrape run happened — distinct from `createdAt`
+   *  (the DB row's insert time, always ~equal) so a future multi-source
+   *  scraper could backfill/replay without confusing "when we scraped
+   *  it" with "when it hit the DB." This is the timestamp the daily 7am
+   *  job (netlify/functions/scrape-market-prices.mts) refreshes. */
+  fetchedAt DateTime
+
+  createdAt DateTime @default(now())
+
+  @@index([componentType, fetchedAt])
+  @@index([searchBrand])
+  @@map("market_price_snapshots")
+  @@schema("vendor_private")
+}

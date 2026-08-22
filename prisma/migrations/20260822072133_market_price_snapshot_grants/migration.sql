@@ -1,0 +1,21 @@
+-- ============================================================================
+-- Explicit GRANT for vendor_private.market_price_snapshots
+-- ============================================================================
+-- ALTER DEFAULT PRIVILEGES IN SCHEMA "vendor_private" (set once, in
+-- 20260815115617_vendor_isolation_lockdown, for app_admin_role) is
+-- supposed to cover every future table in this schema automatically —
+-- and it did for global_pricing_settings (20260819100000). It did NOT
+-- for this table: live-testing the market-price scraper against this
+-- environment's local DB immediately hit a real
+-- "permission denied for table market_price_snapshots" error from
+-- app_admin_role, confirmed via a direct query, before this migration
+-- was written. Root cause not fully chased down (a plausible one: the
+-- default-privileges rule is keyed to the exact role that issues the
+-- ALTER DEFAULT PRIVILEGES statement, and something about this table's
+-- creation session didn't match it) — rather than trust the same
+-- implicit mechanism again, this migration makes the grant EXPLICIT for
+-- this table, matching the original lockdown migration's own
+-- "explicit + defensive" style. Safe to re-run (GRANT is idempotent).
+-- ============================================================================
+
+GRANT SELECT, INSERT, UPDATE ON "vendor_private"."market_price_snapshots" TO "app_admin_role";
