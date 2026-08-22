@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { trackWhatsAppClick } from "@/lib/analytics";
 import {
@@ -790,7 +790,7 @@ function Header() {
 
 function Hero() {
   return (
-    <section className="dot-grid relative px-5 pb-10 pt-4 sm:pt-6 print:p-0">
+    <section className="dot-grid relative px-5 pb-6 pt-4 sm:pt-6 md:pb-4 print:p-0">
       {/* Ambient glow, purely decorative — two soft, low-opacity washes
           instead of one saturated blob, for a calmer first impression. */}
       <div
@@ -810,12 +810,22 @@ function Hero() {
           a little further down (nothing structural changed there) — a
           shortcut for someone who wants to jump straight in, not a gate
           in front of it, since the card was already reachable by
-          scrolling either way. */}
+          scrolling either way.
+
+          Desktop Hero Compaction (2026-08-22, same day) — tightened
+          every gap below on md:+ specifically (mobile spacing is
+          untouched, it was already sized for the mobile-first pass
+          above) and widened the subhead so it wraps to 1 line instead
+          of 2-3 on a wide screen, both aimed at the same goal: pull
+          "What do you need?" up into view on a real 1080p desktop
+          without scrolling. Verified live via resize_window — see this
+          function's own doc comment isn't the place for that log, it's
+          in project memory alongside the actual measured numbers. */}
       <div className="relative mx-auto max-w-2xl text-center print:hidden">
         <h1 className="text-balance text-[1.85rem] font-bold leading-[1.15] tracking-tight text-stone-900 sm:text-5xl sm:leading-[1.1]">
           Get Your Exact Solar Price in <span className="text-violet-600">60 Seconds</span>.
         </h1>
-        <p className="mx-auto mt-2.5 max-w-md text-balance text-sm text-stone-600 sm:text-lg">
+        <p className="mx-auto mt-2 max-w-md text-balance text-sm text-stone-600 sm:mt-2.5 sm:max-w-xl sm:text-lg">
           {/* "your monthly bill," not "your WAPDA units" — the calculator's
               real first field asks for a Rupee amount (Average Monthly
               Bill), not a units/kWh meter reading; corrected to match the
@@ -827,13 +837,13 @@ function Hero() {
         <button
           type="button"
           onClick={scrollToCalculator}
-          className="glow-cta mt-6 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 px-6 py-4 text-base font-bold text-white shadow-lg shadow-violet-600/30 transition-transform duration-200 hover:scale-[1.02] active:scale-[0.98] sm:w-auto sm:px-10 sm:py-4"
+          className="glow-cta mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 px-6 py-4 text-base font-bold text-white shadow-lg shadow-violet-600/30 transition-transform duration-200 hover:scale-[1.02] active:scale-[0.98] sm:mt-5 sm:w-auto sm:px-10 sm:py-4"
         >
           Calculate My Solar Cost
           <ArrowRight className="h-5 w-5" />
         </button>
 
-        <div className="mt-3.5 flex items-center justify-center gap-1 text-[11px] font-medium text-stone-400 sm:gap-1.5 sm:text-xs">
+        <div className="mt-3 flex items-center justify-center gap-1 text-[11px] font-medium text-stone-400 sm:mt-3.5 sm:gap-1.5 sm:text-xs">
           <span className="flex items-center gap-1">
             <Receipt className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> 1. Enter Bill
           </span>
@@ -848,7 +858,7 @@ function Hero() {
         </div>
       </div>
 
-      <div id="calculator" className="relative mx-auto mt-5 w-full scroll-mt-24 sm:mt-6 print:mt-0 print:max-w-none">
+      <div id="calculator" className="relative mx-auto mt-5 w-full scroll-mt-24 sm:mt-5 md:mt-4 print:mt-0 print:max-w-none">
         {/* useSearchParams() (for the report-step/back-button sync — see
             CalculatorCard) requires a Suspense boundary so the rest of
             this static page isn't forced fully dynamic. */}
@@ -1071,6 +1081,28 @@ function CalculatorCard() {
   // to the URL — only the report step is (see the effect below), per the
   // back-button requirement being specifically about the report screen.
   const [masterService, setMasterService] = useState<MasterService>("COMPLETE_SOLAR");
+
+  // Auto-scroll flow (2026-08-22, Desktop Hero Compaction task) — three
+  // scroll stops down the Complete Solar path: the Master Service picker
+  // itself, the Energy Profile (bill) card, and the Equipment
+  // Configurator card. Property & System (StepHeader step 2) sits
+  // between the latter two in the DOM but has no dedicated stop of its
+  // own here — its Sector/ServiceType state always has a real default
+  // (DEFAULT_SECTOR / HYBRID_BATTERY, see below), so jumping straight
+  // from the bill card to the Configurator never leaves the form in an
+  // incomplete state, just skips pausing there. Only meaningful for
+  // masterService === "COMPLETE_SOLAR" — the other two master services
+  // render a completely different, shorter form with none of these
+  // sections, so the refs simply stay unattached (null) for them and
+  // scrollToStep's optional chaining no-ops safely.
+  const serviceSelectionRef = useRef<HTMLFieldSetElement>(null);
+  const energyProfileRef = useRef<HTMLDivElement>(null);
+  const configurationRef = useRef<HTMLDivElement>(null);
+
+  function scrollToStep(ref: React.RefObject<HTMLElement | null>) {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   const [addOnDescription, setAddOnDescription] = useState("");
   const [addOnError, setAddOnError] = useState<string | null>(null);
   // The final computed Panel Washing/EV Charger price, set right before
@@ -1495,6 +1527,19 @@ function CalculatorCard() {
     }
   }
 
+  // Auto-scroll trigger 2 (2026-08-22) — fires on blur (tabbing/clicking
+  // away) or Enter, once a real positive amount has actually been
+  // entered. Deliberately NOT on every keystroke via onChange — that
+  // would yank the page out from under someone still mid-typing.
+  // resolvedBillPKR is a plain synchronous value derived straight from
+  // billAmountInput (no effect/async step in between), so it's already
+  // current by the time either event fires.
+  function handleBillAmountCommit() {
+    if (resolvedBillPKR !== null && resolvedBillPKR > 0) {
+      scrollToStep(configurationRef);
+    }
+  }
+
   async function handleFileUpload(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file later
@@ -1795,7 +1840,7 @@ function CalculatorCard() {
     >
       {/* Master Service — rich cards, icon + subtitle each so this never
           reads as three empty little boxes in a lot of white space. */}
-      <fieldset>
+      <fieldset ref={serviceSelectionRef}>
         <legend className="mb-3 text-sm font-semibold text-slate-700">What do you need?</legend>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {MASTER_SERVICES.map(({ value, label, icon: Icon }) => {
@@ -1804,7 +1849,22 @@ function CalculatorCard() {
               <button
                 key={value}
                 type="button"
-                onClick={() => setMasterService(value)}
+                onClick={() => {
+                  setMasterService(value);
+                  // Complete Solar's Energy Profile card only exists in
+                  // the DOM for that branch (see the masterService ===
+                  // "COMPLETE_SOLAR" ternary below) — switching INTO it
+                  // from a different service means the ref isn't
+                  // attached yet at the moment this handler runs, so the
+                  // scroll has to wait for React to actually commit that
+                  // new DOM before it can find something to scroll to.
+                  // Double rAF (not a fixed setTimeout) is the standard
+                  // "wait for the next real paint" pattern — one rAF
+                  // alone can still fire before layout has settled.
+                  if (value === "COMPLETE_SOLAR") {
+                    requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(energyProfileRef)));
+                  }
+                }}
                 aria-pressed={active}
                 className={`relative flex min-w-0 items-start gap-3 rounded-2xl p-4 text-left transition-all duration-200 ${
                   active
@@ -1840,7 +1900,7 @@ function CalculatorCard() {
                 folded in here too — same conceptual step as before.
                 bg-white (vs. Step 2/3's bg-stone-50) breaks up the "wall
                 of identical cards" look (Part 2) — see StepHeader. */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div ref={energyProfileRef} className="rounded-2xl border border-slate-200 bg-white p-4">
               <StepHeader step={1} title="Energy Profile" />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
@@ -1855,6 +1915,13 @@ function CalculatorCard() {
                       required
                       value={billAmountInput}
                       onChange={(e) => handleBillAmountChange(e.target.value.replace(/[^\d]/g, ""))}
+                      onBlur={handleBillAmountCommit}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleBillAmountCommit();
+                        }
+                      }}
                       placeholder="e.g. 25000"
                       className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 pr-11 text-base font-medium text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
                     />
@@ -2140,7 +2207,7 @@ function CalculatorCard() {
                 above for why that matters inside the dashboard's narrower
                 left column. bg-white (alternating back from Step 2's
                 bg-slate-50) — see StepHeader/Part 2. */}
-            <div className="@container rounded-2xl border border-slate-200 bg-white p-4">
+            <div ref={configurationRef} className="@container rounded-2xl border border-slate-200 bg-white p-4">
               <StepHeader step={3} title="Equipment Configurator" />
               <PathToggle path={customizationPath} onChange={setCustomizationPath} />
 
