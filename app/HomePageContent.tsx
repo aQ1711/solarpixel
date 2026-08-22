@@ -740,11 +740,15 @@ function TickerRow({
 // Header
 // ============================================================================
 
-function Header() {
-  function scrollToCalculator() {
-    document.getElementById("calculator")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
+/** Shared by the Header CTA and the new Hero CTA (Mobile-First Hero task,
+ *  2026-08-22) — both just jump to the #calculator anchor already on the
+ *  Custom/Recommended card below; scrolling, not a page navigation, so
+ *  this works identically from either trigger. */
+function scrollToCalculator() {
+  document.getElementById("calculator")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
+function Header() {
   return (
     <header className="px-3 pt-3 sm:px-5">
       <div className="mx-auto flex max-w-4xl items-center justify-between gap-2 rounded-full border border-stone-200 bg-white/90 py-2 pl-4 pr-2 shadow-sm shadow-stone-200/50 backdrop-blur-md sm:pl-5 sm:pr-2.5">
@@ -798,13 +802,50 @@ function Hero() {
         className="pointer-events-none absolute right-[-80px] top-[40px] h-[280px] w-[280px] rounded-full bg-emerald-200/15 blur-[110px] print:hidden"
       />
 
+      {/* Mobile-First Hero overhaul (2026-08-22) — headline, subhead, a
+          single unmissable CTA, and a 3-step "what happens next" strip,
+          all sized to fit above the fold on a real iPhone 12 Pro
+          viewport (390×844, verified live via resize_window). The CTA
+          just scrolls to the SAME #calculator card that already renders
+          a little further down (nothing structural changed there) — a
+          shortcut for someone who wants to jump straight in, not a gate
+          in front of it, since the card was already reachable by
+          scrolling either way. */}
       <div className="relative mx-auto max-w-2xl text-center print:hidden">
-        <h1 className="text-balance text-[2.1rem] font-bold leading-[1.15] tracking-tight text-stone-900 sm:text-5xl sm:leading-[1.1]">
-          Slash Your Daytime Electricity Bill by <span className="text-violet-600">Up to 80%</span>.
+        <h1 className="text-balance text-[1.85rem] font-bold leading-[1.15] tracking-tight text-stone-900 sm:text-5xl sm:leading-[1.1]">
+          Get Your Exact Solar Price in <span className="text-violet-600">60 Seconds</span>.
         </h1>
-        <p className="mt-2.5 text-base text-stone-600 sm:text-lg">
-          Smart Solar. <span className="font-medium text-emerald-600">Live in 48 hours.</span>
+        <p className="mx-auto mt-2.5 max-w-md text-balance text-sm text-stone-600 sm:text-lg">
+          {/* "your monthly bill," not "your WAPDA units" — the calculator's
+              real first field asks for a Rupee amount (Average Monthly
+              Bill), not a units/kWh meter reading; corrected to match the
+              actual product instead of publishing a wrong claim. */}
+          No waiting for salesmen. Enter your monthly bill, see the exact engineering, and get a transparent
+          quotation instantly.
         </p>
+
+        <button
+          type="button"
+          onClick={scrollToCalculator}
+          className="glow-cta mt-6 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 px-6 py-4 text-base font-bold text-white shadow-lg shadow-violet-600/30 transition-transform duration-200 hover:scale-[1.02] active:scale-[0.98] sm:w-auto sm:px-10 sm:py-4"
+        >
+          Calculate My Solar Cost
+          <ArrowRight className="h-5 w-5" />
+        </button>
+
+        <div className="mt-3.5 flex items-center justify-center gap-1 text-[11px] font-medium text-stone-400 sm:gap-1.5 sm:text-xs">
+          <span className="flex items-center gap-1">
+            <Receipt className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> 1. Enter Bill
+          </span>
+          <ArrowRight className="h-2.5 w-2.5 shrink-0 text-stone-300" />
+          <span className="flex items-center gap-1">
+            <SlidersHorizontal className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> 2. Configure System
+          </span>
+          <ArrowRight className="h-2.5 w-2.5 shrink-0 text-stone-300" />
+          <span className="flex items-center gap-1">
+            <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> 3. Get Instant Quote
+          </span>
+        </div>
       </div>
 
       <div id="calculator" className="relative mx-auto mt-5 w-full scroll-mt-24 sm:mt-6 print:mt-0 print:max-w-none">
