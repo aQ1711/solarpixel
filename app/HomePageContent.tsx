@@ -628,8 +628,29 @@ function MarketWatchTicker() {
   // actually hidden a row, the placeholder is briefly taller than the
   // real (shorter) ticker for one paint — a one-time, minor mismatch,
   // not a fabricated-data issue.
+  //
+  // Reported live (2026-08-24) as "shows all black and took seconds to
+  // load" — a plain solid bg-zinc-950 block with nothing moving on it
+  // for the whole fetch (this equipment-options + ticker-settings fetch
+  // only starts after hydration, and can genuinely take a couple of
+  // seconds on a cold serverless/DB connection) reads as broken, not
+  // loading. Replaced with a skeleton that echoes the real ticker's own
+  // shape (a tag pill + a scrolling-text bar per row, same row height
+  // and same border-t separators as TickerRow below) so the wait looks
+  // like an intentional loading state instead of an empty hole. A small
+  // per-row animation delay staggers the pulse into a left-to-right
+  // "wave" rather than every row flashing in perfect unison.
   if (stillLoading) {
-    return <div aria-hidden className="safe-top-thin w-full bg-zinc-950" style={{ height: "115px" }} />;
+    return (
+      <div aria-hidden className="safe-top-thin w-full overflow-hidden bg-zinc-950" style={{ height: "115px" }}>
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className={`flex h-[28.75px] items-center gap-3 pl-4 ${i > 0 ? "border-t border-zinc-800" : ""}`}>
+            <div className="h-3.5 w-14 shrink-0 animate-pulse rounded-sm bg-zinc-800" style={{ animationDelay: `${i * 120}ms` }} />
+            <div className="h-3 w-40 animate-pulse rounded bg-zinc-900" style={{ animationDelay: `${i * 120}ms` }} />
+          </div>
+        ))}
+      </div>
+    );
   }
 
   // Every enabled row turned out empty (or every row is admin-hidden) —
