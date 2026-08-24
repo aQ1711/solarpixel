@@ -2815,7 +2815,7 @@ function CalculatorCard() {
               <button
                 type="submit"
                 disabled={status === "loading"}
-                className="glow-cta mt-4 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 py-3.5 text-sm font-semibold text-stone-900 transition-all duration-200 hover:from-amber-500 hover:to-amber-600 disabled:cursor-not-allowed disabled:opacity-70"
+                className="glow-cta-teal mt-4 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-brand-teal py-3.5 text-sm font-semibold text-brand-teal-ink transition-all duration-200 hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {status === "loading" ? (
                   <>
@@ -2857,7 +2857,7 @@ function CalculatorCard() {
           <button
             type="button"
             onClick={() => document.getElementById("contact-and-submit")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 px-4 py-2.5 text-sm font-semibold text-stone-900 transition-all duration-200 hover:from-amber-500 hover:to-amber-600"
+            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-teal px-4 py-2.5 text-sm font-semibold text-brand-teal-ink transition-all duration-200 hover:brightness-95"
           >
             Get Quotation <ArrowRight className="h-4 w-4" />
           </button>
@@ -3069,7 +3069,7 @@ function CalculatorCard() {
               <button
                 type="submit"
                 disabled={status === "loading"}
-                className="glow-cta mt-4 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 py-3.5 text-sm font-semibold text-stone-900 transition-all duration-200 hover:from-amber-500 hover:to-amber-600 disabled:cursor-not-allowed disabled:opacity-70"
+                className="glow-cta mt-4 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-brand-gold py-3.5 text-sm font-semibold text-brand-gold-ink transition-all duration-200 hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {status === "loading" ? (
                   <>
@@ -3718,13 +3718,13 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
       {/* ---- Document Header ---- */}
       <div className="border-b border-slate-200 px-6 pb-6 pt-4 sm:px-8">
         <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] text-slate-500">
-          <span className="font-semibold tracking-wide text-orange-700">Powered by SP - Solar Pixel (Pvt) Ltd.</span>
+          <span className="font-semibold tracking-wide text-brand-navy">Powered by SP - Solar Pixel (Pvt) Ltd.</span>
           <span>
             Quote #{result.quoteId.slice(0, 10).toUpperCase()} · {today}
           </span>
         </div>
         <h1 className="mt-3 text-2xl font-bold text-slate-900 sm:text-3xl">
-          {result.systemKw} KW <span className="text-orange-700">Sales Quotation</span>
+          {result.systemKw} KW <span className="text-brand-navy">Sales Quotation</span>
         </h1>
         <p className="mt-1 text-lg font-semibold text-emerald-600">
           Estimated Turnkey Cost: {formatPKR(result.totalClientPricePKR)}
@@ -3753,8 +3753,8 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
       {(isInverterBottleneck || result.hasCustomRequirements) && (
         <div className="space-y-2 px-6 pt-5 sm:px-8">
           {isInverterBottleneck && (
-            <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-left text-xs leading-relaxed text-amber-800">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+            <div className="flex items-start gap-2 rounded-xl border border-brand-coral-200 bg-brand-coral-50 px-3.5 py-2.5 text-left text-xs leading-relaxed text-brand-coral-ink">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-coral" />
               <p>
                 Note: Your system size is limited to {result.systemKw}kW based on your selected Inverter capacity (
                 {formatTrim(inverter.specValue!)}kW). Pick a higher-capacity model in Custom Equipment Builder to
@@ -3763,8 +3763,8 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
             </div>
           )}
           {result.hasCustomRequirements && (
-            <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-left text-xs leading-relaxed text-amber-800">
-              <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+            <div className="flex items-start gap-2 rounded-xl border border-brand-coral-200 bg-brand-coral-50 px-3.5 py-2.5 text-left text-xs leading-relaxed text-brand-coral-ink">
+              <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-coral" />
               <p>
                 <span className="font-semibold">Custom Requirement Noted:</span> our senior engineering team will
                 source pricing for your specific equipment request and include it in your final WhatsApp Quotation.
@@ -3777,12 +3777,12 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
       {/* ---- BOQ Table ---- */}
       <div className="px-6 pt-5 sm:px-8">
         <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <Receipt className="h-3.5 w-3.5 text-orange-700" /> Itemized Quotation
+          <Receipt className="h-3.5 w-3.5 text-brand-navy" /> Itemized Quotation
         </p>
         <div className="mt-2.5 overflow-hidden rounded-xl border border-slate-200">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
-              <tr className="bg-orange-700 text-white">
+              <tr className="bg-brand-navy text-white">
                 <th className="px-3 py-2.5 font-semibold">Sr No.</th>
                 <th className="px-3 py-2.5 font-semibold">Product Description</th>
                 <th className="px-3 py-2.5 font-semibold">UOM</th>
@@ -3804,7 +3804,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
 
         {/* ---- Detailed Cost Breakdown — one row per priced category ---- */}
         <p className="mb-1.5 mt-4 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <Receipt className="h-3.5 w-3.5 text-orange-700" /> Cost Breakdown
+          <Receipt className="h-3.5 w-3.5 text-brand-navy" /> Cost Breakdown
         </p>
         <div className="overflow-hidden rounded-xl border border-slate-200">
           <table className="w-full border-collapse text-left text-xs">
@@ -3853,7 +3853,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => trackWhatsAppClick("quote_report_cta", result.quoteId)}
-            className="glow-cta flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-orange-700 to-amber-600 text-sm font-bold text-white transition-all duration-200 hover:from-orange-600 hover:to-amber-500"
+            className="glow-cta flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-orange-700 to-brand-gold-strong text-sm font-bold text-white transition-all duration-200 hover:brightness-105"
           >
             <MessageCircle className="h-4 w-4" /> Lock In Price on WhatsApp
           </a>
@@ -3950,7 +3950,7 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
         target="_blank"
         rel="noopener noreferrer"
         onClick={() => trackWhatsAppClick(isWashing ? "panel_washing_report_cta" : "ev_charger_report_cta")}
-        className="glow-cta mt-5 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 py-4 text-sm font-bold text-stone-900 transition-all duration-200 hover:from-amber-500 hover:to-amber-600"
+        className="glow-cta mt-5 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-brand-gold py-4 text-sm font-bold text-brand-gold-ink transition-all duration-200 hover:brightness-95"
       >
         <MessageCircle className="h-4 w-4" />
         Message Us on WhatsApp

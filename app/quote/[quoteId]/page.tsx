@@ -137,7 +137,7 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
         <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-xl shadow-stone-200/50 sm:p-8 print:rounded-none print:border-0 print:p-0 print:shadow-none">
           <div className="flex items-start justify-between gap-4 border-b border-stone-100 pb-6">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Official Quotation</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-brand-navy">Official Quotation</p>
               <h1 className="mt-1 text-2xl font-bold text-stone-900">{quote.quoteNumber}</h1>
               <p className="mt-1 text-sm text-stone-500">
                 {SECTOR_LABEL[quote.sector] ?? quote.sector} · {SERVICE_TYPE_LABEL[quote.serviceType] ?? quote.serviceType}

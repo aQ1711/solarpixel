@@ -55,6 +55,61 @@
   --color-orange-900: #ae4e1e;
 }
 
+/* Storefront supporting palette (2026-08-24, same day as the orange
+   rebrand above) — 4 colors the user handed over directly (hex values
+   exactly as given, not approximated), each assigned to ONE specific
+   role rather than scattered decoratively. New custom token NAMES
+   (`brand-teal`/`brand-navy`/`brand-gold`/`brand-coral`), NOT overrides
+   of Tailwind's stock teal/blue/amber/red ramps — this app already
+   uses stock amber-* for genuine caution notes, stock red-500 for real
+   form-validation errors, and stock emerald-* for financial figures
+   elsewhere on the same pages, so reusing those ramp names here would
+   have silently repainted meanings this rebrand was never asked to
+   touch. Each `-ink` companion is a same-hue-family dark shade for
+   readable text ON that color (mirrors this file's own existing
+   --color-amber-ink pattern above) — never plain black on a colored
+   fill.
+   Explicit scope, confirmed live with the user before implementing:
+   - brand-teal: the "Generate Official Quotation" action specifically
+     (its main submit button + the mobile floating shortcut to it) —
+     NOT the separate WhatsApp-message buttons elsewhere, a genuinely
+     different action.
+   - brand-gold: WhatsApp-flavored secondary CTAs (a distinct warm tone
+     from both the orange primary and the new teal quotation action).
+   - brand-navy: the generated report screen's "official document"
+     text accents (Official Quotation label, Sales Quotation heading,
+     itemized table header, Powered-by footer) — the pixel logo mark
+     stays orange everywhere, including this screen, per explicit
+     instruction not to touch it.
+   - brand-coral: that same report screen's system warnings
+     specifically (inverter-bottleneck, custom-requirement notices) —
+     a second, more consequential alert tier sitting above the general
+     amber configuration-time notes, which stay amber, untouched. */
+@theme {
+  --color-brand-teal: #49dcb1;
+  --color-brand-teal-ink: #0b3b30;
+
+  --color-brand-navy: #456990;
+
+  --color-brand-gold: #eeb868;
+  --color-brand-gold-ink: #5c3c05;
+  /* Same hue/saturation as brand-gold, darkened (H 36°, S 80%, L 47%
+     vs. brand-gold's L 67%) specifically for the orange-to-gold
+     gradient below, which keeps its existing white text — brand-gold
+     itself is too light for white text to stay readable against it. */
+  --color-brand-gold-strong: #d88b18;
+
+  --color-brand-coral: #ef767a;
+  --color-brand-coral-ink: #5c1518;
+  /* Same hue/saturation as brand-coral, for the pale border/background
+     pair its warning boxes use (same "50/200 tint pair next to an 800
+     ink" pattern this file already uses for amber-50/amber-200/
+     amber-800 warning boxes elsewhere, kept for the general
+     configuration-time notes, which stay amber). */
+  --color-brand-coral-50: #fce8e9;
+  --color-brand-coral-200: #f7bbbd;
+}
+
 /* app/page.tsx (public, high-conversion) is light-themed; /maker and
    /admin/checker (internal tools) stay dark via the --color-* tokens
    above, applied directly on their own root elements. No single global
@@ -145,6 +200,33 @@ body {
   animation: glow-pulse 3.2s ease-in-out infinite;
 }
 
+/* Teal CTA glow (2026-08-24) — same pulse shape as .glow-cta above, but
+   tinted to --color-brand-teal instead of amber. Needed specifically
+   for the "Generate Official Quotation" button once it moved off the
+   warm orange/amber family: the shared amber-toned .glow-pulse behind
+   a teal button read as a rendering mistake (a warm halo around a cool
+   fill), not an intentional effect. rgba(73, 220, 177, ...) is
+   --color-brand-teal's own RGB, kept literal here (not var()) for the
+   same reason .glow-amber above stays literal -- animatable box-shadow
+   colors can't reference a CSS custom property mid-keyframe reliably
+   across browsers. */
+@keyframes glow-pulse-teal {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(73, 220, 177, 0.28),
+      0 0 16px 1px rgba(73, 220, 177, 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px rgba(73, 220, 177, 0.06),
+      0 0 26px 6px rgba(73, 220, 177, 0.3);
+  }
+}
+.glow-cta-teal {
+  animation: glow-pulse-teal 3.2s ease-in-out infinite;
+}
+
 @keyframes fade-up {
   from {
     opacity: 0;
@@ -232,6 +314,10 @@ body {
   .glow-cta {
     animation: none;
     box-shadow: 0 0 16px 1px rgba(217, 119, 6, 0.18);
+  }
+  .glow-cta-teal {
+    animation: none;
+    box-shadow: 0 0 16px 1px rgba(73, 220, 177, 0.18);
   }
   .animate-fade-up {
     animation: none;
