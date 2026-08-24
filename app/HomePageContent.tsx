@@ -645,7 +645,7 @@ function MarketWatchTicker() {
   // `.animate-fade-up` utility, same one used elsewhere on this page)
   // rather than trying to preserve a now-actively-harmful fixed box.
   return (
-    <div aria-hidden className="safe-top-thin flex w-full flex-col overflow-hidden bg-zinc-950">
+    <div aria-hidden className="safe-top-thin flex w-full flex-col overflow-hidden bg-zinc-950 font-mono text-xs">
       {stillLoading ? (
         <div className="flex items-center justify-center gap-2 py-3">
           <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-400" />
@@ -780,15 +780,20 @@ function Header() {
           </span>
         </div>
         <div className="flex items-center gap-1.5">
+          {/* "Chat with us" (2026-08-24) — renamed and its icon dropped:
+              this is a WhatsApp message link, not a live chat widget, and
+              the site doesn't offer live chat at all right now, so
+              wording/iconography that implies one is misleading. Same
+              fix applied to the footer's matching link and the floating
+              mobile WhatsApp button's aria-label below. */}
           <a
             href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(GENERAL_INQUIRY_WA_MESSAGE)}`}
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => trackWhatsAppClick("header")}
-            className="hidden min-h-9 items-center gap-1.5 rounded-full border border-stone-200 px-3.5 text-xs font-medium text-stone-600 transition-colors duration-200 hover:border-stone-300 hover:text-stone-900 sm:flex"
+            className="hidden min-h-9 items-center rounded-full border border-stone-200 px-3.5 text-xs font-medium text-stone-600 transition-colors duration-200 hover:border-stone-300 hover:text-stone-900 sm:flex"
           >
-            <MessageCircle className="h-3.5 w-3.5" />
-            Chat with us
+            Contact Us
           </a>
           <button
             type="button"
@@ -4164,7 +4169,7 @@ function Footer() {
                 icon={MessageCircle}
                 onClick={() => trackWhatsAppClick("footer_social")}
               >
-                Chat with us
+                Message Us
               </FooterLink>
               <FooterLink href={WEBSITE_URL} icon={Globe}>
                 www.solarpixel.pk
@@ -4233,7 +4238,7 @@ function FloatingWhatsAppButton({ message, source, quoteId, raised }: { message:
       target="_blank"
       rel="noopener noreferrer"
       onClick={() => trackWhatsAppClick(source, quoteId)}
-      aria-label="Chat with us on WhatsApp"
+      aria-label="Message us on WhatsApp"
       className={`fixed right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 transition-transform duration-200 hover:scale-105 lg:hidden print:hidden ${
         raised ? "bottom-24" : "bottom-5"
       }`}
