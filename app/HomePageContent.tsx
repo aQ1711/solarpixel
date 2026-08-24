@@ -623,60 +623,45 @@ function MarketWatchTicker() {
 
   // Every enabled row turned out empty (or every row is admin-hidden),
   // AND the fetch has actually finished — nothing real will ever show,
-  // so collapse the bar entirely rather than leaving a permanent "Live
-  // Sync" state with nothing to sync to. Pre-existing behavior, kept
-  // as-is: still means this one case (an admin disabling every row at
-  // once, rare in practice) isn't covered by the zero-shift guarantee
-  // below — going from the fixed 115px bar to nothing IS a real, if
-  // rare, layout shift. Not solved here since it needs the opposite of
-  // this task's goal (a HEIGHT change) for an edge case this app has
-  // never actually hit.
+  // so don't render a black bar at all.
   if (!stillLoading && rows.length === 0) return null;
 
-  // "Live Sync" loading state + crossfade (2026-08-24) — replaces the
-  // previous animate-pulse skeleton-bar treatment (afd5b70) after
-  // that was reported as still not feeling premium enough. Both states
-  // are absolutely positioned inside ONE fixed-height (115px, matching
-  // the real 4-row ticker's own measured height — see TickerRow's own
-  // row-height math below) wrapper and crossfade via opacity, so the
-  // wrapper's height itself never changes across the loading->loaded
-  // transition: zero layout shift by construction, not just in the
-  // common case. `stillLoading` toggles which layer is interactive
-  // (pointer-events-none on the hidden one) as well as which is
-  // visible, so the invisible layer can't be tabbed/clicked into.
-  //
-  // Emerald dot/text, not orange: the ticker's own price values already
-  // render in emerald-400 (see TickerRow below) as a deliberate,
-  // self-contained "stock ticker" palette that's never used the
-  // storefront's orange brand color — matching that existing internal
-  // language reads as more considered than introducing a brand-new
-  // accent color into a component that has never had one.
+  // Dynamic height (2026-08-24) — the previous version (36cfb32) fixed
+  // this wrapper's height at a flat 115px unconditionally, specifically
+  // so the "Live Sync" loading state and the loaded ticker could
+  // crossfade with a hard zero-shift guarantee. Real side effect,
+  // reported live: `rows` was already correctly filtered down to just
+  // the admin-enabled, non-empty categories (1-4 of them), but the
+  // wrapper stayed 115px (sized for 4) regardless — so 1-2 active rows
+  // left real dead black space at the bottom of the bar. Fixed
+  // properly this time: no forced height anywhere, `flex flex-col` so
+  // the bar's own height is just whatever its actual children add up
+  // to — 1 active row is exactly 1 row tall, 4 is exactly 4. This
+  // necessarily gives up the previous version's hard "never shifts by
+  // even a pixel" guarantee (the loading indicator's own compact
+  // height and the eventual N-row total aren't knowably the same
+  // thing anymore — that WAS the source of the dead-space bug), in
+  // favor of a real fade-in on the rows once they mount (the existing
+  // `.animate-fade-up` utility, same one used elsewhere on this page)
+  // rather than trying to preserve a now-actively-harmful fixed box.
   return (
-    <div aria-hidden className="safe-top-thin relative w-full overflow-hidden bg-zinc-950" style={{ height: "115px" }}>
-      <div
-        className={`absolute inset-0 flex items-center justify-center gap-2 transition-opacity duration-500 ${
-          stillLoading ? "opacity-100" : "pointer-events-none opacity-0"
-        }`}
-      >
-        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-400" />
-        <span className="text-xs uppercase tracking-widest text-white/70">Syncing live market prices...</span>
-      </div>
-
-      <div
-        className={`absolute inset-0 overflow-hidden font-mono text-xs transition-opacity duration-500 ${
-          stillLoading ? "pointer-events-none opacity-0" : "opacity-100"
-        }`}
-      >
-        {rows.map((row, i) => (
+    <div aria-hidden className="safe-top-thin flex w-full flex-col overflow-hidden bg-zinc-950">
+      {stillLoading ? (
+        <div className="flex items-center justify-center gap-2 py-3">
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-400" />
+          <span className="text-xs uppercase tracking-widest text-white/70">Syncing live market prices...</span>
+        </div>
+      ) : (
+        rows.map((row, i) => (
           <TickerRow
             key={row.key}
             items={row.items}
             direction={row.direction}
             tag={row.tag}
-            className={i > 0 ? "border-t border-zinc-800" : undefined}
+            className={`animate-fade-up ${i > 0 ? "border-t border-zinc-800" : ""}`}
           />
-        ))}
-      </div>
+        ))
+      )}
     </div>
   );
 }
