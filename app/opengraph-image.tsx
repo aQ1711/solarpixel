@@ -8,9 +8,10 @@ import { ImageResponse } from "next/og";
  * Built from the SAME real brand tokens the live site already uses
  * (dark #05070c background matches app/layout.tsx's themeColor,
  * orange-700 accent matches the storefront's primary orange after the
- * 2026-08-24 purple-to-orange rebrand, deepened from an initial
- * orange-600 pass the same day to read as smoother/less neon) — not an
- * invented color scheme.
+ * 2026-08-24 purple-to-orange rebrand — landed on this exact #e07a47
+ * coral-orange after two live shade-review rounds, see
+ * app/globals.css's custom orange-ramp @theme override for the full
+ * story) — not an invented color scheme.
  */
 export const alt = "Solar Pixel: Solar Installation Lahore";
 export const size = { width: 1200, height: 630 };
@@ -28,7 +29,7 @@ export default async function OpengraphImage() {
           alignItems: "flex-start",
           justifyContent: "center",
           backgroundColor: "#05070c",
-          backgroundImage: "radial-gradient(circle at 75% 30%, rgba(194,65,12,0.35), rgba(5,7,12,0) 60%)",
+          backgroundImage: "radial-gradient(circle at 75% 30%, rgba(224,122,71,0.35), rgba(5,7,12,0) 60%)",
           padding: "80px",
         }}
       >
@@ -38,7 +39,7 @@ export default async function OpengraphImage() {
               width: 22,
               height: 22,
               borderRadius: 6,
-              backgroundColor: "#c2410c",
+              backgroundColor: "#e07a47",
             }}
           />
           <div style={{ fontSize: 34, fontWeight: 700, color: "#e7e5e4", letterSpacing: -0.5 }}>SOLAR PIXEL</div>

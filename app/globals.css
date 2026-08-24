@@ -26,6 +26,35 @@
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
+/* Storefront primary color (2026-08-24, purple-to-orange rebrand) — a
+   deliberate override of Tailwind's built-in `orange` ramp, not a new
+   custom color. Every `orange-N` utility class already used across the
+   storefront (Header, Hero, calculator, report screen, legal pages,
+   favicon/OG image — see project memory for the full list) picks this
+   up automatically; nothing else needed to change.
+   #E07A47 (a softer coral-orange, chosen live after two rounds of
+   shade review — an earlier orange-600 read as "hitting the eye", an
+   orange-700 pass was smoother but still Tailwind's stock hue) is the
+   700 stop, matching where the storefront's primary/CTA tier already
+   sits. The other stops are a same-hue/saturation (H 20°, S 71%) tonal
+   ramp computed around that anchor, NOT Tailwind's stock orange scaled
+   — reusing stock lighter/darker stops next to this softer 700 would
+   have looked like two different oranges sitting side by side (e.g. a
+   vivid stock orange-800 hover state next to this muted 700 base).
+   Admin dashboards (violet/purple, unchanged by this rebrand) never
+   reference `orange-*`, so this has zero effect there. */
+@theme {
+  --color-orange-50: #fcf2ee;
+  --color-orange-100: #f9e6dc;
+  --color-orange-200: #f5d3c2;
+  --color-orange-300: #efba9f;
+  --color-orange-400: #e9a07c;
+  --color-orange-600: #e59166;
+  --color-orange-700: #e07a47;
+  --color-orange-800: #d15d23;
+  --color-orange-900: #ae4e1e;
+}
+
 /* app/page.tsx (public, high-conversion) is light-themed; /maker and
    /admin/checker (internal tools) stay dark via the --color-* tokens
    above, applied directly on their own root elements. No single global
@@ -299,7 +328,7 @@ body {
   font-weight: 600;
 }
 .legal-prose a {
-  color: var(--color-orange-700, #c2410c);
+  color: var(--color-orange-700, #e07a47);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
