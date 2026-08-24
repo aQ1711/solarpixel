@@ -333,6 +333,24 @@ async function main() {
       sortOrder: 3,
       cost: { unitCostRs: 793_000, unit: "PER_PIECE" },
     },
+    // 15kWh added 2026-08-24 after a live w11stop re-check (triggered by
+    // the market-price scraper's own "Run Now", not a fresh manual
+    // sourcing pass) confirmed every OTHER active battery SKU's price was
+    // still accurate 2 days on, but surfaced this one genuine gap: the
+    // Pylontech Force H3 ladder jumped straight from 10kWh to 20kWh with
+    // nothing between, while Dyness already had its own 15kWh tier below.
+    // A real, currently-priced w11stop listing at exactly this capacity
+    // (Force H3 15kWh HV) fills the equivalent gap for Pylontech.
+    {
+      componentType: "BATTERY",
+      code: "PYLONTECH_15KWH",
+      label: "Pylontech Force H3 15kWh (HV)",
+      brand: "Pylontech",
+      specValue: 15,
+      applicableServiceType: "HYBRID_BATTERY",
+      sortOrder: 4,
+      cost: { unitCostRs: 1_070_000, unit: "PER_PIECE" },
+    },
     {
       componentType: "BATTERY",
       code: "PYLONTECH_20KWH",
@@ -340,7 +358,7 @@ async function main() {
       brand: "Pylontech",
       specValue: 20,
       applicableServiceType: "HYBRID_BATTERY",
-      sortOrder: 4,
+      sortOrder: 5,
       cost: { unitCostRs: 1_355_000, unit: "PER_PIECE" },
     },
     // 25/30/35kWh added after live-testing revealed the 4-tier Pylontech
@@ -360,7 +378,7 @@ async function main() {
       brand: "Pylontech",
       specValue: 25,
       applicableServiceType: "HYBRID_BATTERY",
-      sortOrder: 5,
+      sortOrder: 6,
       cost: { unitCostRs: 1_635_000, unit: "PER_PIECE" },
     },
     {
@@ -370,7 +388,7 @@ async function main() {
       brand: "Pylontech",
       specValue: 30,
       applicableServiceType: "HYBRID_BATTERY",
-      sortOrder: 6,
+      sortOrder: 7,
       cost: { unitCostRs: 1_916_000, unit: "PER_PIECE" },
     },
     {
@@ -380,7 +398,7 @@ async function main() {
       brand: "Pylontech",
       specValue: 35,
       applicableServiceType: "HYBRID_BATTERY",
-      sortOrder: 7,
+      sortOrder: 8,
       cost: { unitCostRs: 2_194_000, unit: "PER_PIECE" },
     },
     {
@@ -390,7 +408,7 @@ async function main() {
       brand: "Dyness",
       specValue: 2.56,
       applicableServiceType: "HYBRID_BATTERY",
-      sortOrder: 8,
+      sortOrder: 9,
       cost: { unitCostRs: 135_000, unit: "PER_PIECE" },
     },
     {
@@ -400,7 +418,7 @@ async function main() {
       brand: "Dyness",
       specValue: 5.12,
       applicableServiceType: "HYBRID_BATTERY",
-      sortOrder: 9,
+      sortOrder: 10,
       cost: { unitCostRs: 255_000, unit: "PER_PIECE" },
     },
     {
@@ -410,7 +428,7 @@ async function main() {
       brand: "Dyness",
       specValue: 10.24,
       applicableServiceType: "HYBRID_BATTERY",
-      sortOrder: 10,
+      sortOrder: 11,
       cost: { unitCostRs: 545_000, unit: "PER_PIECE" },
     },
     {
@@ -420,7 +438,7 @@ async function main() {
       brand: "Dyness",
       specValue: 15,
       applicableServiceType: "HYBRID_BATTERY",
-      sortOrder: 11,
+      sortOrder: 12,
       cost: { unitCostRs: 950_000, unit: "PER_PIECE" },
     },
     {
