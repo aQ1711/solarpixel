@@ -621,53 +621,62 @@ function MarketWatchTicker() {
     rows.push({ key: "ongrid", items: ongridInverterItems, tag: "ON-GRID", direction: "left" });
   if (visibility.showBatteries && batteryItems?.length) rows.push({ key: "batteries", items: batteryItems, tag: "BATTERIES", direction: "right" });
 
-  // Fixed-height placeholder while loading, sized for the DEFAULT
-  // (all-4-visible) case — the common one — so Header/Hero below don't
-  // jump once real data arrives. Each row is ~28.5px (py-1.5 + text-xs
-  // line height, measured live), so 4 rows ≈ 115px. If an admin has
-  // actually hidden a row, the placeholder is briefly taller than the
-  // real (shorter) ticker for one paint — a one-time, minor mismatch,
-  // not a fabricated-data issue.
+  // Every enabled row turned out empty (or every row is admin-hidden),
+  // AND the fetch has actually finished — nothing real will ever show,
+  // so collapse the bar entirely rather than leaving a permanent "Live
+  // Sync" state with nothing to sync to. Pre-existing behavior, kept
+  // as-is: still means this one case (an admin disabling every row at
+  // once, rare in practice) isn't covered by the zero-shift guarantee
+  // below — going from the fixed 115px bar to nothing IS a real, if
+  // rare, layout shift. Not solved here since it needs the opposite of
+  // this task's goal (a HEIGHT change) for an edge case this app has
+  // never actually hit.
+  if (!stillLoading && rows.length === 0) return null;
+
+  // "Live Sync" loading state + crossfade (2026-08-24) — replaces the
+  // previous animate-pulse skeleton-bar treatment (afd5b70) after
+  // that was reported as still not feeling premium enough. Both states
+  // are absolutely positioned inside ONE fixed-height (115px, matching
+  // the real 4-row ticker's own measured height — see TickerRow's own
+  // row-height math below) wrapper and crossfade via opacity, so the
+  // wrapper's height itself never changes across the loading->loaded
+  // transition: zero layout shift by construction, not just in the
+  // common case. `stillLoading` toggles which layer is interactive
+  // (pointer-events-none on the hidden one) as well as which is
+  // visible, so the invisible layer can't be tabbed/clicked into.
   //
-  // Reported live (2026-08-24) as "shows all black and took seconds to
-  // load" — a plain solid bg-zinc-950 block with nothing moving on it
-  // for the whole fetch (this equipment-options + ticker-settings fetch
-  // only starts after hydration, and can genuinely take a couple of
-  // seconds on a cold serverless/DB connection) reads as broken, not
-  // loading. Replaced with a skeleton that echoes the real ticker's own
-  // shape (a tag pill + a scrolling-text bar per row, same row height
-  // and same border-t separators as TickerRow below) so the wait looks
-  // like an intentional loading state instead of an empty hole. A small
-  // per-row animation delay staggers the pulse into a left-to-right
-  // "wave" rather than every row flashing in perfect unison.
-  if (stillLoading) {
-    return (
-      <div aria-hidden className="safe-top-thin w-full overflow-hidden bg-zinc-950" style={{ height: "115px" }}>
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className={`flex h-[28.75px] items-center gap-3 pl-4 ${i > 0 ? "border-t border-zinc-800" : ""}`}>
-            <div className="h-3.5 w-14 shrink-0 animate-pulse rounded-sm bg-zinc-800" style={{ animationDelay: `${i * 120}ms` }} />
-            <div className="h-3 w-40 animate-pulse rounded bg-zinc-900" style={{ animationDelay: `${i * 120}ms` }} />
-          </div>
+  // Emerald dot/text, not orange: the ticker's own price values already
+  // render in emerald-400 (see TickerRow below) as a deliberate,
+  // self-contained "stock ticker" palette that's never used the
+  // storefront's orange brand color — matching that existing internal
+  // language reads as more considered than introducing a brand-new
+  // accent color into a component that has never had one.
+  return (
+    <div aria-hidden className="safe-top-thin relative w-full overflow-hidden bg-zinc-950" style={{ height: "115px" }}>
+      <div
+        className={`absolute inset-0 flex items-center justify-center gap-2 transition-opacity duration-500 ${
+          stillLoading ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+      >
+        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-400" />
+        <span className="text-xs uppercase tracking-widest text-white/70">Syncing live market prices...</span>
+      </div>
+
+      <div
+        className={`absolute inset-0 overflow-hidden font-mono text-xs transition-opacity duration-500 ${
+          stillLoading ? "pointer-events-none opacity-0" : "opacity-100"
+        }`}
+      >
+        {rows.map((row, i) => (
+          <TickerRow
+            key={row.key}
+            items={row.items}
+            direction={row.direction}
+            tag={row.tag}
+            className={i > 0 ? "border-t border-zinc-800" : undefined}
+          />
         ))}
       </div>
-    );
-  }
-
-  // Every enabled row turned out empty (or every row is admin-hidden) —
-  // nothing real to show, so show nothing rather than an empty shell.
-  if (rows.length === 0) return null;
-
-  return (
-    <div aria-hidden className="safe-top-thin relative w-full overflow-hidden bg-zinc-950 font-mono text-xs">
-      {rows.map((row, i) => (
-        <TickerRow
-          key={row.key}
-          items={row.items}
-          direction={row.direction}
-          tag={row.tag}
-          className={i > 0 ? "border-t border-zinc-800" : undefined}
-        />
-      ))}
     </div>
   );
 }
