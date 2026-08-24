@@ -2345,7 +2345,29 @@ function CalculatorCard() {
                             </p>
                             <QuantityStepper
                               label="Panels"
-                              value={livePreview.equipment.panel.count}
+                              // Optimistic display value (2026-08-24) — was
+                              // livePreview.equipment.panel.count directly,
+                              // which only updates once the debounced
+                              // (500ms) live-preview fetch actually
+                              // resolves, so the stepper visually froze for
+                              // however long that round trip took after
+                              // every click. panelQtyOverride is set
+                              // synchronously by onChange below, so using
+                              // it here (clamped the same way the server
+                              // clamps it) makes the number move the
+                              // instant you click, with the real server
+                              // value simply confirming/correcting it a
+                              // moment later. Falls back to the server
+                              // value only before any override has been
+                              // set (panelQtyOverride === null).
+                              value={
+                                panelQtyOverride !== null
+                                  ? Math.min(
+                                      Math.max(panelQtyOverride, livePreview.equipment.panel.baselineCount),
+                                      livePreview.equipment.panel.maxCount ?? Infinity
+                                    )
+                                  : livePreview.equipment.panel.count
+                              }
                               onChange={(v) => setPanelQtyOverride(v)}
                               min={livePreview.equipment.panel.baselineCount}
                               max={livePreview.equipment.panel.maxCount ?? undefined}
@@ -2736,7 +2758,32 @@ function CalculatorCard() {
                   <div className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4 text-center">
                     <div>
                       <p className="text-[10px] text-slate-500">System</p>
-                      <p className="text-sm font-bold text-slate-900">{livePreview.systemKw} kW</p>
+                      {/* Was a flat livePreview.systemKw — that figure is
+                          purely bill-derived (see calculateSystemSize in
+                          the API route) and never moves no matter what
+                          equipment gets picked, so swapping to a bigger
+                          inverter (or raising the Panel Quantity Adjuster,
+                          now that it can go up to 115% of the inverter's
+                          rating — see PANEL_OVERSIZE_ALLOWANCE) left this
+                          number stuck showing the original small estimate
+                          even once the customer had genuinely configured a
+                          bigger system. Now derived from the REAL
+                          resolved panel array (count × each panel's own
+                          wattage) whenever that data's available, so this
+                          reflects what's actually configured; falls back
+                          to the bill-derived figure only if panel spec
+                          data is somehow missing. Underlying pricing
+                          (cabling/installation/structure) is untouched —
+                          this is a display-only fix. */}
+                      <p className="text-sm font-bold text-slate-900">
+                        {formatTrim(
+                          livePreview.equipment.panel.specValue
+                            ? (livePreview.equipment.panel.count * livePreview.equipment.panel.specValue) / 1000
+                            : livePreview.systemKw,
+                          1
+                        )}{" "}
+                        kW
+                      </p>
                     </div>
                     <div>
                       <p className="text-[10px] text-slate-500">Savings/mo</p>
@@ -2833,7 +2880,19 @@ function CalculatorCard() {
       {masterService === "COMPLETE_SOLAR" && (
         <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between bg-slate-950 p-4 text-white shadow-2xl lg:hidden print:hidden">
           <div className="min-w-0">
-            <p className="text-[10px] text-slate-400">Est. Total{livePreview ? ` · ${livePreview.systemKw} kW System` : ""}</p>
+            {/* Same "real configured capacity, not the frozen bill-derived
+                figure" fix as the Live Estimate panel's System stat. */}
+            <p className="text-[10px] text-slate-400">
+              Est. Total
+              {livePreview
+                ? ` · ${formatTrim(
+                    livePreview.equipment.panel.specValue
+                      ? (livePreview.equipment.panel.count * livePreview.equipment.panel.specValue) / 1000
+                      : livePreview.systemKw,
+                    1
+                  )} kW System`
+                : ""}
+            </p>
             <p className="truncate text-base font-bold">
               {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "Enter your bill above"}
             </p>

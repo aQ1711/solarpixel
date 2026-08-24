@@ -270,6 +270,16 @@ const DEFAULT_STRUCTURE_CODE = "STANDARD_L1_L2";
  *  kept so Recommended-path pricing didn't jump when Custom Builder
  *  capacity selection was introduced. */
 const DEFAULT_BATTERY_KWH_PER_SYSTEM_KW = 1.2;
+/** Panel Quantity Adjuster's ceiling (2026-08-24, explicit instruction)
+ *  — the max DC array a selected inverter can take, expressed as a
+ *  percentage of its own rated AC capacity. 115% is a standard, widely
+ *  used DC:AC oversizing allowance (inverters routinely accept modest
+ *  panel overpanling since an array rarely hits its full nameplate
+ *  output at once) — previously this cap was a flat 100% (panels capped
+ *  at exactly the inverter's own rated kW, zero headroom), which under-
+ *  used a customer's inverter once they picked one larger than their
+ *  bill-derived baseline. */
+const PANEL_OVERSIZE_ALLOWANCE = 1.15;
 /** Reserved EquipmentOption code for "Other / Specific Requirement". */
 const OTHER_CODE = "OTHER";
 /** Reserved `batteryCode` value meaning "the customer explicitly opted
@@ -636,18 +646,20 @@ export async function calculateSystemPricing(
   // Math.ceil(watts / panelWattage) the client has always derived for
   // display; it's now also computed here so it can be the adjuster's
   // real, server-enforced floor. maxPanelCount is the selected
-  // inverter's own rated kW (specValue) converted to a panel count — its
-  // ceiling; null (no cap) when that inverter has no specValue on file,
-  // since "stuck at baseline" would make the adjuster pointless for the
-  // many catalog inverters missing this field (see EquipmentOption.
-  // specValue's doc comment). effectivePanelCount is the actual,
-  // already-clamped count this quote prices — panelQtyOverride can only
-  // ever raise the count within the inverter's real headroom, never drop
-  // it below what the bill requires.
+  // inverter's own rated kW (specValue), with PANEL_OVERSIZE_ALLOWANCE
+  // (115%, 2026-08-24 — was a flat 100%/zero-headroom cap before)
+  // applied, converted to a panel count — its ceiling; null (no cap)
+  // when that inverter has no specValue on file, since "stuck at
+  // baseline" would make the adjuster pointless for the many catalog
+  // inverters missing this field (see EquipmentOption.specValue's doc
+  // comment). effectivePanelCount is the actual, already-clamped count
+  // this quote prices — panelQtyOverride can only ever raise the count
+  // within the inverter's real (now 115%) headroom, never drop it below
+  // what the bill requires.
   const panelWattage = panelOption?.specValue?.toNumber() ?? FALLBACK_PANEL_WATTAGE_W;
   const baselinePanelCount = Math.ceil(watts / panelWattage);
   const maxPanelCount = inverterOption?.specValue
-    ? Math.floor((inverterOption.specValue.toNumber() * 1000) / panelWattage)
+    ? Math.floor((inverterOption.specValue.toNumber() * 1000 * PANEL_OVERSIZE_ALLOWANCE) / panelWattage)
     : null;
   const effectivePanelCount = Math.min(
     Math.max(Math.round(selections?.panelQtyOverride ?? baselinePanelCount), baselinePanelCount),
@@ -1126,14 +1138,17 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
 
   const watts = systemKw * 1000;
   // Same Panel Quantity Adjuster math/clamping as calculateSystemPricing
-  // — re-clamped here too (not just trusted from the original quote's
-  // persisted panelQtyOverride) in case the resolved inverter changed
-  // between the instant estimate and this exact-BOQ pass. Civil Blocks
-  // derives from THIS real, re-clamped count, same formula as the
-  // instant estimate.
+  // (including the 115% PANEL_OVERSIZE_ALLOWANCE, see that constant's
+  // doc comment) — re-clamped here too (not just trusted from the
+  // original quote's persisted panelQtyOverride) in case the resolved
+  // inverter changed between the instant estimate and this exact-BOQ
+  // pass. Civil Blocks derives from THIS real, re-clamped count, same
+  // formula as the instant estimate.
   const panelWattage = panelOption?.specValue?.toNumber() ?? FALLBACK_PANEL_WATTAGE_W;
   const baselinePanelCount = Math.ceil(watts / panelWattage);
-  const maxPanelCount = inverterOption?.specValue ? Math.floor((inverterOption.specValue.toNumber() * 1000) / panelWattage) : null;
+  const maxPanelCount = inverterOption?.specValue
+    ? Math.floor((inverterOption.specValue.toNumber() * 1000 * PANEL_OVERSIZE_ALLOWANCE) / panelWattage)
+    : null;
   const effectivePanelCount = Math.min(
     Math.max(Math.round(selections?.panelQtyOverride ?? baselinePanelCount), baselinePanelCount),
     maxPanelCount ?? Infinity
