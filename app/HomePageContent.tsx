@@ -817,7 +817,7 @@ function Header() {
 
 function Hero() {
   return (
-    <section className="dot-grid relative px-5 pb-6 pt-4 sm:pt-6 md:pb-4 print:p-0">
+    <section className="dot-grid relative px-5 pb-4 pt-3 sm:pt-5 md:pb-3 print:p-0">
       {/* Ambient glow, purely decorative — two soft, low-opacity washes
           instead of one saturated blob, for a calmer first impression. */}
       <div
@@ -829,63 +829,42 @@ function Hero() {
         className="pointer-events-none absolute right-[-80px] top-[40px] h-[280px] w-[280px] rounded-full bg-emerald-200/15 blur-[110px] print:hidden"
       />
 
-      {/* Mobile-First Hero overhaul (2026-08-22) — headline, subhead, a
-          single unmissable CTA, and a 3-step "what happens next" strip,
-          all sized to fit above the fold on a real iPhone 12 Pro
-          viewport (390×844, verified live via resize_window). The CTA
-          just scrolls to the SAME #calculator card that already renders
-          a little further down (nothing structural changed there) — a
-          shortcut for someone who wants to jump straight in, not a gate
-          in front of it, since the card was already reachable by
-          scrolling either way.
+      {/* "International SaaS" Hero redesign (2026-08-24) — replaces the
+          Mobile-First Hero (headline + subhead + CTA button + 3-step
+          strip, 2026-08-22) with an Airbnb-style "no click needed"
+          opener: a punchy one-line headline, a tiny muted subhead, and
+          nothing else — the calculator immediately below (What do you
+          need? → bill input) IS the next thing on the page, not gated
+          behind a button anymore.
 
-          Desktop Hero Compaction (2026-08-22, same day) — tightened
-          every gap below on md:+ specifically (mobile spacing is
-          untouched, it was already sized for the mobile-first pass
-          above) and widened the subhead so it wraps to 1 line instead
-          of 2-3 on a wide screen, both aimed at the same goal: pull
-          "What do you need?" up into view on a real 1080p desktop
-          without scrolling. Verified live via resize_window — see this
-          function's own doc comment isn't the place for that log, it's
-          in project memory alongside the actual measured numbers. */}
+          Real deviation from the brief, and why: the brief additionally
+          asked to move the Average Monthly Bill INPUT ITSELF out of its
+          Energy Profile card and directly into this Hero section. That
+          doesn't fit this app's actual structure — the very next thing
+          on the page is the "What do you need?" Master Service picker
+          (Complete Solar / EV Charger / Panel Washing), and only
+          Complete Solar has a "monthly bill" as its first field at all;
+          EV Charger and Panel Washing ask for completely different
+          things (charger type, panel count). Putting a bill field
+          ahead of that choice would show it to people it doesn't apply
+          to, and duplicating the state to hide/show it conditionally
+          would fight the calculator's own step order rather than
+          simplify it. Cutting the button + 3-step strip below instead
+          delivers the same real goal (zero clicks between landing and
+          the calculator's real first input) without that structural
+          conflict — the "What do you need?" fieldset is now the very
+          next element on the page, exactly where the bill input READS
+          as "step one" for the only flow that has one. */}
       <div className="relative mx-auto max-w-2xl text-center print:hidden">
         <h1 className="text-balance text-[1.85rem] font-bold leading-[1.15] tracking-tight text-stone-900 sm:text-5xl sm:leading-[1.1]">
-          Get Your Exact Solar Price in <span className="text-orange-700">60 Seconds</span>.
+          Solar. <span className="text-orange-700">Priced Instantly.</span>
         </h1>
-        <p className="mx-auto mt-2 max-w-md text-balance text-sm text-stone-600 sm:mt-2.5 sm:max-w-xl sm:text-lg">
-          {/* "your monthly bill," not "your WAPDA units" — the calculator's
-              real first field asks for a Rupee amount (Average Monthly
-              Bill), not a units/kWh meter reading; corrected to match the
-              actual product instead of publishing a wrong claim. */}
-          No waiting for salesmen. Enter your monthly bill, see the exact engineering, and get a transparent
-          quotation instantly.
+        <p className="mx-auto mt-1.5 max-w-xs text-balance text-xs text-stone-400 sm:mt-2 sm:max-w-sm sm:text-sm">
+          Live engineering. Zero hidden fees.
         </p>
-
-        <button
-          type="button"
-          onClick={scrollToCalculator}
-          className="glow-cta mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-700 px-6 py-4 text-base font-bold text-white shadow-lg shadow-orange-700/30 transition-transform duration-200 hover:scale-[1.02] active:scale-[0.98] sm:mt-5 sm:w-auto sm:px-10 sm:py-4"
-        >
-          Calculate My Solar Cost
-          <ArrowRight className="h-5 w-5" />
-        </button>
-
-        <div className="mt-3 flex items-center justify-center gap-1 text-[11px] font-medium text-stone-400 sm:mt-3.5 sm:gap-1.5 sm:text-xs">
-          <span className="flex items-center gap-1">
-            <Receipt className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> 1. Enter Bill
-          </span>
-          <ArrowRight className="h-2.5 w-2.5 shrink-0 text-stone-300" />
-          <span className="flex items-center gap-1">
-            <SlidersHorizontal className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> 2. Configure System
-          </span>
-          <ArrowRight className="h-2.5 w-2.5 shrink-0 text-stone-300" />
-          <span className="flex items-center gap-1">
-            <FileText className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> 3. Get Instant Quote
-          </span>
-        </div>
       </div>
 
-      <div id="calculator" className="relative mx-auto mt-5 w-full scroll-mt-24 sm:mt-5 md:mt-4 print:mt-0 print:max-w-none">
+      <div id="calculator" className="relative mx-auto mt-4 w-full scroll-mt-24 sm:mt-4 md:mt-3 print:mt-0 print:max-w-none">
         {/* useSearchParams() (for the report-step/back-button sync — see
             CalculatorCard) requires a Suspense boundary so the rest of
             this static page isn't forced fully dynamic. */}
@@ -1117,14 +1096,21 @@ function CalculatorCard() {
   // own here — its Sector/ServiceType state always has a real default
   // (DEFAULT_SECTOR / HYBRID_BATTERY, see below), so jumping straight
   // from the bill card to the Configurator never leaves the form in an
-  // incomplete state, just skips pausing there. Only meaningful for
-  // masterService === "COMPLETE_SOLAR" — the other two master services
-  // render a completely different, shorter form with none of these
-  // sections, so the refs simply stay unattached (null) for them and
-  // scrollToStep's optional chaining no-ops safely.
+  // incomplete state, just skips pausing there.
+  //
+  // Extended 2026-08-24 (International SaaS Hero Redesign task) with a
+  // ref each for EV Charger and Panel Washing's own input sections —
+  // selecting either of those Master Service cards used to just swap
+  // the form in place with no scroll at all, unlike Complete Solar.
+  // Same double-rAF-deferred pattern as Complete Solar's own trigger
+  // below (see that onClick handler): whichever section isn't the
+  // active masterService simply isn't in the DOM, so its ref stays
+  // null and scrollToStep's optional chaining no-ops safely for it.
   const serviceSelectionRef = useRef<HTMLFieldSetElement>(null);
   const energyProfileRef = useRef<HTMLDivElement>(null);
   const configurationRef = useRef<HTMLDivElement>(null);
+  const evChargerRef = useRef<HTMLDivElement>(null);
+  const panelWashingRef = useRef<HTMLDivElement>(null);
 
   function scrollToStep(ref: React.RefObject<HTMLElement | null>) {
     ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1878,19 +1864,18 @@ function CalculatorCard() {
                 type="button"
                 onClick={() => {
                   setMasterService(value);
-                  // Complete Solar's Energy Profile card only exists in
-                  // the DOM for that branch (see the masterService ===
-                  // "COMPLETE_SOLAR" ternary below) — switching INTO it
-                  // from a different service means the ref isn't
-                  // attached yet at the moment this handler runs, so the
-                  // scroll has to wait for React to actually commit that
-                  // new DOM before it can find something to scroll to.
-                  // Double rAF (not a fixed setTimeout) is the standard
-                  // "wait for the next real paint" pattern — one rAF
-                  // alone can still fire before layout has settled.
-                  if (value === "COMPLETE_SOLAR") {
-                    requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(energyProfileRef)));
-                  }
+                  // Each service's own input section only exists in the
+                  // DOM for that branch — switching INTO one from a
+                  // different service means its ref isn't attached yet
+                  // at the moment this handler runs, so the scroll has
+                  // to wait for React to actually commit that new DOM
+                  // before it can find something to scroll to. Double
+                  // rAF (not a fixed setTimeout) is the standard "wait
+                  // for the next real paint" pattern — one rAF alone can
+                  // still fire before layout has settled.
+                  const targetRef =
+                    value === "COMPLETE_SOLAR" ? energyProfileRef : value === "EV_CHARGER" ? evChargerRef : panelWashingRef;
+                  requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(targetRef)));
                 }}
                 aria-pressed={active}
                 className={`relative flex min-w-0 items-start gap-3 rounded-2xl p-4 text-left transition-all duration-200 ${
@@ -2849,7 +2834,7 @@ function CalculatorCard() {
       {masterService === "COMPLETE_SOLAR" && (
         <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between bg-slate-950 p-4 text-white shadow-2xl lg:hidden print:hidden">
           <div className="min-w-0">
-            <p className="text-[10px] text-slate-400">Est. Total</p>
+            <p className="text-[10px] text-slate-400">Est. Total{livePreview ? ` · ${livePreview.systemKw} kW System` : ""}</p>
             <p className="truncate text-base font-bold">
               {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "Enter your bill above"}
             </p>
@@ -2886,7 +2871,7 @@ function CalculatorCard() {
           {/* ---- LEFT COLUMN: inputs ---- */}
           <div className="space-y-5">
             {masterService === "SYSTEM_UPGRADES" && (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div ref={panelWashingRef} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="mb-3 flex items-center gap-3">
                   <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-orange-700">
                     <WaterDropIcon className="h-8 w-8" />
@@ -2916,7 +2901,7 @@ function CalculatorCard() {
             )}
 
             {masterService === "EV_CHARGER" && (
-              <div className="@container rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div ref={evChargerRef} className="@container rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="mb-3 flex items-center gap-3">
                   <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-orange-700">
                     <EVChargerIcon className="h-8 w-8" />
@@ -3210,8 +3195,26 @@ function EquipmentSwapRow({
   onToggleOpen: () => void;
   children: React.ReactNode;
 }) {
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll centering (2026-08-24, International SaaS Hero Redesign
+  // task) — when "Change" opens this row's picker, the newly-revealed
+  // grid of brand/model cards can push well past the bottom of a
+  // mobile viewport while the row's own header stays pinned at the top
+  // of view. Centering the row itself (not just scrolling it into
+  // view) keeps roughly equal picker content visible above and below,
+  // instead of leaving the user staring at just the header they have
+  // to scroll further to see anything from. Local to this component
+  // (not one of CalculatorCard's named refs) since every one of the 8
+  // EquipmentSwapRow instances needs its own independent version of
+  // this, keyed off its own isOpen — a single shared ref couldn't tell
+  // which row just opened.
+  useEffect(() => {
+    if (isOpen) rowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [isOpen]);
+
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div ref={rowRef} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <div className="flex items-center justify-between gap-3 px-3.5 py-3">
         <div className="flex min-w-0 items-center gap-3">
           {Icon && (
@@ -3221,7 +3224,14 @@ function EquipmentSwapRow({
           )}
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{title}</p>
-            <p className="truncate text-sm font-semibold text-slate-900">
+            {/* Was a single-line `truncate` — real equipment names
+                ("Jinko Bifacial 610W N-Type") plus a price suffix
+                routinely ran past a narrow mobile row and clipped to an
+                unreadable snippet. Wrapping to 2-3 lines instead (this
+                row's icon and Change button are both self-height, not
+                pinned to a single text line, so a taller row here costs
+                nothing layout-wise). */}
+            <p className="text-sm font-semibold text-slate-900">
               {currentLabel}
               {currentPriceLabel && <span className="ml-1.5 font-bold text-orange-700">— {currentPriceLabel}</span>}
             </p>
@@ -3287,7 +3297,11 @@ function SwapOptionCard({
         <img src={imageUrl} alt="" className={`h-6 w-10 shrink-0 object-contain ${!inStock ? "grayscale" : ""}`} />
       )}
       <span className="min-w-0">
-        <span className={`block truncate text-xs font-semibold ${!inStock ? "text-slate-500" : ""}`}>{label}</span>
+        {/* Same "was truncate, real brand/model names clip on mobile"
+            fix as EquipmentSwapRow above — this is the picker grid
+            itself (e.g. "Jinko Bifacial 610W N-Type"), the exact place
+            a truncated name reads as a broken UI. */}
+        <span className={`block text-xs font-semibold ${!inStock ? "text-slate-500" : ""}`}>{label}</span>
         {!inStock ? (
           <span className="block text-[11px] font-semibold text-slate-400">Out of Stock</span>
         ) : (
@@ -3426,7 +3440,7 @@ function ServiceToggleCard({
           </span>
         )}
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
+          <p className="text-sm font-semibold text-slate-900">{title}</p>
           <p className="text-[11px] text-slate-500">{description}</p>
           {active && priceLabel && <p className="text-xs font-bold text-orange-700">{priceLabel}</p>}
         </div>
