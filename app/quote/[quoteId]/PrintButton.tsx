@@ -12,7 +12,7 @@ export function PrintButton() {
     <button
       type="button"
       onClick={() => window.print()}
-      className="flex min-h-11 items-center gap-2 rounded-full border border-violet-200 bg-white px-4 text-sm font-semibold text-violet-700 shadow-sm transition-colors duration-200 hover:border-violet-300 hover:bg-violet-50 print:hidden"
+      className="flex min-h-11 items-center gap-2 rounded-full border border-orange-200 bg-white px-4 text-sm font-semibold text-orange-700 shadow-sm transition-colors duration-200 hover:border-orange-300 hover:bg-orange-50 print:hidden"
     >
       <Download className="h-4 w-4" /> Save as PDF
     </button>

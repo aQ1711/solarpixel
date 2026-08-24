@@ -299,7 +299,7 @@ body {
   font-weight: 600;
 }
 .legal-prose a {
-  color: var(--color-violet-600, #7c3aed);
+  color: var(--color-orange-700, #c2410c);
   text-decoration: underline;
   text-underline-offset: 2px;
 }

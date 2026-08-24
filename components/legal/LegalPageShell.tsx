@@ -7,17 +7,20 @@ import Link from "next/link";
  * (that component lives inside a "use client" file built around the
  * interactive calculator's own state; these are plain static Server
  * Components with no need for any of that). Light theme, matching the
- * rest of the storefront (stone/violet palette).
+ * rest of the storefront (stone/orange palette).
  */
 export function LegalPageShell({ title, updatedLabel, children }: { title: string; updatedLabel?: string; children: React.ReactNode }) {
   return (
     <main className="min-h-dvh bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-5 py-4">
-          <Link href="/" className="text-base font-semibold tracking-tight text-stone-900">
+          <Link href="/" className="flex items-center gap-2 text-base font-semibold tracking-tight text-stone-900">
+            {/* Same "pixel" mark as the storefront Header — see its
+                doc comment in app/HomePageContent.tsx. */}
+            <span aria-hidden className="h-5 w-5 shrink-0 rounded-md bg-orange-700" />
             Solar Pixel
           </Link>
-          <Link href="/#calculator" className="text-xs font-medium text-violet-600 hover:text-violet-700">
+          <Link href="/#calculator" className="text-xs font-medium text-orange-700 hover:text-orange-800">
             Get Instant Quote →
           </Link>
         </div>

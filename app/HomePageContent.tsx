@@ -774,6 +774,12 @@ function Header() {
     <header className="px-3 pt-3 sm:px-5">
       <div className="mx-auto flex max-w-4xl items-center justify-between gap-2 rounded-full border border-stone-200 bg-white/90 py-2 pl-4 pr-2 shadow-sm shadow-stone-200/50 backdrop-blur-md sm:pl-5 sm:pr-2.5">
         <div className="flex items-center gap-2">
+          {/* The "pixel" mark (2026-08-24, purple-to-orange rebrand) — a
+              single solid orange square, same motif as the generated
+              favicon (app/icon.tsx) and OG share image
+              (app/opengraph-image.tsx), now also on the live header
+              itself rather than just those two generated images. */}
+          <span aria-hidden className="h-5 w-5 shrink-0 rounded-md bg-orange-700 sm:h-6 sm:w-6" />
           <span className="text-base font-semibold tracking-tight text-stone-900 sm:text-lg">Solar Pixel</span>
           <span className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 sm:inline-block">
             No Net Metering
@@ -816,7 +822,7 @@ function Hero() {
           instead of one saturated blob, for a calmer first impression. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-[-160px] h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-violet-200/20 blur-[130px] print:hidden"
+        className="pointer-events-none absolute left-1/2 top-[-160px] h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-orange-200/20 blur-[130px] print:hidden"
       />
       <div
         aria-hidden
@@ -844,7 +850,7 @@ function Hero() {
           in project memory alongside the actual measured numbers. */}
       <div className="relative mx-auto max-w-2xl text-center print:hidden">
         <h1 className="text-balance text-[1.85rem] font-bold leading-[1.15] tracking-tight text-stone-900 sm:text-5xl sm:leading-[1.1]">
-          Get Your Exact Solar Price in <span className="text-violet-600">60 Seconds</span>.
+          Get Your Exact Solar Price in <span className="text-orange-700">60 Seconds</span>.
         </h1>
         <p className="mx-auto mt-2 max-w-md text-balance text-sm text-stone-600 sm:mt-2.5 sm:max-w-xl sm:text-lg">
           {/* "your monthly bill," not "your WAPDA units" — the calculator's
@@ -858,7 +864,7 @@ function Hero() {
         <button
           type="button"
           onClick={scrollToCalculator}
-          className="glow-cta mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 px-6 py-4 text-base font-bold text-white shadow-lg shadow-violet-600/30 transition-transform duration-200 hover:scale-[1.02] active:scale-[0.98] sm:mt-5 sm:w-auto sm:px-10 sm:py-4"
+          className="glow-cta mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-700 px-6 py-4 text-base font-bold text-white shadow-lg shadow-orange-700/30 transition-transform duration-200 hover:scale-[1.02] active:scale-[0.98] sm:mt-5 sm:w-auto sm:px-10 sm:py-4"
         >
           Calculate My Solar Cost
           <ArrowRight className="h-5 w-5" />
@@ -1079,11 +1085,11 @@ function ShieldWireIcon({ className }: { className?: string }) {
 function StepHeader({ step, title, icon: Icon }: { step: number; title: string; icon?: React.ComponentType<{ className?: string }> }) {
   return (
     <div className="mb-3 flex items-center gap-2.5">
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-600 text-[11px] font-bold text-white">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-orange-700 text-[11px] font-bold text-white">
         {step}
       </span>
       <p className="flex min-w-0 items-center gap-1.5 text-xs font-bold tracking-wide text-slate-800 uppercase">
-        {Icon && <Icon className="h-4 w-4 shrink-0 text-violet-500" />}
+        {Icon && <Icon className="h-4 w-4 shrink-0 text-orange-600" />}
         <span className="truncate">{title}</span>
       </p>
     </div>
@@ -1889,20 +1895,20 @@ function CalculatorCard() {
                 aria-pressed={active}
                 className={`relative flex min-w-0 items-start gap-3 rounded-2xl p-4 text-left transition-all duration-200 ${
                   active
-                    ? "border-2 border-violet-600 bg-violet-50"
-                    : "border border-slate-200 bg-slate-50 hover:border-violet-400 hover:shadow-md"
+                    ? "border-2 border-orange-700 bg-orange-50"
+                    : "border border-slate-200 bg-slate-50 hover:border-orange-400 hover:shadow-md"
                 }`}
               >
                 {active && <CornerBrackets />}
                 <span
                   className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border ${
-                    active ? "border-violet-300 bg-white text-violet-700" : "border-slate-200 bg-white text-slate-400"
+                    active ? "border-orange-300 bg-white text-orange-700" : "border-slate-200 bg-white text-slate-400"
                   }`}
                 >
                   <Icon className="h-9 w-9" />
                 </span>
                 <span className="min-w-0">
-                  <span className={`block text-sm font-semibold ${active ? "text-violet-900" : "text-slate-900"}`}>{label}</span>
+                  <span className={`block text-sm font-semibold ${active ? "text-orange-900" : "text-slate-900"}`}>{label}</span>
                   <span className="mt-0.5 block text-xs leading-snug text-slate-500">{MASTER_SERVICE_DESCRIPTION[value]}</span>
                 </span>
               </button>
@@ -1944,7 +1950,7 @@ function CalculatorCard() {
                         }
                       }}
                       placeholder="e.g. 25000"
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 pr-11 text-base font-medium text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 pr-11 text-base font-medium text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
                     />
                     {billSource !== "MANUAL" && (
                       <BadgeCheck className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-600" />
@@ -1966,7 +1972,7 @@ function CalculatorCard() {
                     id="targetBudgetTier"
                     value={targetBudgetTier ?? ""}
                     onChange={(e) => setTargetBudgetTier((e.target.value || null) as BudgetTier | null)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-base font-medium text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-base font-medium text-slate-900 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
                   >
                     <option value="">No preference</option>
                     <option value="UNDER_1M">Under Rs 1 Million</option>
@@ -1977,7 +1983,7 @@ function CalculatorCard() {
               </div>
 
               {resolvedBillPKR !== null && resolvedBillPKR > 0 && (
-                <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-violet-700">
+                <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-orange-700">
                   <Zap className="h-4 w-4 shrink-0" />
                   {livePreview ? (
                     <>Recommended System: {livePreview.systemKw} kW</>
@@ -2015,7 +2021,7 @@ function CalculatorCard() {
                     type="button"
                     onClick={() => setShowCalcDetails((s) => !s)}
                     aria-expanded={showCalcDetails}
-                    className="flex items-center gap-1 text-sm text-violet-600 transition-colors duration-200 hover:text-violet-700"
+                    className="flex items-center gap-1 text-sm text-orange-700 transition-colors duration-200 hover:text-orange-800"
                   >
                     <Calculator className="h-3.5 w-3.5 shrink-0" />
                     View calculation details
@@ -2060,7 +2066,7 @@ function CalculatorCard() {
                                 `Oversized ${formatTrim(livePreview.equipment.inverter.specValue ?? livePreview.systemKw)}kW inverter selected to leave room for future panels without requiring an upgrade, plus battery.`}
                             </p>
                           )}
-                          <p className="border-t border-slate-200 pt-2 font-semibold text-violet-700">
+                          <p className="border-t border-slate-200 pt-2 font-semibold text-orange-700">
                             Result: Sized to offset ~{offsetPct}% of your bill, the portion used during daylight hours, without
                             exporting anything back to the grid.
                           </p>
@@ -2073,7 +2079,7 @@ function CalculatorCard() {
               <div className="mt-2">
                 {uploadState === "uploading" ? (
                   <div className="flex items-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-4 py-4 text-xs text-slate-500">
-                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-violet-500" />
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-orange-600" />
                     Reading {uploadFileName}…
                   </div>
                 ) : uploadState === "success" && billDetails ? (
@@ -2092,7 +2098,7 @@ function CalculatorCard() {
                     </button>
                   </div>
                 ) : (
-                  <label className="flex cursor-pointer flex-col items-center gap-1.5 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-4 py-4 text-center transition-colors duration-200 hover:border-violet-400 hover:bg-violet-50/40">
+                  <label className="flex cursor-pointer flex-col items-center gap-1.5 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-4 py-4 text-center transition-colors duration-200 hover:border-orange-400 hover:bg-orange-50/40">
                     <Upload className="h-5 w-5 text-slate-400" />
                     <span className="text-xs font-medium leading-relaxed text-slate-600">
                       Optional: Upload your recent electricity bill (PDF or Image) for a 100% accurate engineering audit.
@@ -2135,20 +2141,20 @@ function CalculatorCard() {
                         aria-pressed={active}
                         className={`relative flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-2xl p-2.5 text-left transition-all duration-200 ${
                           active
-                            ? "border-2 border-violet-600 bg-violet-50 text-violet-900"
-                            : "border border-slate-200 bg-white text-slate-700 hover:border-violet-400 hover:shadow-md"
+                            ? "border-2 border-orange-700 bg-orange-50 text-orange-900"
+                            : "border border-slate-200 bg-white text-slate-700 hover:border-orange-400 hover:shadow-md"
                         }`}
                       >
                         {active && <CornerBrackets />}
                         <span
                           className={`flex h-14 w-16 shrink-0 items-center justify-center rounded-xl border sm:h-16 sm:w-20 ${
-                            active ? "border-violet-300 bg-white text-violet-600" : "border-slate-200 bg-white text-slate-400"
+                            active ? "border-orange-300 bg-white text-orange-700" : "border-slate-200 bg-white text-slate-400"
                           }`}
                         >
                           <SectorIllustration sector={value} className="h-9 w-12 sm:h-10 sm:w-14" />
                         </span>
                         <span className="min-w-0">
-                          <span className={`block text-sm font-semibold ${active ? "text-violet-900" : "text-slate-900"}`}>
+                          <span className={`block text-sm font-semibold ${active ? "text-orange-900" : "text-slate-900"}`}>
                             {label}
                           </span>
                           <span className="mt-0.5 block text-xs leading-snug text-slate-500">{description}</span>
@@ -2163,7 +2169,7 @@ function CalculatorCard() {
                 <p className="mb-2 text-sm font-semibold text-slate-700">System Type</p>
                 {sector === "INDUSTRIAL" ? (
                   <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5">
-                    <Sun className="h-4 w-4 shrink-0 text-violet-500" />
+                    <Sun className="h-4 w-4 shrink-0 text-orange-600" />
                     <span className="text-xs font-medium text-slate-700">{SERVICE_TYPE_LABEL[serviceType]}</span>
                     <span className="ml-auto shrink-0 text-[10px] font-medium text-slate-500">
                       Locked for {SECTOR_LABEL[sector]}
@@ -2184,20 +2190,20 @@ function CalculatorCard() {
                             aria-pressed={active}
                             className={`relative flex min-w-0 items-start gap-2.5 rounded-2xl p-3 text-left transition-all duration-200 ${
                               active
-                                ? "border-2 border-violet-600 bg-violet-50 text-violet-900"
-                                : "border border-slate-200 bg-white text-slate-700 hover:border-violet-400 hover:shadow-md"
+                                ? "border-2 border-orange-700 bg-orange-50 text-orange-900"
+                                : "border border-slate-200 bg-white text-slate-700 hover:border-orange-400 hover:shadow-md"
                             }`}
                           >
                             {active && <CornerBrackets />}
                             <span
                               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                                active ? "bg-violet-600 text-white" : "border border-slate-200 bg-white text-violet-500"
+                                active ? "bg-orange-700 text-white" : "border border-slate-200 bg-white text-orange-600"
                               }`}
                             >
                               <Icon className="h-4.5 w-4.5" />
                             </span>
                             <span className="min-w-0">
-                              <span className={`block text-xs font-semibold ${active ? "text-violet-900" : "text-slate-900"}`}>
+                              <span className={`block text-xs font-semibold ${active ? "text-orange-900" : "text-slate-900"}`}>
                                 {SERVICE_TYPE_LABEL[st]}
                               </span>
                               <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">
@@ -2234,14 +2240,14 @@ function CalculatorCard() {
 
               {customizationPath === "CUSTOM" && (
                 <div className="mt-3">
-                  <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-violet-950">
-                    <PanelsTopLeft className="h-3.5 w-3.5 text-violet-500" />
+                  <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-orange-950">
+                    <PanelsTopLeft className="h-3.5 w-3.5 text-orange-600" />
                     Custom Equipment Builder
                   </p>
 
                   {equipmentOptionsLoading && (
                     <div className="flex items-center gap-2 py-2 text-xs text-slate-500">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-600" />
                       Loading equipment options…
                     </div>
                   )}
@@ -2730,8 +2736,8 @@ function CalculatorCard() {
               behind it a few pixels on scroll; 128px clears it with
               room to spare. Matches the identical wrapper below. */}
           <div id="contact-and-submit" className="lg:sticky lg:top-32 lg:z-30 lg:self-start">
-            <div className="rounded-2xl border border-violet-200 bg-white p-5 shadow-lg shadow-violet-100/60">
-              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-violet-600">
+            <div className="rounded-2xl border border-orange-200 bg-white p-5 shadow-lg shadow-orange-100/60">
+              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
                 <Sparkles className="h-3.5 w-3.5" /> Live Estimate
               </p>
 
@@ -2740,7 +2746,7 @@ function CalculatorCard() {
                   <p className="mt-1.5 text-3xl font-bold text-slate-900">{formatPKR(livePreview.totalClientPricePKR)}</p>
                   <p className="flex items-center gap-1.5 text-xs text-slate-500">
                     Estimated Turnkey Cost
-                    {livePreviewLoading && <Loader2 className="h-3 w-3 animate-spin text-violet-400" />}
+                    {livePreviewLoading && <Loader2 className="h-3 w-3 animate-spin text-orange-400" />}
                   </p>
 
                   <div className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4 text-center">
@@ -2780,7 +2786,7 @@ function CalculatorCard() {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Ahmed Khan"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
                   />
                 </div>
                 <div>
@@ -2795,7 +2801,7 @@ function CalculatorCard() {
                     value={whatsappPhone}
                     onChange={(e) => setWhatsappPhone(e.target.value)}
                     placeholder="+92 3XX XXXXXXX"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
                   />
                 </div>
               </div>
@@ -2882,7 +2888,7 @@ function CalculatorCard() {
             {masterService === "SYSTEM_UPGRADES" && (
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="mb-3 flex items-center gap-3">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-violet-600">
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-orange-700">
                     <WaterDropIcon className="h-8 w-8" />
                   </span>
                   <p className="text-sm font-semibold text-slate-800">Panel Washing &amp; Servicing</p>
@@ -2904,7 +2910,7 @@ function CalculatorCard() {
                   value={washPanelCount}
                   onChange={(e) => setWashPanelCount(e.target.value.replace(/[^\d]/g, ""))}
                   placeholder="Or enter an exact count"
-                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
                 />
               </div>
             )}
@@ -2912,7 +2918,7 @@ function CalculatorCard() {
             {masterService === "EV_CHARGER" && (
               <div className="@container rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="mb-3 flex items-center gap-3">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-violet-600">
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-orange-700">
                     <EVChargerIcon className="h-8 w-8" />
                   </span>
                   <p className="text-sm font-semibold text-slate-800">EV Charger Installation</p>
@@ -2940,7 +2946,7 @@ function CalculatorCard() {
                   value={evCableDistanceMeters}
                   onChange={(e) => setEvCableDistanceMeters(e.target.value.replace(/[^\d]/g, ""))}
                   placeholder={String(EV_CHARGER_INCLUDED_CABLE_METERS)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
                 />
                 <p className="mt-1.5 text-[11px] text-slate-500">
                   Standard {EV_CHARGER_INCLUDED_CABLE_METERS}m included, +{formatPKR(EV_CHARGER_EXTRA_CABLE_RATE_PKR_PER_METER)}/meter beyond that.
@@ -2962,7 +2968,7 @@ function CalculatorCard() {
                     ? "e.g. Access constraints, existing system details…"
                     : "e.g. Vehicle model, home or office install…"
                 }
-                className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+                className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
               />
             </div>
           </div>
@@ -2970,8 +2976,8 @@ function CalculatorCard() {
           {/* ---- RIGHT COLUMN: sticky live total/pricing + contact + submit,
               same wrapper classes as the Solar dashboard's right column ---- */}
           <div className="lg:sticky lg:top-32 lg:z-30 lg:self-start">
-            <div className="rounded-2xl border border-violet-200 bg-white p-5 shadow-lg shadow-violet-100/60">
-              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-violet-600">
+            <div className="rounded-2xl border border-orange-200 bg-white p-5 shadow-lg shadow-orange-100/60">
+              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
                 <Sparkles className="h-3.5 w-3.5" /> {masterService === "EV_CHARGER" ? "Live Total" : "Estimate"}
               </p>
 
@@ -2980,7 +2986,7 @@ function CalculatorCard() {
                   <>
                     <p className="mt-1.5 text-2xl font-bold text-slate-900">
                       {formatPKR(washPreview.oneTimePricePKR)}
-                      {washPreviewLoading && <Loader2 className="ml-2 inline h-4 w-4 animate-spin text-violet-400" />}
+                      {washPreviewLoading && <Loader2 className="ml-2 inline h-4 w-4 animate-spin text-orange-400" />}
                     </p>
                     <p className="text-xs text-slate-500">
                       {washPreview.isMinimumFeeApplied
@@ -2990,7 +2996,7 @@ function CalculatorCard() {
                   </>
                 ) : (
                   <>
-                    <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
+                    <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">
                       <Wrench className="h-3.5 w-3.5" /> Custom Pricing
                     </span>
                     <p className="mt-2 text-sm leading-relaxed text-slate-500">
@@ -3008,7 +3014,7 @@ function CalculatorCard() {
                   <>
                     <p className="mt-1.5 text-2xl font-bold text-slate-900">
                       {formatPKR(evPreview.totalClientPricePKR)}
-                      {evPreviewLoading && <Loader2 className="ml-2 inline h-4 w-4 animate-spin text-violet-400" />}
+                      {evPreviewLoading && <Loader2 className="ml-2 inline h-4 w-4 animate-spin text-orange-400" />}
                     </p>
                     {evPreview.extraCablePKR > 0 && (
                       <p className="text-xs text-slate-500">incl. {formatPKR(evPreview.extraCablePKR)} extra cable</p>
@@ -3034,7 +3040,7 @@ function CalculatorCard() {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Ahmed Khan"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
                   />
                 </div>
                 <div>
@@ -3049,7 +3055,7 @@ function CalculatorCard() {
                     value={whatsappPhone}
                     onChange={(e) => setWhatsappPhone(e.target.value)}
                     placeholder="+92 3XX XXXXXXX"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-400/25"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
                   />
                 </div>
               </div>
@@ -3107,7 +3113,7 @@ function PathToggle({ path, onChange }: { path: CustomizationPath; onChange: (pa
             onClick={() => onChange(value)}
             aria-pressed={active}
             className={`flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-[11px] font-semibold leading-tight transition-colors duration-200 sm:text-xs ${
-              active ? "bg-white text-violet-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              active ? "bg-white text-orange-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
             }`}
           >
             <Icon className="h-3.5 w-3.5 shrink-0" />
@@ -3119,13 +3125,13 @@ function PathToggle({ path, onChange }: { path: CustomizationPath; onChange: (pa
   );
 }
 
-// Multi-layered purple palette shared by every card/pill/badge in the
+// Multi-layered orange palette shared by every card/pill/badge in the
 // Custom Equipment Builder — one place to keep "selected" reading as
 // unambiguously "chosen" (solid, high-contrast) vs. everything else
 // staying quiet until hovered/picked.
-const CARD_SELECTED_CLASSES = "border-2 border-violet-800 bg-violet-700 text-white shadow-md";
+const CARD_SELECTED_CLASSES = "border-2 border-orange-800 bg-orange-700 text-white shadow-md";
 const CARD_UNSELECTED_CLASSES =
-  "border border-slate-200 bg-slate-50 text-slate-800 hover:border-violet-300 hover:bg-violet-50/40";
+  "border border-slate-200 bg-slate-50 text-slate-800 hover:border-orange-300 hover:bg-orange-50/40";
 
 /** Step B of the cascading picker — the smaller pill row of models/specs
  *  that appears once a brand card is active. Unselected pills read as
@@ -3140,8 +3146,8 @@ function ModelPill({ label, active, onClick }: { label: string; active: boolean;
       aria-pressed={active}
       className={`rounded-2xl px-3 py-1.5 text-xs transition-all ${
         active
-          ? `${CARD_SELECTED_CLASSES} font-bold ring-2 ring-offset-2 ring-violet-500`
-          : "border border-violet-200 bg-violet-100 font-medium text-violet-900 hover:border-violet-400"
+          ? `${CARD_SELECTED_CLASSES} font-bold ring-2 ring-offset-2 ring-orange-600`
+          : "border border-orange-200 bg-orange-100 font-medium text-orange-900 hover:border-orange-400"
       }`}
     >
       {label}
@@ -3209,7 +3215,7 @@ function EquipmentSwapRow({
       <div className="flex items-center justify-between gap-3 px-3.5 py-3">
         <div className="flex min-w-0 items-center gap-3">
           {Icon && (
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-violet-600">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-orange-700">
               <Icon className="h-7 w-7" />
             </span>
           )}
@@ -3217,7 +3223,7 @@ function EquipmentSwapRow({
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{title}</p>
             <p className="truncate text-sm font-semibold text-slate-900">
               {currentLabel}
-              {currentPriceLabel && <span className="ml-1.5 font-bold text-violet-700">— {currentPriceLabel}</span>}
+              {currentPriceLabel && <span className="ml-1.5 font-bold text-orange-700">— {currentPriceLabel}</span>}
             </p>
           </div>
         </div>
@@ -3225,7 +3231,7 @@ function EquipmentSwapRow({
           type="button"
           onClick={onToggleOpen}
           aria-expanded={isOpen}
-          className="flex min-h-9 shrink-0 items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-3.5 text-xs font-semibold text-violet-700 transition-colors duration-200 hover:border-violet-300 hover:bg-violet-100"
+          className="flex min-h-9 shrink-0 items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3.5 text-xs font-semibold text-orange-700 transition-colors duration-200 hover:border-orange-300 hover:bg-orange-100"
         >
           {isOpen ? "Close" : "Change"}
           <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
@@ -3286,7 +3292,7 @@ function SwapOptionCard({
           <span className="block text-[11px] font-semibold text-slate-400">Out of Stock</span>
         ) : (
           <span
-            className={`block text-[11px] font-semibold ${active ? "text-violet-100" : deltaLabel.startsWith("+") ? "text-orange-700" : "text-emerald-700"}`}
+            className={`block text-[11px] font-semibold ${active ? "text-orange-100" : deltaLabel.startsWith("+") ? "text-orange-700" : "text-emerald-700"}`}
           >
             {deltaLabel}
           </span>
@@ -3325,7 +3331,7 @@ function SpecCard({
       }`}
     >
       <span className="text-xs font-semibold">{title}</span>
-      <span className={`text-[10px] leading-tight ${active ? "text-violet-100" : "text-slate-500"}`}>{description}</span>
+      <span className={`text-[10px] leading-tight ${active ? "text-orange-100" : "text-slate-500"}`}>{description}</span>
     </button>
   );
 }
@@ -3362,7 +3368,7 @@ function QuantityStepper({
           onClick={() => onChange(Math.max(min, value - 1))}
           disabled={value <= min}
           aria-label={`Decrease ${label}`}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-base font-bold text-violet-700 transition-colors duration-200 hover:border-violet-300 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-orange-200 bg-orange-50 text-base font-bold text-orange-700 transition-colors duration-200 hover:border-orange-300 hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-40"
         >
           −
         </button>
@@ -3372,7 +3378,7 @@ function QuantityStepper({
           onClick={() => onChange(Math.min(max ?? Infinity, value + 1))}
           disabled={max !== undefined && value >= max}
           aria-label={`Increase ${label}`}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-base font-bold text-violet-700 transition-colors duration-200 hover:border-violet-300 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-orange-200 bg-orange-50 text-base font-bold text-orange-700 transition-colors duration-200 hover:border-orange-300 hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-40"
         >
           +
         </button>
@@ -3406,14 +3412,14 @@ function ServiceToggleCard({
   return (
     <div
       className={`flex items-center justify-between gap-3 rounded-xl border px-3.5 py-3 transition-colors duration-200 ${
-        active ? "border-violet-300 bg-violet-50" : "border-slate-200 bg-white"
+        active ? "border-orange-300 bg-orange-50" : "border-slate-200 bg-white"
       }`}
     >
       <div className="flex min-w-0 items-center gap-3">
         {Icon && (
           <span
             className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border ${
-              active ? "border-violet-200 bg-white text-violet-600" : "border-slate-200 bg-slate-50 text-violet-600"
+              active ? "border-orange-200 bg-white text-orange-700" : "border-slate-200 bg-slate-50 text-orange-700"
             }`}
           >
             <Icon className="h-7 w-7" />
@@ -3422,7 +3428,7 @@ function ServiceToggleCard({
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
           <p className="text-[11px] text-slate-500">{description}</p>
-          {active && priceLabel && <p className="text-xs font-bold text-violet-700">{priceLabel}</p>}
+          {active && priceLabel && <p className="text-xs font-bold text-orange-700">{priceLabel}</p>}
         </div>
       </div>
       <button
@@ -3432,7 +3438,7 @@ function ServiceToggleCard({
         aria-label={title}
         onClick={onToggle}
         className={`relative flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200 ${
-          active ? "bg-violet-600" : "bg-slate-300"
+          active ? "bg-orange-700" : "bg-slate-300"
         }`}
       >
         <span
@@ -3447,8 +3453,8 @@ function ServiceToggleCard({
 
 function CustomRequirementNotice() {
   return (
-    <div className="flex items-start gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3.5 py-3 text-left text-xs leading-relaxed text-violet-800">
-      <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500" />
+    <div className="flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3.5 py-3 text-left text-xs leading-relaxed text-orange-800">
+      <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-600" />
       <p>
         <span className="font-semibold">Custom Requirement Noted:</span> Our senior engineering team will source
         pricing for your specific equipment request and include it in your final WhatsApp Quotation.
@@ -3524,7 +3530,7 @@ function BillDetailsPanel({ details, source }: { details: UploadedBillDetails; s
       <button
         type="button"
         onClick={() => window.print()}
-        className="mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-stone-300 bg-white py-2 text-xs font-medium text-stone-600 transition-colors duration-200 hover:border-violet-300 hover:text-violet-700"
+        className="mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-stone-300 bg-white py-2 text-xs font-medium text-stone-600 transition-colors duration-200 hover:border-orange-300 hover:text-orange-700"
       >
         <Download className="h-3.5 w-3.5" /> Download Bill Summary
       </button>
@@ -3555,9 +3561,11 @@ interface BoqRow {
 }
 
 /** Report screen — a brand-aligned sales quotation (light theme: white/
- *  slate background, violet headers/accents, emerald financials — per
- *  the "BOQ Light Theme" update; previously dark zinc-950/orange, see
- *  project memory for that history) that IS the print output too, not a
+ *  slate background, orange headers/accents, emerald financials — per
+ *  the "BOQ Light Theme" update, then the 2026-08-24 purple-to-orange
+ *  rebrand on top of that same light theme; previously dark zinc-950/
+ *  orange (a different, fully-dark phase, not this one), see project
+ *  memory for that history) that IS the print output too, not a
  *  separate mirror the way the old ResultSummary/PrintableReport pair
  *  worked. Only the interactive chrome (Edit Inputs, the two action
  *  buttons) is `print:hidden` — a light background needs no special
@@ -3696,7 +3704,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
         <button
           type="button"
           onClick={onEdit}
-          className="flex min-h-11 items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3.5 text-xs font-semibold text-violet-700 transition-colors duration-200 hover:border-violet-300 hover:bg-violet-100"
+          className="flex min-h-11 items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3.5 text-xs font-semibold text-orange-700 transition-colors duration-200 hover:border-orange-300 hover:bg-orange-100"
         >
           <ChevronLeft className="h-3.5 w-3.5" /> Edit Inputs
         </button>
@@ -3710,13 +3718,13 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
       {/* ---- Document Header ---- */}
       <div className="border-b border-slate-200 px-6 pb-6 pt-4 sm:px-8">
         <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] text-slate-500">
-          <span className="font-semibold tracking-wide text-violet-600">Powered by SP - Solar Pixel (Pvt) Ltd.</span>
+          <span className="font-semibold tracking-wide text-orange-700">Powered by SP - Solar Pixel (Pvt) Ltd.</span>
           <span>
             Quote #{result.quoteId.slice(0, 10).toUpperCase()} · {today}
           </span>
         </div>
         <h1 className="mt-3 text-2xl font-bold text-slate-900 sm:text-3xl">
-          {result.systemKw} KW <span className="text-violet-600">Sales Quotation</span>
+          {result.systemKw} KW <span className="text-orange-700">Sales Quotation</span>
         </h1>
         <p className="mt-1 text-lg font-semibold text-emerald-600">
           Estimated Turnkey Cost: {formatPKR(result.totalClientPricePKR)}
@@ -3769,12 +3777,12 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
       {/* ---- BOQ Table ---- */}
       <div className="px-6 pt-5 sm:px-8">
         <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <Receipt className="h-3.5 w-3.5 text-violet-600" /> Itemized Quotation
+          <Receipt className="h-3.5 w-3.5 text-orange-700" /> Itemized Quotation
         </p>
         <div className="mt-2.5 overflow-hidden rounded-xl border border-slate-200">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
-              <tr className="bg-violet-600 text-white">
+              <tr className="bg-orange-700 text-white">
                 <th className="px-3 py-2.5 font-semibold">Sr No.</th>
                 <th className="px-3 py-2.5 font-semibold">Product Description</th>
                 <th className="px-3 py-2.5 font-semibold">UOM</th>
@@ -3796,7 +3804,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
 
         {/* ---- Detailed Cost Breakdown — one row per priced category ---- */}
         <p className="mb-1.5 mt-4 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <Receipt className="h-3.5 w-3.5 text-violet-600" /> Cost Breakdown
+          <Receipt className="h-3.5 w-3.5 text-orange-700" /> Cost Breakdown
         </p>
         <div className="overflow-hidden rounded-xl border border-slate-200">
           <table className="w-full border-collapse text-left text-xs">
@@ -3833,7 +3841,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
             href="https://www.solarpixel.pk"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-violet-600 underline-offset-2 hover:underline"
+            className="text-orange-700 underline-offset-2 hover:underline"
           >
             www.solarpixel.pk
           </a>
@@ -3845,14 +3853,14 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => trackWhatsAppClick("quote_report_cta", result.quoteId)}
-            className="glow-cta flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-violet-600 to-purple-600 text-sm font-bold text-white transition-all duration-200 hover:from-violet-500 hover:to-purple-500"
+            className="glow-cta flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-orange-700 to-amber-600 text-sm font-bold text-white transition-all duration-200 hover:from-orange-600 hover:to-amber-500"
           >
             <MessageCircle className="h-4 w-4" /> Lock In Price on WhatsApp
           </a>
           <button
             type="button"
             onClick={() => window.print()}
-            className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-600 transition-colors duration-200 hover:border-violet-300 hover:text-violet-700"
+            className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-600 transition-colors duration-200 hover:border-orange-300 hover:text-orange-700"
           >
             <Download className="h-4 w-4" /> Download Quotation (PDF)
           </button>
@@ -3896,13 +3904,13 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
       <button
         type="button"
         onClick={onEdit}
-        className="-ml-1 -mt-1 mb-2 flex min-h-11 items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3.5 text-xs font-semibold text-violet-700 transition-colors duration-200 hover:border-violet-300 hover:bg-violet-100"
+        className="-ml-1 -mt-1 mb-2 flex min-h-11 items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3.5 text-xs font-semibold text-orange-700 transition-colors duration-200 hover:border-orange-300 hover:bg-orange-100"
       >
         <ChevronLeft className="h-3.5 w-3.5" /> Edit Inputs
       </button>
 
-      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-violet-50">
-        <CheckCircle2 className="h-6 w-6 text-violet-500" />
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-orange-50">
+        <CheckCircle2 className="h-6 w-6 text-orange-600" />
       </div>
       <h3 className="mt-3 text-lg font-semibold text-stone-900">
         {isWashing ? "Your Panel Washing Quote" : "Your EV Charger Installation Quote"}
@@ -4055,7 +4063,7 @@ function PrintRow({ label, value }: { label: string; value: string }) {
  *  (Formerly also used by the "Why Solar Pixel" features grid, removed
  *  2026-08-20 — this component itself stays, still in active use.) */
 function CornerBrackets() {
-  const base = "pointer-events-none absolute h-3 w-3 border-violet-300";
+  const base = "pointer-events-none absolute h-3 w-3 border-orange-300";
   return (
     <span aria-hidden className="contents">
       <span className={`${base} left-0 top-0 rounded-tl-md border-l-2 border-t-2`} />

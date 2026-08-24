@@ -23,7 +23,7 @@ export default function Icon() {
           borderRadius: 7,
         }}
       >
-        <div style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: "#7c3aed" }} />
+        <div style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: "#c2410c" }} />
       </div>
     ),
     { ...size }

@@ -44,7 +44,7 @@ export function CookieConsent() {
         <p className="text-center text-xs text-stone-600 sm:text-left">
           We use cookies for basic site functionality and, only if you accept, for analytics to understand how
           visitors use our site. See our{" "}
-          <Link href="/privacy-policy" className="font-medium text-violet-600 hover:text-violet-700">
+          <Link href="/privacy-policy" className="font-medium text-orange-700 hover:text-orange-800">
             Privacy Policy
           </Link>
           .

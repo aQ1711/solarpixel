@@ -125,14 +125,19 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
     <main className="min-h-dvh bg-stone-50 px-4 py-10 print:bg-white print:py-0 sm:px-6">
       <div className="mx-auto max-w-2xl">
         <div className="mb-6 flex items-center justify-between print:hidden">
-          <span className="text-lg font-semibold tracking-tight text-stone-900">Solar Pixel</span>
+          <span className="flex items-center gap-2 text-lg font-semibold tracking-tight text-stone-900">
+            {/* Same "pixel" mark as the storefront Header — see its
+                doc comment in app/HomePageContent.tsx. */}
+            <span aria-hidden className="h-5 w-5 shrink-0 rounded-md bg-orange-700" />
+            Solar Pixel
+          </span>
           <PrintButton />
         </div>
 
         <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-xl shadow-stone-200/50 sm:p-8 print:rounded-none print:border-0 print:p-0 print:shadow-none">
           <div className="flex items-start justify-between gap-4 border-b border-stone-100 pb-6">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Official Quotation</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Official Quotation</p>
               <h1 className="mt-1 text-2xl font-bold text-stone-900">{quote.quoteNumber}</h1>
               <p className="mt-1 text-sm text-stone-500">
                 {SECTOR_LABEL[quote.sector] ?? quote.sector} · {SERVICE_TYPE_LABEL[quote.serviceType] ?? quote.serviceType}
@@ -154,9 +159,9 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
                 {equipment.panel.count} × {equipment.panel.label}
               </p>
             </div>
-            <div className="col-span-2 rounded-2xl border border-violet-200 bg-violet-50 p-4 sm:col-span-1">
-              <p className="text-xs text-violet-700">Total Turnkey Price</p>
-              <p className="mt-0.5 text-lg font-bold text-violet-900">{formatPKR(totalPKR)}</p>
+            <div className="col-span-2 rounded-2xl border border-orange-200 bg-orange-50 p-4 sm:col-span-1">
+              <p className="text-xs text-orange-700">Total Turnkey Price</p>
+              <p className="mt-0.5 text-lg font-bold text-orange-900">{formatPKR(totalPKR)}</p>
             </div>
           </div>
 
