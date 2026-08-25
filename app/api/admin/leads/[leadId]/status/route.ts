@@ -50,10 +50,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ le
       );
     }
 
-    const lead = await prisma.lead.update({
-      where: { id: leadId },
-      data: { status: parsed.data.status },
-      select: { id: true, status: true },
+    const lead = await prisma.$transaction(async (tx) => {
+      const before = await tx.lead.findUniqueOrThrow({ where: { id: leadId }, select: { status: true } });
+
+      const updated = await tx.lead.update({
+        where: { id: leadId },
+        data: { status: parsed.data.status },
+        select: { id: true, status: true },
+      });
+
+      // Skip the no-op case (re-saving the same status) — a timeline
+      // entry should mean something changed, not just that the endpoint
+      // was called.
+      if (before.status !== updated.status) {
+        await tx.leadActivity.create({
+          data: {
+            leadId,
+            type: "STATUS_CHANGED",
+            description: `Status changed from ${before.status} to ${updated.status}.`,
+            metadata: { from: before.status, to: updated.status },
+          },
+        });
+      }
+
+      return updated;
     });
 
     return NextResponse.json({ lead });

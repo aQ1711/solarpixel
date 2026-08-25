@@ -37,7 +37,9 @@ import { internalFetch, type ApiJson } from "@/lib/internal/access";
 
 // ---- Types (mirror the API routes' JSON shapes) ----
 
-type LeadStatus = "NEW" | "CONTACTED" | "SURVEY_BOOKED" | "WON" | "LOST";
+export type LeadStatus = "NEW" | "CONTACTED" | "SURVEY_BOOKED" | "WON" | "LOST";
+export type DeviceType = "MOBILE" | "TABLET" | "DESKTOP" | "BOT" | "UNKNOWN";
+export type LeadActivityType = "QUOTE_GENERATED" | "STATUS_CHANGED" | "QUOTE_APPROVED";
 
 /** Mirrors lib/auth/internal-guard.ts's AdminIdentity — who's actually
  *  looking at this page right now (the single Super Admin, or a
@@ -72,13 +74,13 @@ interface ResolvedEquipmentItem {
   specValue: number | null;
 }
 
-interface ResolvedEquipment {
+export interface ResolvedEquipment {
   panel: ResolvedEquipmentItem;
   inverter: ResolvedEquipmentItem;
   battery: (ResolvedEquipmentItem & { capacityKwh: number }) | null;
 }
 
-interface ItemizedBreakdown {
+export interface ItemizedBreakdown {
   panelsPKR: number;
   inverterPKR: number;
   batteryPKR: number;
@@ -87,7 +89,7 @@ interface ItemizedBreakdown {
   installationPKR: number;
 }
 
-interface LeadDetail {
+export interface LeadDetail {
   lead: {
     id: string;
     fullName: string;
@@ -100,7 +102,28 @@ interface LeadDetail {
     status: LeadStatus;
     monthlyBillRs: number;
     createdAt: string;
+    // ---- Lead Intelligence — see each column's doc comment in
+    // schema.prisma. All best-effort/nullable by design. ----
+    ipAddress: string | null;
+    userAgent: string | null;
+    deviceType: DeviceType | null;
+    browserName: string | null;
+    osName: string | null;
+    detectedCity: string | null;
+    detectedRegion: string | null;
+    detectedCountry: string | null;
+    detectedCountryCode: string | null;
+    detectedLatitude: number | null;
+    detectedLongitude: number | null;
+    referrerUrl: string | null;
   };
+  activities: {
+    id: string;
+    type: LeadActivityType;
+    description: string | null;
+    metadata: Record<string, unknown> | null;
+    createdAt: string;
+  }[];
   quote: {
     id: string;
     quoteNumber: string;
@@ -122,19 +145,37 @@ interface LeadDetail {
 // ---- Formatting & label helpers ----
 
 const pkr = new Intl.NumberFormat("en-PK", { style: "currency", currency: "PKR", maximumFractionDigits: 0 });
-const formatPKR = (n: number) => pkr.format(n);
+export const formatPKR = (n: number) => pkr.format(n);
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-PK", { day: "numeric", month: "short", year: "numeric" });
-const formatDateTime = (iso: string) =>
+export const formatDateTime = (iso: string) =>
   new Date(iso).toLocaleDateString("en-PK", { day: "numeric", month: "long", year: "numeric" });
 
-const SECTOR_LABELS: Record<string, string> = {
+/** Every timestamp on the Lead Dossier is shown in PKT (Asia/Karachi,
+ *  UTC+5 year-round — Pakistan doesn't observe DST) regardless of the
+ *  viewing admin's own browser timezone, since "when did this actually
+ *  happen in Lahore" is the question a sales rep is asking, not "when
+ *  did I open this page." Distinct from formatDateTime above (date-only,
+ *  browser-local) — this one is specifically for Lead Intelligence's
+ *  "captured at" timestamp and the Activity Timeline. */
+export const formatPKTDateTime = (iso: string) =>
+  new Date(iso).toLocaleString("en-PK", {
+    timeZone: "Asia/Karachi",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }) + " PKT";
+
+export const SECTOR_LABELS: Record<string, string> = {
   RESIDENTIAL: "Residential",
   COMMERCIAL: "Commercial",
   INDUSTRIAL: "Industrial",
 };
 
-const SERVICE_TYPE_LABELS: Record<string, string> = {
+export const SERVICE_TYPE_LABELS: Record<string, string> = {
   HYBRID_BATTERY: "Hybrid + Battery",
   ONGRID_ZERO_EXPORT: "On-Grid",
 };
@@ -603,7 +644,7 @@ function LeadsTable({
  *  control rather than a separate read-only badge plus an edit affordance.
  *  PATCHes on change, optimistically via `onChange` first, then reverts
  *  the visible value if the request fails. */
-function StatusSelect({
+export function StatusSelect({
   leadId,
   status,
   onChange,
@@ -727,7 +768,15 @@ function LeadDetailDrawer({
       {/* Slide-out panel */}
       <div className="animate-drawer-in absolute top-0 right-0 flex h-full w-full max-w-lg flex-col bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-stone-200 px-5 py-4">
-          <p className="text-sm font-semibold text-stone-900">Lead Details</p>
+          <div className="flex items-center gap-3">
+            <p className="text-sm font-semibold text-stone-900">Lead Details</p>
+            <Link
+              href={`/admin/leads/${leadId}`}
+              className="flex items-center gap-1 text-xs font-medium text-violet-600 hover:underline"
+            >
+              Full Dossier <ChevronRight className="h-3 w-3" />
+            </Link>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -757,7 +806,7 @@ function LeadDetailDrawer({
   );
 }
 
-function LeadDetailContent({
+export function LeadDetailContent({
   detail,
   onStatusChange,
   onUnauthorized,
@@ -896,7 +945,7 @@ function LeadDetailContent({
   );
 }
 
-function Section({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
+export function Section({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-stone-200 bg-stone-50 p-4">
       <p className="mb-2.5 flex items-center gap-1.5 text-xs font-semibold text-stone-500">
@@ -907,7 +956,7 @@ function Section({ title, icon: Icon, children }: { title: string; icon: React.E
   );
 }
 
-function DetailRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
+export function DetailRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
   return (
     <div className="flex items-start gap-2 text-sm">
       <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-stone-400" />
@@ -919,7 +968,7 @@ function DetailRow({ icon: Icon, label, value }: { icon: React.ElementType; labe
   );
 }
 
-function BreakdownRow({ label, value }: { label: string; value: number }) {
+export function BreakdownRow({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-center justify-between">
       <dt className="text-stone-500">{label}</dt>

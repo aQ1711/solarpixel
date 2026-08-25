@@ -172,6 +172,36 @@ enum LeadStatus {
   @@schema("public")
 }
 
+// Lead Intelligence (2026-08-25) — parsed from the User-Agent header at
+// capture time (lib/leadIntelligence.ts), never asked of the visitor.
+enum DeviceType {
+  MOBILE
+  TABLET
+  DESKTOP
+  BOT
+  UNKNOWN
+
+  @@schema("public")
+}
+
+// Chronological event log for a Lead — the Admin Lead Dossier's
+// "Activity Timeline". Deliberately only as many event types as
+// something in this codebase actually creates one for (see each
+// variant's own comment) — no speculative/unused categories.
+enum LeadActivityType {
+  QUOTE_GENERATED // The lead's very first automated web quote — logged
+  // in the same transaction as Lead + Quote creation
+  // (app/api/quote/calculate/route.ts).
+  STATUS_CHANGED // A sales rep moved this lead's LeadStatus
+  // (app/api/admin/leads/[leadId]/status/route.ts).
+  QUOTE_APPROVED // The Checker approved one of this lead's quotes
+  // (app/api/admin/checker/quotes/[quoteId]/approve/route.ts) — a real
+  // pipeline milestone worth surfacing on the lead's own timeline, not
+  // just the Checker dashboard.
+
+  @@schema("public")
+}
+
 // Maker-checker lifecycle (Business Rule #3)
 enum QuoteStatus {
   AUTOMATED_ESTIMATE // Instant web quote, no human touch yet
@@ -249,14 +279,16 @@ enum CostUnit {
 // PUBLIC SCHEMA — client, engineer & admin-facing data
 // ============================================================================
 
-/** Inverter electrical phase (2026-08-22) — meaningful only for
- *  componentType=INVERTER; every other component leaves
- *  EquipmentOption.phase null. Not sensitive (unlike CostUnit, this one
- *  DOES belong on the public EquipmentOption row directly — it's a real
- *  spec, not a pricing detail). Drives the Custom Equipment Builder's
- *  inverter picker the same way brand/wattage already drive the panel
- *  picker (see lib/db/admin.ts's INVERTER catalog doc comment for the
- *  2026-08-22 real-SKU-per-brand rework this was added alongside). */
+/**
+ * Inverter electrical phase (2026-08-22) — meaningful only for
+ * componentType=INVERTER; every other component leaves
+ * EquipmentOption.phase null. Not sensitive (unlike CostUnit, this one
+ * DOES belong on the public EquipmentOption row directly — it's a real
+ * spec, not a pricing detail). Drives the Custom Equipment Builder's
+ * inverter picker the same way brand/wattage already drive the panel
+ * picker (see lib/db/admin.ts's INVERTER catalog doc comment for the
+ * 2026-08-22 real-SKU-per-brand rework this was added alongside).
+ */
 enum InverterPhase {
   SINGLE_PHASE
   THREE_PHASE
@@ -303,7 +335,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   // ADMIN: which internal modules (Leads/Checker) this user can reach
-  adminModuleGrants AdminModuleGrant[] @relation("AdminModuleGrantUser")
+  adminModuleGrants  AdminModuleGrant[] @relation("AdminModuleGrantUser")
   // SUPER_ADMIN: module grants they issued to an ADMIN user
   moduleGrantsIssued AdminModuleGrant[] @relation("AdminModuleGrantIssuedBy")
 
@@ -324,7 +356,7 @@ model User {
 
   // SUPER_ADMIN: vendor cost & margin records they authored
   vendorCostsCreated RawVendorCost[] @relation("VendorCostCreatedBy")
-  marginRulesCreated MarginRule[]   @relation("MarginRuleCreatedBy")
+  marginRulesCreated MarginRule[]    @relation("MarginRuleCreatedBy")
 
   // SUPER_ADMIN: sector-installation-rate / add-on-service-rate settings
   // updates they made (see GlobalPricingSettings)
@@ -375,7 +407,9 @@ model Lead {
   fullName String
   phone    String
   email    String?
-  city     String
+  city     String // customer-entered — see detectedCity below for the
+  // independently-observed value, which can and does disagree (VPNs,
+  // typos, a WhatsApp number registered in a different city).
   address  String?
   sector   Sector
   source   LeadSource @default(WEBSITE)
@@ -384,6 +418,34 @@ model Lead {
   // Captured at first contact, used to seed the automated estimate
   monthlyBillRs Decimal @db.Decimal(12, 2)
 
+  // ---- Lead Intelligence (2026-08-25) ----
+  // All nullable and all best-effort: captured server-side from the
+  // request in the same transaction as Lead creation
+  // (lib/leadIntelligence.ts, called from app/api/quote/calculate/
+  // route.ts), never something the visitor supplies or can be blocked
+  // on. A dropped/unavailable header degrades to null, never a failed
+  // quote submission — same "capture never blocks the core flow"
+  // convention as bill-upload OCR elsewhere in this codebase.
+  ipAddress           String? // x-forwarded-for (Netlify) / x-real-ip (Vercel) —
+  // see lib/leadIntelligence.ts for the exact per-platform header
+  // resolution order. Never a client-supplied value.
+  userAgent           String?     @db.Text
+  deviceType          DeviceType? // parsed from userAgent via ua-parser-js
+  browserName         String? // e.g. "Chrome", "Safari" — null if undetectable
+  osName              String? // e.g. "iOS", "Android", "Windows"
+  // Geolocation: Vercel's edge-injected x-vercel-ip-* headers in
+  // production; entirely absent on Netlify/localhost (no equivalent
+  // header there), which is fine — every field here is optional for
+  // exactly this reason, not just IP-lookup failure.
+  detectedCity        String?
+  detectedRegion      String?
+  detectedCountry     String? // full country name, e.g. "Pakistan"
+  detectedCountryCode String? // ISO 3166-1 alpha-2, e.g. "PK"
+  detectedLatitude    Float?
+  detectedLongitude   Float?
+  referrerUrl         String?     @db.Text // Referer header at capture time —
+  // where the visitor actually came from (Google, Facebook ad, direct).
+
   // Set once this lead creates/links a portal account
   clientUserId String?
   clientUser   User?   @relation("LeadClientUser", fields: [clientUserId], references: [id], onDelete: SetNull)
@@ -391,12 +453,46 @@ model Lead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  quotes Quote[]
+  quotes     Quote[]
+  activities LeadActivity[]
 
   @@index([phone])
   @@index([sector])
   @@index([status])
   @@map("leads")
+  @@schema("public")
+}
+
+// Chronological "Activity Timeline" for a single Lead — see
+// LeadActivityType's own doc comment for exactly which events exist and
+// where each one is logged from. Public schema (not vendor_private): an
+// activity entry never carries a raw cost or margin, only lead/quote
+// pipeline events — see each variant's own comment for confirmation.
+model LeadActivity {
+  id     String           @id @default(cuid())
+  leadId String
+  lead   Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type   LeadActivityType
+
+  /**
+   * Human-readable summary for the timeline UI, e.g. "Status changed
+   * from NEW to CONTACTED" — built at write time so the timeline never
+   * has to reconstruct English from raw enum diffs.
+   */
+  description String?
+
+  /**
+   * Freeform structured detail specific to this event type (e.g.
+   * {"from":"NEW","to":"CONTACTED"} for STATUS_CHANGED, {"quoteId":...}
+   * for QUOTE_GENERATED/QUOTE_APPROVED) — optional, the timeline UI
+   * falls back to `description` alone when absent.
+   */
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@map("lead_activities")
   @@schema("public")
 }
 
@@ -412,10 +508,10 @@ model Quote {
   status      QuoteStatus @default(AUTOMATED_ESTIMATE)
 
   // ---- Stage 1: Automated Estimate ----
-  monthlyBillRs           Decimal @db.Decimal(12, 2) // input at estimate time
-  blendedTariffRsPerUnit  Decimal @db.Decimal(8, 2) // PKR/unit tariff used
-  estimatedDaytimeLoadKw  Decimal @db.Decimal(8, 3)
-  estimatedSystemSizeKw   Decimal @db.Decimal(8, 3)
+  monthlyBillRs            Decimal @db.Decimal(12, 2) // input at estimate time
+  blendedTariffRsPerUnit   Decimal @db.Decimal(8, 2) // PKR/unit tariff used
+  estimatedDaytimeLoadKw   Decimal @db.Decimal(8, 3)
+  estimatedSystemSizeKw    Decimal @db.Decimal(8, 3)
   automatedEstimatePriceRs Decimal @db.Decimal(14, 2) // instant web quote price
 
   // Provenance of monthlyBillRs — see BillSource doc.
@@ -471,33 +567,33 @@ model Quote {
   breakdownSnapshot         Json?
 
   // ---- Stage 2: Maker Submission (Field Engineer) ----
-  siteSurvey          SiteSurvey?
-  boqItems            BoqItem[]
-  auditLogs           AuditLog[]
-  finalSystemSizeKw   Decimal?  @db.Decimal(8, 3)
-  makerSubmittedAt    DateTime?
-  makerSubmittedById  String?
-  makerSubmittedBy    User?     @relation("QuoteMakerSubmitted", fields: [makerSubmittedById], references: [id], onDelete: SetNull)
+  siteSurvey         SiteSurvey?
+  boqItems           BoqItem[]
+  auditLogs          AuditLog[]
+  finalSystemSizeKw  Decimal?    @db.Decimal(8, 3)
+  makerSubmittedAt   DateTime?
+  makerSubmittedById String?
+  makerSubmittedBy   User?       @relation("QuoteMakerSubmitted", fields: [makerSubmittedById], references: [id], onDelete: SetNull)
 
   // ---- Stage 3: Checker Approval (Super Admin) ----
   // Client-safe, margin-inclusive final price. This is the ONLY financial
   // figure derived from vendor_private data that is allowed to exist here.
-  finalPriceRs       Decimal?  @db.Decimal(14, 2)
+  finalPriceRs            Decimal?  @db.Decimal(14, 2)
   // Contractually-confirmed battery capacity (HYBRID_BATTERY quotes
   // only) — the Checker can edit/confirm this in /admin/checker before
   // approving (defaults to the pre-survey equipmentSelections estimate),
   // and it's what the final BOQ/contract price is actually based on.
   // Null for ONGRID_ZERO_EXPORT quotes. See calculateAdminBoqPricing's
   // `finalBatteryCapacityKwh` input in lib/db/admin.ts.
-  finalBatteryCapacityKwh Decimal? @db.Decimal(8, 3)
-  checkerApprovedAt  DateTime?
-  checkerApprovedById String?
-  checkerApprovedBy  User?     @relation("QuoteCheckerApproved", fields: [checkerApprovedById], references: [id], onDelete: SetNull)
-  revisionNotes      String?   @db.Text
-  rejectionReason    String?   @db.Text
+  finalBatteryCapacityKwh Decimal?  @db.Decimal(8, 3)
+  checkerApprovedAt       DateTime?
+  checkerApprovedById     String?
+  checkerApprovedBy       User?     @relation("QuoteCheckerApproved", fields: [checkerApprovedById], references: [id], onDelete: SetNull)
+  revisionNotes           String?   @db.Text
+  rejectionReason         String?   @db.Text
 
   // ---- Stage 4: Dispatch (WhatsApp binding contract) ----
-  contractPdfUrl      String?
+  contractPdfUrl       String?
   whatsappDispatchedAt DateTime?
   whatsappMessageId    String?
 
@@ -593,8 +689,8 @@ model BoqItem {
   unit     String // "WATT" | "METER" | "PIECE" | "UNIT"
 
   // Client-visible price only — never the raw vendor cost.
-  clientUnitPriceRs  Decimal @db.Decimal(12, 2)
-  clientLineTotalRs  Decimal @db.Decimal(14, 2)
+  clientUnitPriceRs Decimal @db.Decimal(12, 2)
+  clientLineTotalRs Decimal @db.Decimal(14, 2)
 
   // Optional cross-schema reference for Super-Admin margin verification.
   rawVendorCostId String?
@@ -650,59 +746,73 @@ model EquipmentOption {
   id            String        @id @default(cuid())
   componentType ComponentType
 
-  /** Stable join key to RawVendorCost.itemName — e.g. "LONGI_TOPCON_610W".
-   *  Never shown to the user; `label` is what renders. */
+  /**
+   * Stable join key to RawVendorCost.itemName — e.g. "LONGI_TOPCON_610W".
+   * Never shown to the user; `label` is what renders.
+   */
   code  String
   label String // e.g. "Longi TOPCon 610W"
   brand String?
 
-  /** Informational only (e.g. 610 for panel watts, 10 for battery kWh) —
-   *  not used in pricing; the matching RawVendorCost row is. */
+  /**
+   * Informational only (e.g. 610 for panel watts, 10 for battery kWh) —
+   * not used in pricing; the matching RawVendorCost row is.
+   */
   specValue Decimal? @db.Decimal(10, 2)
 
-  /** Restricts which ServiceType this makes sense for (e.g. a "Hybrid
-   *  Inverter" option only relevant when HYBRID_BATTERY is selected).
-   *  Null = applies regardless of service type. */
+  /**
+   * Restricts which ServiceType this makes sense for (e.g. a "Hybrid
+   * Inverter" option only relevant when HYBRID_BATTERY is selected).
+   * Null = applies regardless of service type.
+   */
   applicableServiceType ServiceType?
 
-  /** Electrical phase (2026-08-22) — meaningful only for
-   *  componentType=INVERTER, null for every other component. See
-   *  InverterPhase's own doc comment. */
+  /**
+   * Electrical phase (2026-08-22) — meaningful only for
+   * componentType=INVERTER, null for every other component. See
+   * InverterPhase's own doc comment.
+   */
   phase InverterPhase?
 
-  /** The reserved "Other / Specific Requirement" entry every component
-   *  type has exactly one of — selecting it means no RawVendorCost
-   *  lookup happens for that slot (see CUSTOM_REQUIREMENT handling in
-   *  lib/db/admin.ts); the Recommended default's cost is used as a
-   *  placeholder and the quote is flagged for manual engineering review. */
+  /**
+   * The reserved "Other / Specific Requirement" entry every component
+   * type has exactly one of — selecting it means no RawVendorCost
+   * lookup happens for that slot (see CUSTOM_REQUIREMENT handling in
+   * lib/db/admin.ts); the Recommended default's cost is used as a
+   * placeholder and the quote is flagged for manual engineering review.
+   */
   isOtherOption Boolean @default(false)
 
-  /** The Recommended-path default for this componentType (+
-   *  applicableServiceType, where relevant) — admin-editable via the
-   *  "Default Switch" in /admin/pricing. At most one row should be true
-   *  per (componentType, applicableServiceType) combination; enforced in
-   *  application code (lib/db/admin.ts's setDefaultMaterial), not a DB
-   *  constraint, since "applies regardless of service type" (null) vs a
-   *  specific service type share the same componentType. Falls back to a
-   *  hardcoded constant in lib/db/admin.ts if nothing is marked default,
-   *  so pricing never breaks from an empty admin table. */
+  /**
+   * The Recommended-path default for this componentType (+
+   * applicableServiceType, where relevant) — admin-editable via the
+   * "Default Switch" in /admin/pricing. At most one row should be true
+   * per (componentType, applicableServiceType) combination; enforced in
+   * application code (lib/db/admin.ts's setDefaultMaterial), not a DB
+   * constraint, since "applies regardless of service type" (null) vs a
+   * specific service type share the same componentType. Falls back to a
+   * hardcoded constant in lib/db/admin.ts if nothing is marked default,
+   * so pricing never breaks from an empty admin table.
+   */
   isDefault Boolean @default(false)
 
   sortOrder Int     @default(0)
   isActive  Boolean @default(true)
 
-  /** Inventory guardrail (2026-08-20) — distinct from `isActive`:
-   *  `isActive: false` means "discontinued, remove from every catalog
-   *  view," `inStock: false` means "still a real, sellable item, just
-   *  temporarily unavailable to ship." The public storefront must never
-   *  recommend or price an `inStock: false` item (see getDefaultCode()/
-   *  calculateSystemPricing()'s inStock filters and the "smallest/
-   *  cheapest in-stock" budget-tier helpers in lib/db/admin.ts) — the
-   *  Custom Equipment Builder still SHOWS it (greyed out, disabled, "Out
-   *  of Stock" badge) so a customer isn't confused about why a
-   *  previously-seen brand vanished, it just can't be selected. Defaults
-   *  true so every already-seeded row stays exactly as buyable as before
-   *  this column existed. */
+  /**
+   * Inventory guardrail (2026-08-20) — distinct from `isActive`:
+   * `isActive: false` means "discontinued, remove from every catalog
+   * view," `inStock: false` means "still a real, sellable item, just
+   * temporarily unavailable to ship." The public storefront must never
+   * recommend or price an `inStock: false` item (see getDefaultCode()/
+   * calculateSystemPricing()'s inStock filters and the "smallest/
+   * cheapest in-stock" budget-tier helpers in lib/db/admin.ts) — the
+   * Custom Equipment Builder still SHOWS it (greyed out, disabled, "Out
+   * of Stock" badge) so a customer isn't confused about why a
+   * previously-seen brand vanished, it just can't be selected. Defaults
+   * true so every already-seeded row stays exactly as buyable as before
+   * this column existed.
+   */
   inStock Boolean @default(true)
 
   // Media, hosted on Google Drive (brand logos, official spec PDFs) —
@@ -751,13 +861,15 @@ model RawVendorCost {
   unit       CostUnit
   currency   String   @default("PKR")
 
-  /** Per-item margin override, admin-editable via /admin/pricing. Null =
-   *  fall back to the sector's default MarginRule (componentType: null)
-   *  — see calculateSystemPricing's effectiveMarginPercent() in
-   *  lib/db/admin.ts. Distinct from MarginRule.componentType (which
-   *  would apply to every item of that componentType uniformly); this
-   *  is per INDIVIDUAL material (e.g. Longi vs Jinko can each carry
-   *  their own margin), matching the /admin/pricing table's grain. */
+  /**
+   * Per-item margin override, admin-editable via /admin/pricing. Null =
+   * fall back to the sector's default MarginRule (componentType: null)
+   * — see calculateSystemPricing's effectiveMarginPercent() in
+   * lib/db/admin.ts. Distinct from MarginRule.componentType (which
+   * would apply to every item of that componentType uniformly); this
+   * is per INDIVIDUAL material (e.g. Longi vs Jinko can each carry
+   * their own margin), matching the /admin/pricing table's grain.
+   */
   marginPercentOverride Decimal? @db.Decimal(5, 2)
 
   effectiveFrom DateTime
@@ -804,17 +916,19 @@ model MarginRule {
   @@schema("vendor_private")
 }
 
-/** Singleton settings row (exactly one, enforced by application code —
- *  same "find the current row, update it in place" pattern
- *  `updateGlobalPricingRule()` already uses for `structureCostPerWatt`/
- *  the old flat `installationCostPerWatt` on RawVendorCost) holding rate
- *  knobs that don't fit the per-catalog-item RawVendorCost shape:
- *  sector-specific installation rates, and the two flat add-on-service
- *  rates (EV Charger, Panel Washing) that have no brand/model catalog
- *  entry at all — see lib/db/admin.ts's getGlobalPricingSettings().
- *  Decimal, not Float, for the same reason every other PKR figure in
- *  this schema is Decimal: avoids floating-point rounding drift in
- *  financial calculations. */
+/**
+ * Singleton settings row (exactly one, enforced by application code —
+ * same "find the current row, update it in place" pattern
+ * `updateGlobalPricingRule()` already uses for `structureCostPerWatt`/
+ * the old flat `installationCostPerWatt` on RawVendorCost) holding rate
+ * knobs that don't fit the per-catalog-item RawVendorCost shape:
+ * sector-specific installation rates, and the two flat add-on-service
+ * rates (EV Charger, Panel Washing) that have no brand/model catalog
+ * entry at all — see lib/db/admin.ts's getGlobalPricingSettings().
+ * Decimal, not Float, for the same reason every other PKR figure in
+ * this schema is Decimal: avoids floating-point rounding drift in
+ * financial calculations.
+ */
 model GlobalPricingSettings {
   id String @id @default(cuid())
 
@@ -858,51 +972,61 @@ model GlobalPricingSettings {
   @@schema("vendor_private")
 }
 
-/** A raw scraped market-price observation for one product listing from an
- *  external vendor site (currently w11stop.com — see
- *  lib/scraper/w11stop.ts). Purely informational: an admin's reference
- *  for spotting real price movements against the catalog's own
- *  RawVendorCost figures, NEVER auto-applied to them — same "protect
- *  live pricing integrity" principle this session has followed
- *  throughout (see EquipmentOption/RawVendorCost's own doc comments).
- *  Lives in vendor_private, same confidentiality boundary as
- *  RawVendorCost, even though the source is a public website: it's
- *  still vendor pricing intelligence, and keeping it out of the public
- *  schema means the DB-role split (see this file's top doc comment)
- *  protects it automatically without a separate app-layer decision
- *  every time it's read. One row per scraped listing; one scrape run
- *  shares a single `fetchedAt` across all its rows (see
- *  lib/db/admin.ts's recordMarketPriceSnapshots doc comment). */
+/**
+ * A raw scraped market-price observation for one product listing from an
+ * external vendor site (currently w11stop.com — see
+ * lib/scraper/w11stop.ts). Purely informational: an admin's reference
+ * for spotting real price movements against the catalog's own
+ * RawVendorCost figures, NEVER auto-applied to them — same "protect
+ * live pricing integrity" principle this session has followed
+ * throughout (see EquipmentOption/RawVendorCost's own doc comments).
+ * Lives in vendor_private, same confidentiality boundary as
+ * RawVendorCost, even though the source is a public website: it's
+ * still vendor pricing intelligence, and keeping it out of the public
+ * schema means the DB-role split (see this file's top doc comment)
+ * protects it automatically without a separate app-layer decision
+ * every time it's read. One row per scraped listing; one scrape run
+ * shares a single `fetchedAt` across all its rows (see
+ * lib/db/admin.ts's recordMarketPriceSnapshots doc comment).
+ */
 model MarketPriceSnapshot {
   id String @id @default(cuid())
 
   componentType ComponentType
 
-  /** The brand we searched w11stop for (e.g. "Longi") — distinct from
-   *  the listing's own `brand` text below; used to filter out
-   *  irrelevant search-result noise (a real observed issue live-testing
-   *  this: a "longi" search once surfaced an unrelated "Dongjin"
-   *  battery in the results). */
+  /**
+   * The brand we searched w11stop for (e.g. "Longi") — distinct from
+   * the listing's own `brand` text below; used to filter out
+   * irrelevant search-result noise (a real observed issue live-testing
+   * this: a "longi" search once surfaced an unrelated "Dongjin"
+   * battery in the results).
+   */
   searchBrand String
-  /** Scraped, not normalized — the listing's own displayed brand/model
-   *  text, exactly as w11stop shows it. */
-  brand String?
-  model String?
-  itemName String @db.Text
+  /**
+   * Scraped, not normalized — the listing's own displayed brand/model
+   * text, exactly as w11stop shows it.
+   */
+  brand       String?
+  model       String?
+  itemName    String  @db.Text
 
-  priceRs Decimal @db.Decimal(12, 2)
-  /** The struck-through "was" price, when the listing shows a discount
-   *  (w11stop's `.price-old` span) — null for a single-price listing. */
+  priceRs    Decimal  @db.Decimal(12, 2)
+  /**
+   * The struck-through "was" price, when the listing shows a discount
+   * (w11stop's `.price-old` span) — null for a single-price listing.
+   */
   oldPriceRs Decimal? @db.Decimal(12, 2)
 
   sourceUrl  String @db.Text
   sourceSite String @default("w11stop.com")
 
-  /** When this specific scrape run happened — distinct from `createdAt`
-   *  (the DB row's insert time, always ~equal) so a future multi-source
-   *  scraper could backfill/replay without confusing "when we scraped
-   *  it" with "when it hit the DB." This is the timestamp the daily 7am
-   *  job (netlify/functions/scrape-market-prices.mts) refreshes. */
+  /**
+   * When this specific scrape run happened — distinct from `createdAt`
+   * (the DB row's insert time, always ~equal) so a future multi-source
+   * scraper could backfill/replay without confusing "when we scraped
+   * it" with "when it hit the DB." This is the timestamp the daily 7am
+   * job (netlify/functions/scrape-market-prices.mts) refreshes.
+   */
   fetchedAt DateTime
 
   createdAt DateTime @default(now())
@@ -913,18 +1037,20 @@ model MarketPriceSnapshot {
   @@schema("vendor_private")
 }
 
-/** Storefront Market Watch ticker visibility toggles (2026-08-22) — one
- *  boolean per ticker row, admin-editable from /admin/pricing. Lives in
- *  the PUBLIC schema, not vendor_private: this is pure display config
- *  (which rows to show), never a price or cost figure, and the
- *  anonymous storefront itself needs to read it directly —
- *  app_public_role has zero grants on vendor_private (see this file's
- *  top doc comment), so anything the public page reads on its own must
- *  live here. Singleton row, same "find the one row, update it in
- *  place" pattern GlobalPricingSettings uses — but the read/write
- *  functions live in lib/db/tickerSettings.ts (the public-safe `prisma`
- *  client from lib/db/client.ts), not lib/db/admin.ts, since there's no
- *  vendor-cost boundary to cross for this table. */
+/**
+ * Storefront Market Watch ticker visibility toggles (2026-08-22) — one
+ * boolean per ticker row, admin-editable from /admin/pricing. Lives in
+ * the PUBLIC schema, not vendor_private: this is pure display config
+ * (which rows to show), never a price or cost figure, and the
+ * anonymous storefront itself needs to read it directly —
+ * app_public_role has zero grants on vendor_private (see this file's
+ * top doc comment), so anything the public page reads on its own must
+ * live here. Singleton row, same "find the one row, update it in
+ * place" pattern GlobalPricingSettings uses — but the read/write
+ * functions live in lib/db/tickerSettings.ts (the public-safe `prisma`
+ * client from lib/db/client.ts), not lib/db/admin.ts, since there's no
+ * vendor-cost boundary to cross for this table.
+ */
 model TickerSettings {
   id String @id @default(cuid())
 

@@ -16,6 +16,7 @@ import {
   type PanelWashingSelection,
   type BudgetTier,
 } from "@/lib/db/admin";
+import { extractLeadIntelligence, EMPTY_LEAD_INTELLIGENCE, type LeadIntelligence } from "@/lib/leadIntelligence";
 import { DAYS_TO_DEPLOY_DEFAULT } from "@/lib/constants";
 
 // EV Charger cable pricing has no admin-configurable field yet (unlike
@@ -486,6 +487,16 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Validation failed" }, { status: 400 });
     }
     const { fullName, whatsappPhone } = input;
+    // Best-effort, never blocking — see extractLeadIntelligence's own doc
+    // comment. A header-parsing failure degrades to "nothing captured,"
+    // not a failed quote submission.
+    let leadIntel: LeadIntelligence;
+    try {
+      leadIntel = extractLeadIntelligence(req);
+    } catch (err) {
+      console.error("[POST /api/quote/calculate] lead intelligence capture failed, continuing without it:", err);
+      leadIntel = EMPTY_LEAD_INTELLIGENCE;
+    }
     try {
       const quote = await prisma.$transaction(async (tx) => {
         const lead = await tx.lead.create({
@@ -496,10 +507,11 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
             sector,
             source: "WEBSITE",
             monthlyBillRs: monthlyBillPKR,
+            ...leadIntel,
           },
         });
 
-        return tx.quote.create({
+        const quote = await tx.quote.create({
           data: {
             quoteNumber: generateQuoteNumber(),
             leadId: lead.id,
@@ -531,6 +543,22 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
             breakdownSnapshot: recommended.breakdown as unknown as Prisma.InputJsonValue,
           },
         });
+
+        // First entry on this lead's Activity Timeline — see
+        // LeadActivityType's doc comment in schema.prisma for every
+        // event type and where each is logged from.
+        await tx.leadActivity.create({
+          data: {
+            leadId: lead.id,
+            type: "QUOTE_GENERATED",
+            description: `Generated an automated web quote for a ${sector.toLowerCase()} ${
+              serviceType === "HYBRID_BATTERY" ? "Hybrid + Battery" : "On-Grid"
+            } system.`,
+            metadata: { quoteId: quote.id, quoteNumber: quote.quoteNumber } as unknown as Prisma.InputJsonValue,
+          },
+        });
+
+        return quote;
       });
       quoteId = quote.id;
     } catch (err) {

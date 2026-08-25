@@ -143,6 +143,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ quo
         },
       });
 
+      // Also a milestone on the LEAD's own Activity Timeline (not just
+      // the Checker dashboard's audit log) — see LeadActivityType's doc
+      // comment in schema.prisma.
+      await tx.leadActivity.create({
+        data: {
+          leadId: quote.leadId,
+          type: "QUOTE_APPROVED",
+          description: `Quote ${quote.quoteNumber} approved at Rs ${pricing.exactClientPricePKR.toLocaleString("en-PK")}.`,
+          metadata: { quoteId, quoteNumber: quote.quoteNumber, finalPriceRs: pricing.exactClientPricePKR },
+        },
+      });
+
       return q;
     });
 

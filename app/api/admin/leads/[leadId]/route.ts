@@ -10,9 +10,12 @@ import {
 import { assertAdminModuleAccess, InternalAuthError } from "@/lib/auth/internal-guard";
 
 /**
- * GET /api/admin/leads/:leadId — full detail for the Lead Detail Drawer:
- * every captured contact field, the exact equipment configuration the
- * customer built, and the full financial breakdown.
+ * GET /api/admin/leads/:leadId — full detail for the Lead Dossier (the
+ * drawer's own quick-glance fetch, and the dedicated /admin/leads/:id
+ * page, both use this same route): every captured contact field, the
+ * Lead Intelligence fields captured at submission time, the Activity
+ * Timeline, the exact equipment configuration the customer built, and
+ * the full financial breakdown.
  *
  * Same "public Prisma client + assertAdminModuleAccess(req, 'LEADS')"
  * boundary as GET /api/admin/leads — see that route's doc comment. The
@@ -44,6 +47,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ lead
       where: { id: leadId },
       include: {
         quotes: { orderBy: { createdAt: "desc" }, take: 1 },
+        // Activity Timeline — oldest first, so the UI can render
+        // top-to-bottom as a straightforward chronological log without
+        // reversing it client-side.
+        activities: { orderBy: { createdAt: "asc" } },
       },
     });
     if (!lead) {
@@ -91,7 +98,28 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ lead
         status: lead.status,
         monthlyBillRs: lead.monthlyBillRs.toNumber(),
         createdAt: lead.createdAt,
+        // ---- Lead Intelligence — see each column's doc comment in
+        // schema.prisma. All best-effort/nullable by design. ----
+        ipAddress: lead.ipAddress,
+        userAgent: lead.userAgent,
+        deviceType: lead.deviceType,
+        browserName: lead.browserName,
+        osName: lead.osName,
+        detectedCity: lead.detectedCity,
+        detectedRegion: lead.detectedRegion,
+        detectedCountry: lead.detectedCountry,
+        detectedCountryCode: lead.detectedCountryCode,
+        detectedLatitude: lead.detectedLatitude,
+        detectedLongitude: lead.detectedLongitude,
+        referrerUrl: lead.referrerUrl,
       },
+      activities: lead.activities.map((a) => ({
+        id: a.id,
+        type: a.type,
+        description: a.description,
+        metadata: a.metadata,
+        createdAt: a.createdAt,
+      })),
       quote: quote && {
         id: quote.id,
         quoteNumber: quote.quoteNumber,

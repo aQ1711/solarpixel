@@ -2935,18 +2935,6 @@ function CalculatorCard() {
         </div>
       )}
 
-      {/* Floating mobile WhatsApp badge — general inquiry, since no quote
-          exists yet at this point in the flow (ResultSummary/
-          AddOnResultSummary render their own copy of this with the real
-          quote-specific message once one does). Offset higher when the
-          Complete Solar bottom price bar above is also showing, so the
-          two don't visually stack on top of each other. */}
-      <FloatingWhatsAppButton
-        message={GENERAL_INQUIRY_WA_MESSAGE}
-        source="floating_badge_form"
-        raised={masterService === "COMPLETE_SOLAR"}
-      />
-
       {masterService !== "COMPLETE_SOLAR" && (
         // ============ EV Charger / System Upgrades — same 2-column split
         // as the Solar dashboard, for a consistent layout across every
@@ -3988,8 +3976,6 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
           Instant estimate. Your exact price is confirmed after an on-site engineering survey (Rs 5,000 fee applies).
         </p>
       </div>
-
-      <FloatingWhatsAppButton message={waMessage} source="floating_badge_quote_report" quoteId={result.quoteId} />
     </div>
   );
 }
@@ -4076,8 +4062,6 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
       </a>
 
       <p className="mt-3 text-[11px] text-stone-500">Instant estimate. Your exact price is confirmed after a free consultation.</p>
-
-      <FloatingWhatsAppButton message={waMessage} source={isWashing ? "floating_badge_panel_washing_report" : "floating_badge_ev_charger_report"} />
     </div>
   );
 }
@@ -4325,32 +4309,6 @@ function FooterColumn({ title, children }: { title: string; children: React.Reac
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/50">{title}</p>
       <div className="mt-3 space-y-2.5">{children}</div>
     </div>
-  );
-}
-
-/** Mobile floating WhatsApp CTA — bottom-right, per brief's exact spec
- *  (fixed, 20px from bottom/right, z-50). `lg:hidden` scopes it to
- *  mobile/tablet, matching this file's existing mobile-only breakpoint
- *  convention (see the Mobile-Only Floating Bottom Bar above). `raised`
- *  bumps it above the Complete Solar bottom price bar when that's also
- *  on screen, so the two never visually overlap — both are only ever
- *  rendered together during the input phase (the report screens each
- *  render their OWN copy of this button with the bar's condition simply
- *  false, since neither report view has that bar at all). */
-function FloatingWhatsAppButton({ message, source, quoteId, raised }: { message: string; source: string; quoteId?: string; raised?: boolean }) {
-  return (
-    <a
-      href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(message)}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={() => trackWhatsAppClick(source, quoteId)}
-      aria-label="Message us on WhatsApp"
-      className={`fixed right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 transition-transform duration-200 hover:scale-105 lg:hidden print:hidden ${
-        raised ? "bottom-24" : "bottom-5"
-      }`}
-    >
-      <MessageCircle className="h-6 w-6" />
-    </a>
   );
 }
 
