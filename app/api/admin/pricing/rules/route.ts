@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { updateGlobalPricingSettings, PricingConfigurationError } from "@/lib/db/admin";
 import { assertSuperAdminAccess, InternalAuthError } from "@/lib/auth/internal-guard";
 
@@ -31,6 +31,7 @@ const updateRulesSchema = z.object({
 });
 
 async function assertValidSuperAdmin(userId: string): Promise<boolean> {
+  const prisma = await getDb();
   const admin = await prisma.user.findFirst({ where: { id: userId, role: "SUPER_ADMIN", isActive: true }, select: { id: true } });
   return admin !== null;
 }

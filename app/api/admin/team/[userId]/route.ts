@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { assertSuperAdminAccess, InternalAuthError, getSuperAdminActorId, NoSuperAdminConfiguredError } from "@/lib/auth/internal-guard";
 
 const updateAdminSchema = z.object({
@@ -17,6 +17,7 @@ const updateAdminSchema = z.object({
  * as GET/POST /api/admin/team.
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
+  const prisma = await getDb();
   try {
     assertSuperAdminAccess(req);
   } catch (err) {

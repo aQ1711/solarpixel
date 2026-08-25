@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { MessageCircle } from "lucide-react";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { PrintButton } from "./PrintButton";
 
 /**
@@ -83,6 +83,7 @@ const WHATSAPP_BUSINESS_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_BUSINESS_NUMBE
 
 export default async function QuotePage({ params }: { params: Promise<{ quoteId: string }> }) {
   const { quoteId } = await params;
+  const prisma = await getDb();
 
   const quote = await prisma.quote.findUnique({
     where: { id: quoteId },

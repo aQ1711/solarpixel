@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Sector } from "@prisma/client";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { getPublicUnitPricesPKR } from "@/lib/db/admin";
 import { getTickerSettings } from "@/lib/db/tickerSettings";
 
@@ -32,6 +32,7 @@ const VALID_SECTORS: Sector[] = ["RESIDENTIAL", "COMMERCIAL", "INDUSTRIAL"];
  */
 export async function GET(req: NextRequest) {
   try {
+    const prisma = await getDb();
     const sectorParam = req.nextUrl.searchParams.get("sector");
     const sector: Sector = VALID_SECTORS.includes(sectorParam as Sector) ? (sectorParam as Sector) : "RESIDENTIAL";
 

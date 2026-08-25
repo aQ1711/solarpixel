@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { LeadStatus } from "@prisma/client";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { assertAdminModuleAccess, InternalAuthError } from "@/lib/auth/internal-guard";
 
 const updateStatusSchema = z.object({
@@ -25,6 +25,7 @@ const updateStatusSchema = z.object({
  * user identities exist, but out of scope for this pass.
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ leadId: string }> }) {
+  const prisma = await getDb();
   try {
     await assertAdminModuleAccess(req, "LEADS");
   } catch (err) {

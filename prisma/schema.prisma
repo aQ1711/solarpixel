@@ -30,15 +30,40 @@
 // worlds, and it only ever carries a price, never a cost or margin %.
 // ============================================================================
 
+// engineType = "client" (GA since 6.16.0, part of the Prisma 7 -> 6.19.0
+// downgrade, 2026-08-25): every call site already constructs
+// PrismaClient with an explicit driver adapter (PrismaPg), but without
+// this the generated client still ships a native Rust engine binary
+// (library/binary engine) as its fallback query executor, and esbuild's
+// bundling can't resolve the right platform-specific one for workerd —
+// confirmed live: every DB query 500'd with "Prisma Client could not
+// locate the Query Engine for runtime debian-openssl-1.1.x". With
+// engineType = "client", Prisma generates NO engine binary or WASM
+// module at all — the adapter is the only query path, on every target
+// (Netlify/localhost/Cloudflare) this app runs on.
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
+  engineType = "client"
 }
 
-// Connection URL + driver adapter now live in prisma.config.ts (Prisma 7+).
-// `schemas` stays here: it's what actually splits our models across the
-// public / vendor_private Postgres schemas (see note above).
+// Prisma downgraded 7.9.1 -> 6.19.0 (2026-08-25): Prisma 7's query
+// compiler dynamically compiles WASM at runtime, which Cloudflare
+// Workers categorically disallow (confirmed open upstream bug,
+// github.com/prisma/prisma#28657 — "Wasm code generation disallowed by
+// embedder"). 6.19.0 is the last version confirmed to work on Workers.
+// One consequence: unlike 7+, `prisma generate`/`migrate` on 6.x still
+// validate that the datasource block itself has a `url`, even though
+// prisma.config.ts's `datasource.url` is what actually drives the CLI
+// connection (see that file) and neither app runtime client
+// (lib/db/client.ts / lib/db/admin.ts) ever reads this value — both
+// construct PrismaClient with an explicit driver adapter instead. Kept
+// pointed at the same MIGRATE_DATABASE_URL prisma.config.ts uses, purely
+// to satisfy this validation.
+// `schemas` is what actually splits our models across the public /
+// vendor_private Postgres schemas (see note above).
 datasource db {
   provider = "postgresql"
+  url      = env("MIGRATE_DATABASE_URL")
   schemas  = ["public", "vendor_private"]
 }
 

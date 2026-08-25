@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Sector, ServiceType, BillSource, Prisma } from "@prisma/client";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import {
   calculateSystemPricing,
   calculatePanelWashingQuote,
@@ -365,6 +365,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
+  const prisma = await getDb();
   let body: unknown;
   try {
     body = await req.json();

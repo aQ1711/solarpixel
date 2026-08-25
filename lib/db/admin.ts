@@ -16,32 +16,66 @@ import { formatGoogleDriveLink } from "@/lib/utils/googleDrive";
  * application role granted access to the `vendor_private` schema
  * (raw_vendor_costs, margin_rules).
  *
- * DO NOT import `adminPrisma` itself anywhere outside this file. Every
- * other module — including API routes — must go through
- * `calculateSystemPricing()` below, which is the single sanctioned
- * boundary between vendor_private data and the rest of the app. It
- * returns a sanitized, client-safe DTO only; raw costs and margin
- * percentages are read, used, and discarded entirely inside this
- * function's stack frame.
+ * DO NOT import `getAdminPrisma`/its resolved client itself anywhere
+ * outside this file. Every other module — including API routes — must
+ * go through `calculateSystemPricing()` below, which is the single
+ * sanctioned boundary between vendor_private data and the rest of the
+ * app. It returns a sanitized, client-safe DTO only; raw costs and
+ * margin percentages are read, used, and discarded entirely inside
+ * this function's stack frame.
+ *
+ * Was a plain module-level `const adminPrisma`, created once at import
+ * time from `process.env.ADMIN_DATABASE_URL`. Became a resolver
+ * function (2026-08-25, Cloudflare production leg) for the exact same
+ * reason as lib/db/client.ts's matching `getDb()` — see that file's
+ * doc comment for the full explanation (Cloudflare Hyperdrive bindings
+ * are only reachable per-request, never at module load time). Every
+ * exported function below that touches `adminPrisma` now starts with
+ * `const adminPrisma = await getAdminPrisma();` — a local binding that
+ * shadows this file's old module-level name, so none of the 57 actual
+ * `adminPrisma.___` call sites elsewhere in this file needed touching,
+ * only the ~24 function signatures that use it.
  */
 declare global {
   var __solarPixelAdminPrisma: PrismaClient | undefined;
 }
 
-function createAdminClient(): PrismaClient {
-  const connectionString = process.env.ADMIN_DATABASE_URL;
-  if (!connectionString) {
-    throw new Error(
-      "ADMIN_DATABASE_URL is not set. This must be an app_admin_role connection string, distinct from DATABASE_URL."
-    );
-  }
+function createAdminClient(connectionString: string): PrismaClient {
   const adapter = new PrismaPg({ connectionString });
   return new PrismaClient({ adapter });
 }
 
-const adminPrisma = globalThis.__solarPixelAdminPrisma ?? createAdminClient();
-if (process.env.NODE_ENV !== "production") {
-  globalThis.__solarPixelAdminPrisma = adminPrisma;
+async function getAdminPrisma(): Promise<PrismaClient> {
+  try {
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+    const { env } = await getCloudflareContext({ async: true });
+    // See lib/db/client.ts's matching getDb() for why this is a narrow
+    // local cast rather than relying on the globally-ambient
+    // CloudflareEnv interface — that generated file is excluded from
+    // tsconfig.json entirely (it was silently breaking global Web API
+    // type inference project-wide).
+    const hyperdriveAdmin = (env as { HYPERDRIVE_ADMIN?: { connectionString: string } }).HYPERDRIVE_ADMIN;
+    if (hyperdriveAdmin) {
+      const adapter = new PrismaPg({ connectionString: hyperdriveAdmin.connectionString, maxUses: 1 });
+      return new PrismaClient({ adapter });
+    }
+  } catch {
+    // Not running on Cloudflare (no Worker request context available) —
+    // fall through to the standard env-var-based singleton below. This
+    // is the expected, normal path on Netlify and localhost, not an
+    // error condition.
+  }
+
+  if (!globalThis.__solarPixelAdminPrisma) {
+    const connectionString = process.env.ADMIN_DATABASE_URL;
+    if (!connectionString) {
+      throw new Error(
+        "ADMIN_DATABASE_URL is not set. This must be an app_admin_role connection string, distinct from DATABASE_URL."
+      );
+    }
+    globalThis.__solarPixelAdminPrisma = createAdminClient(connectionString);
+  }
+  return globalThis.__solarPixelAdminPrisma;
 }
 
 /** Thrown when Super Admin hasn't configured the vendor cost / margin
@@ -325,6 +359,7 @@ async function getDefaultCode(
   applicableServiceType: ServiceType | null,
   fallbackCode: string
 ): Promise<string> {
+  const adminPrisma = await getAdminPrisma();
   // inStock: true — a guardrail, not just a filter: the admin-marked
   // default must never be an out-of-stock item (see EquipmentOption.
   // inStock's doc comment). If the sole isDefault row for this slot goes
@@ -429,6 +464,7 @@ export async function calculateSystemPricing(
    *  path default through this parameter at all. */
   targetBudgetTier?: BudgetTier
 ): Promise<SystemPricingResult> {
+  const adminPrisma = await getAdminPrisma();
   const now = new Date();
   const watts = systemKw * 1000;
   const needsBattery = serviceType === "HYBRID_BATTERY";
@@ -931,6 +967,7 @@ export interface AdminBoqPricingResult {
  * by `assertInternalAccess(req, "ADMIN")`) may call this.
  */
 export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Promise<AdminBoqPricingResult> {
+  const adminPrisma = await getAdminPrisma();
   const now = new Date();
   const { systemKw, sector, serviceType, dcCableMeters, acCableMeters, dataCableMeters, structureChoice, requiresDbUpgrade } =
     input;
@@ -1402,6 +1439,7 @@ const FALLBACK_GLOBAL_PRICING_SETTINGS: GlobalPricingSettingsDTO = {
  *  effective-dated RawVendorCost-style table. Exported so the `/rules`
  *  route can read current values without duplicating this fallback logic. */
 export async function getGlobalPricingSettings(): Promise<GlobalPricingSettingsDTO> {
+  const adminPrisma = await getAdminPrisma();
   const row = await adminPrisma.globalPricingSettings.findFirst({ orderBy: { updatedAt: "desc" } });
   if (!row) return FALLBACK_GLOBAL_PRICING_SETTINGS;
   return {
@@ -1481,6 +1519,7 @@ export function parseBudgetTier(value: string | null | undefined): BudgetTier | 
  *  nothing in-stock actually covers the requirement — callers fall back
  *  to getDefaultCode(). */
 async function findSmallestFittingInStockInverter(systemKw: number, serviceType: ServiceType): Promise<string | null> {
+  const adminPrisma = await getAdminPrisma();
   const rows = await adminPrisma.equipmentOption.findMany({
     where: {
       componentType: "INVERTER",
@@ -1503,6 +1542,7 @@ async function findSmallestFittingInStockInverter(systemKw: number, serviceType:
  *  Falls back to a plain "smallest that fits" pick if nothing in-stock
  *  reaches +3kW over (better an appropriately-sized inverter than none). */
 async function findOversizedInStockInverter(systemKw: number, serviceType: ServiceType): Promise<string | null> {
+  const adminPrisma = await getAdminPrisma();
   const rows = await adminPrisma.equipmentOption.findMany({
     where: {
       componentType: "INVERTER",
@@ -1529,6 +1569,7 @@ async function findOversizedInStockInverter(systemKw: number, serviceType: Servi
  *  Returns null if nothing in-stock actually covers the target —
  *  callers fall back to getDefaultCode(). */
 async function findSmallestFittingInStockBattery(targetKwh: number, serviceType: ServiceType): Promise<string | null> {
+  const adminPrisma = await getAdminPrisma();
   const rows = await adminPrisma.equipmentOption.findMany({
     where: {
       componentType: "BATTERY",
@@ -1679,6 +1720,7 @@ export interface PublicUnitPrice {
 }
 
 export async function getPublicUnitPricesPKR(sector: Sector): Promise<Record<string, PublicUnitPrice>> {
+  const adminPrisma = await getAdminPrisma();
   const now = new Date();
   const [options, costs, sectorMargins] = await Promise.all([
     adminPrisma.equipmentOption.findMany({ where: { isActive: true, isOtherOption: false } }),
@@ -1727,6 +1769,7 @@ function activeAsOf(now: Date) {
  *  listMaterialCatalog and updateGlobalPricingRule so the two can't drift
  *  on how "current" margin is determined. */
 async function getSectorDefaultMargins(now: Date): Promise<Map<Sector, number>> {
+  const adminPrisma = await getAdminPrisma();
   const rows = await adminPrisma.marginRule.findMany({
     where: { componentType: null, ...activeAsOf(now) },
     orderBy: { effectiveFrom: "desc" },
@@ -1748,6 +1791,7 @@ async function getSectorDefaultMargins(now: Date): Promise<Map<Sector, number>> 
  * manageable material.
  */
 export async function listMaterialCatalog(): Promise<MaterialCatalogResponse> {
+  const adminPrisma = await getAdminPrisma();
   const now = new Date();
 
   const [options, costs, sectorMargins, settings] = await Promise.all([
@@ -1833,6 +1877,7 @@ export async function listMaterialCatalog(): Promise<MaterialCatalogResponse> {
  *  (HYBRID_BATTERY vs ONGRID_ZERO_EXPORT); everything else has one
  *  (applicableServiceType: null). */
 async function clearExistingDefault(componentType: ComponentType, applicableServiceType: ServiceType | null): Promise<void> {
+  const adminPrisma = await getAdminPrisma();
   await adminPrisma.equipmentOption.updateMany({
     where: { componentType, applicableServiceType, isDefault: true },
     data: { isDefault: false },
@@ -1934,6 +1979,7 @@ export interface CreateMaterialInput {
  *  path, so a rare partial failure is an acceptable trade-off against
  *  the added complexity of an interactive transaction here. */
 export async function createMaterialItem(input: CreateMaterialInput): Promise<MaterialCatalogItem> {
+  const adminPrisma = await getAdminPrisma();
   const existing = await adminPrisma.equipmentOption.findUnique({
     where: { componentType_code: { componentType: input.componentType, code: input.code } },
   });
@@ -2007,6 +2053,7 @@ export interface UpdateMaterialInput {
  *  EquipmentOption.id; the matching RawVendorCost row is resolved via
  *  componentType+itemName=code, same join convention as everywhere else. */
 export async function updateMaterialItem(id: string, input: UpdateMaterialInput): Promise<MaterialCatalogItem> {
+  const adminPrisma = await getAdminPrisma();
   const option = await adminPrisma.equipmentOption.findUnique({ where: { id } });
   if (!option) {
     throw new PricingConfigurationError(`Material item ${id} not found.`);
@@ -2067,6 +2114,7 @@ export async function updateMaterialItem(id: string, input: UpdateMaterialInput)
  *  pricing lookups; effectiveTo stamped for the historical record). Also
  *  clears isDefault — a deactivated item can't stay a Recommended default. */
 export async function deactivateMaterialItem(id: string): Promise<void> {
+  const adminPrisma = await getAdminPrisma();
   const option = await adminPrisma.equipmentOption.findUnique({ where: { id } });
   if (!option) {
     throw new PricingConfigurationError(`Material item ${id} not found.`);
@@ -2097,6 +2145,7 @@ export interface UpdateGlobalRulesInput {
  *  every caller gets one complete, consistent object regardless of
  *  which endpoint they hit. */
 export async function updateGlobalPricingRule(input: UpdateGlobalRulesInput): Promise<GlobalPricingRules> {
+  const adminPrisma = await getAdminPrisma();
   if (input.structureCostPerWatt !== undefined) {
     await adminPrisma.rawVendorCost.updateMany({
       where: { componentType: "MOUNTING_STRUCTURE", itemName: DEFAULT_STRUCTURE_CODE, isActive: true },
@@ -2182,6 +2231,7 @@ export interface UpdateGlobalPricingSettingsInput {
  *  if it doesn't exist yet, otherwise updates only the fields present
  *  in `input` in place. Backs `POST /api/admin/pricing/rules`. */
 export async function updateGlobalPricingSettings(input: UpdateGlobalPricingSettingsInput): Promise<GlobalPricingRules> {
+  const adminPrisma = await getAdminPrisma();
   const existing = await adminPrisma.globalPricingSettings.findFirst({ orderBy: { updatedAt: "desc" } });
   const current = existing
     ? {
@@ -2272,6 +2322,7 @@ export interface MarketPriceSnapshotInput {
  *  run" by a single exact timestamp match rather than a fuzzy time
  *  window. Returns the count actually written. */
 export async function recordMarketPriceSnapshots(items: MarketPriceSnapshotInput[]): Promise<number> {
+  const adminPrisma = await getAdminPrisma();
   if (items.length === 0) return 0;
   const fetchedAt = new Date();
   const result = await adminPrisma.marketPriceSnapshot.createMany({
@@ -2300,6 +2351,7 @@ export interface MarketPriceSnapshotDTO {
  *  on a fresh/never-scraped DB, same "no data yet" convention as every
  *  other list function in this file (never fabricates a row). */
 export async function listLatestMarketPriceSnapshots(): Promise<MarketPriceSnapshotDTO[]> {
+  const adminPrisma = await getAdminPrisma();
   const latest = await adminPrisma.marketPriceSnapshot.findFirst({
     orderBy: { fetchedAt: "desc" },
     select: { fetchedAt: true },

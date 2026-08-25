@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import {
   assertSuperAdminAccess,
   InternalAuthError,
@@ -31,6 +31,7 @@ const createAdminSchema = z.object({
  * ability to create more admins or change anyone's grants.
  */
 export async function GET(req: NextRequest) {
+  const prisma = await getDb();
   try {
     assertSuperAdminAccess(req);
   } catch (err) {
@@ -82,6 +83,7 @@ export async function GET(req: NextRequest) {
  * WhatsApp dispatch for the same "no automated messaging yet" reason).
  */
 export async function POST(req: NextRequest) {
+  const prisma = await getDb();
   try {
     assertSuperAdminAccess(req);
   } catch (err) {

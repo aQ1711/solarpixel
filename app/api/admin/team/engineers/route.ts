@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { assertSuperAdminAccess, InternalAuthError, hashAccessCode, generateAccessCode } from "@/lib/auth/internal-guard";
 
 /**
@@ -30,6 +30,7 @@ const createEngineerSchema = z.object({
 });
 
 export async function GET(req: NextRequest) {
+  const prisma = await getDb();
   try {
     assertSuperAdminAccess(req);
   } catch (err) {
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const prisma = await getDb();
   try {
     assertSuperAdminAccess(req);
   } catch (err) {

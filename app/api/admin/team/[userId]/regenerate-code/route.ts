@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { assertSuperAdminAccess, InternalAuthError, generateAccessCode, hashAccessCode } from "@/lib/auth/internal-guard";
 
 /**
@@ -12,6 +12,7 @@ import { assertSuperAdminAccess, InternalAuthError, generateAccessCode, hashAcce
  * comment.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
+  const prisma = await getDb();
   try {
     assertSuperAdminAccess(req);
   } catch (err) {

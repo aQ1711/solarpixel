@@ -1,5 +1,5 @@
 import "server-only";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 
 /**
  * Market Watch ticker visibility toggles (2026-08-22) — see
@@ -28,6 +28,7 @@ const DEFAULT_TICKER_SETTINGS: TickerSettingsDTO = {
 };
 
 export async function getTickerSettings(): Promise<TickerSettingsDTO> {
+  const prisma = await getDb();
   const row = await prisma.tickerSettings.findFirst({ orderBy: { updatedAt: "desc" } });
   if (!row) return DEFAULT_TICKER_SETTINGS;
   return {
@@ -50,6 +51,7 @@ export interface UpdateTickerSettingsInput {
  *  updateGlobalPricingSettings in lib/db/admin.ts — creates the
  *  singleton on first write if it doesn't exist yet. */
 export async function updateTickerSettings(input: UpdateTickerSettingsInput): Promise<TickerSettingsDTO> {
+  const prisma = await getDb();
   const existing = await prisma.tickerSettings.findFirst({ orderBy: { updatedAt: "desc" } });
   const current = existing
     ? {

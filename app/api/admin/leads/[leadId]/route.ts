@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import {
   calculateSystemPricing,
   parseEquipmentSelections,
@@ -29,6 +29,7 @@ import { assertAdminModuleAccess, InternalAuthError } from "@/lib/auth/internal-
  * response so the sales rep isn't misled into treating it as exact.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ leadId: string }> }) {
+  const prisma = await getDb();
   try {
     await assertAdminModuleAccess(req, "LEADS");
   } catch (err) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { calculateAdminBoqPricing, parseEquipmentSelections, parseBudgetTier, PricingConfigurationError } from "@/lib/db/admin";
 import { assertAdminModuleAccess, InternalAuthError } from "@/lib/auth/internal-guard";
 
@@ -19,6 +19,7 @@ const recalculateSchema = z.object({
  * preview and the real approval disagreeing due to a stale write).
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ quoteId: string }> }) {
+  const prisma = await getDb();
   try {
     await assertAdminModuleAccess(req, "CHECKER");
   } catch (err) {

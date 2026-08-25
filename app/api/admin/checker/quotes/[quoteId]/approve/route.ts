@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { calculateAdminBoqPricing, parseEquipmentSelections, parseBudgetTier, PricingConfigurationError } from "@/lib/db/admin";
 import { assertAdminModuleAccess, InternalAuthError } from "@/lib/auth/internal-guard";
 import { buildWaLink, buildContractMessage } from "@/lib/whatsapp";
@@ -31,6 +31,7 @@ const approveSchema = z.object({
  * access to an Admin does not delegate approval authority itself.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ quoteId: string }> }) {
+  const prisma = await getDb();
   try {
     await assertAdminModuleAccess(req, "CHECKER");
   } catch (err) {

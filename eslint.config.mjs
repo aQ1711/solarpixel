@@ -10,8 +10,10 @@ const eslintConfig = [
   // reporting thousands of irrelevant problems against generated code.
   // .open-next/ and .wrangler/ are the same story for the Cloudflare
   // (OpenNext) build path added 2026-08-25 — bundled/minified Worker
-  // output and local wrangler state, not source.
-  { ignores: [".netlify/**", ".open-next/**", ".wrangler/**"] },
+  // output and local wrangler state, not source. cloudflare-env.d.ts is
+  // `wrangler types`-generated (same category as next-env.d.ts, which
+  // Next's own tooling already keeps out of lint's way).
+  { ignores: [".netlify/**", ".open-next/**", ".wrangler/**", "cloudflare-env.d.ts"] },
   ...nextCoreWebVitals,
   ...nextTypescript,
 ];

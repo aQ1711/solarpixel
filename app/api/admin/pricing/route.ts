@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ComponentType, CostUnit, ServiceType, Sector, InverterPhase } from "@prisma/client";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import {
   listMaterialCatalog,
   createMaterialItem,
@@ -90,6 +90,7 @@ const updateGlobalRulesSchema = z.object({
 const postBodySchema = z.discriminatedUnion("type", [createMaterialSchema, updateGlobalRulesSchema]);
 
 async function assertValidSuperAdmin(userId: string): Promise<boolean> {
+  const prisma = await getDb();
   const admin = await prisma.user.findFirst({ where: { id: userId, role: "SUPER_ADMIN", isActive: true }, select: { id: true } });
   return admin !== null;
 }

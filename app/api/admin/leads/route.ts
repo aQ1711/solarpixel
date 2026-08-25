@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { assertAdminModuleAccess, InternalAuthError, type AdminIdentity } from "@/lib/auth/internal-guard";
 
 /**
@@ -26,6 +26,7 @@ import { assertAdminModuleAccess, InternalAuthError, type AdminIdentity } from "
  * assuming exactly one.
  */
 export async function GET(req: NextRequest) {
+  const prisma = await getDb();
   let viewer: AdminIdentity;
   try {
     viewer = await assertAdminModuleAccess(req, "LEADS");

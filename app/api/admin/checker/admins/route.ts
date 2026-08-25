@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { assertAdminModuleAccess, InternalAuthError } from "@/lib/auth/internal-guard";
 
 /** GET /api/admin/checker/admins — active Super Admins, for the "approving
@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const prisma = await getDb();
     const admins = await prisma.user.findMany({
       where: { role: "SUPER_ADMIN", isActive: true },
       select: { id: true, name: true },

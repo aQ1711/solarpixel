@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import {
   calculateAdminBoqPricing,
   parseEquipmentSelections,
@@ -22,6 +22,7 @@ import { assertAdminModuleAccess, InternalAuthError, type AdminIdentity } from "
  * is public or Field-Engineer reachable.
  */
 export async function GET(req: NextRequest) {
+  const prisma = await getDb();
   let viewer: AdminIdentity;
   try {
     viewer = await assertAdminModuleAccess(req, "CHECKER");

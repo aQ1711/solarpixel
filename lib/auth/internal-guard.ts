@@ -1,7 +1,7 @@
 import "server-only";
 import type { NextRequest } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 
 /**
  * ⚠️ TEMPORARY, INTERIM GUARD — NOT REAL AUTHENTICATION.
@@ -156,6 +156,7 @@ export async function resolveAdminIdentity(req: NextRequest): Promise<AdminIdent
     return { kind: "SUPER_ADMIN", userId: null, name: "Super Admin", modules: ALL_ADMIN_MODULES };
   }
 
+  const prisma = await getDb();
   const user = await prisma.user.findUnique({
     where: { accessCodeHash: hashAccessCode(provided) },
     select: { id: true, name: true, role: true, isActive: true, adminModuleGrants: { select: { module: true } } },
@@ -206,6 +207,7 @@ export class NoSuperAdminConfiguredError extends Error {
  * database — callers should surface that as a clear 503, not a raw 500.
  */
 export async function getSuperAdminActorId(): Promise<string> {
+  const prisma = await getDb();
   const superAdmin = await prisma.user.findFirst({
     where: { role: "SUPER_ADMIN", isActive: true },
     orderBy: { createdAt: "asc" },

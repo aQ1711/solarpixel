@@ -23,5 +23,22 @@
 		// Enable image optimization
 		// see https://opennext.js.org/cloudflare/howtos/image
 		"binding": "IMAGES"
-	}
+	},
+	// Two Hyperdrive bindings (2026-08-25), one per app_public_role/
+	// app_admin_role DB role — mirrors DATABASE_URL/ADMIN_DATABASE_URL's
+	// existing split everywhere else this app runs. Caching is disabled
+	// on both origin configs (set via the Cloudflare API, not visible
+	// here) since this app's whole pricing model depends on every query
+	// reflecting the current admin-configured price, never a stale
+	// cached one.
+	"hyperdrive": [
+		{
+			"binding": "HYPERDRIVE_PUBLIC",
+			"id": "a9a6523c3a174c75ac8dfb008dba3c08"
+		},
+		{
+			"binding": "HYPERDRIVE_ADMIN",
+			"id": "57c0ed813b014a70933cf87afb04d100"
+		}
+	]
 }

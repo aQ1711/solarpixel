@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { assertMakerAccess, InternalAuthError } from "@/lib/auth/internal-guard";
 import { estimatedBatteryCapacityKwh, parseEquipmentSelections } from "@/lib/db/admin";
 
 /** GET /api/maker/quotes/:quoteId — lookup for the Field Engineer to
  *  confirm they're surveying the right site before filling out the form. */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ quoteId: string }> }) {
+  const prisma = await getDb();
   try {
     assertMakerAccess(req);
   } catch (err) {

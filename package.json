@@ -14,8 +14,9 @@
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "^7.9.1",
-    "@prisma/client": "^7.9.1",
+    "@opennextjs/cloudflare": "^1.20.2",
+    "@prisma/adapter-pg": "^6.19.0",
+    "@prisma/client": "^6.19.0",
     "cheerio": "^1.2.0",
     "clsx": "^2.1.1",
     "dotenv": "^17.4.2",
@@ -34,7 +35,6 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.6",
     "@netlify/functions": "^6.0.0",
-    "@opennextjs/cloudflare": "^1.20.2",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.2.0",
     "@types/pg": "^8.21.0",
@@ -43,7 +43,7 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.1",
     "postcss": "^8.5.26",
-    "prisma": "^7.9.1",
+    "prisma": "^6.19.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.12",
     "typescript": "^5.9.3",

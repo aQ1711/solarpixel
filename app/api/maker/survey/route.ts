@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { assertMakerAccess, InternalAuthError } from "@/lib/auth/internal-guard";
 import { saveUploadedFile, UploadValidationError } from "@/lib/storage/local";
 
@@ -32,6 +32,7 @@ const PHOTO_FIELD_TO_LABEL = {
  *  transaction. Public-schema client only — Field Engineers never touch
  *  vendor_private (see lib/db/admin.ts). */
 export async function POST(req: NextRequest) {
+  const prisma = await getDb();
   try {
     assertMakerAccess(req);
   } catch (err) {

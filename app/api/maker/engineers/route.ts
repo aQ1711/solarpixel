@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/client";
+import { getDb } from "@/lib/db/client";
 import { assertMakerAccess, InternalAuthError } from "@/lib/auth/internal-guard";
 
 /** GET /api/maker/engineers — active Field Engineers, for the survey
  *  form's "surveyed by" selector (no login system yet, see internal-guard.ts). */
 export async function GET(req: NextRequest) {
+  const prisma = await getDb();
   try {
     assertMakerAccess(req);
   } catch (err) {
