@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { Suspense, memo, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { trackWhatsAppClick } from "@/lib/analytics";
 import type { ApiJson } from "@/lib/internal/access";
@@ -513,8 +513,16 @@ export default function HomePageContent() {
           pixel-offset math. Two independently-sticky siblings would both
           pin to the same y=0 and overlap once scrolled; this way the
           ticker's real rendered height is whatever pushes Header down,
-          automatically, even if the ticker's height ever changes. */}
-      <div className="sticky top-0 z-30 print:hidden">
+          automatically, even if the ticker's height ever changes.
+
+          will-change-transform + translateZ(0) (2026-08-26, scroll perf
+          pass) promote this to its own GPU compositor layer — a sticky
+          element containing a backdrop-blur (Header's pill) is one of
+          the classic causes of scroll jank, since the browser would
+          otherwise have to recompute the blur against newly-scrolled
+          content on every frame instead of just repositioning an
+          already-composited layer. */}
+      <div className="sticky top-0 z-30 [transform:translateZ(0)] will-change-transform print:hidden">
         <MarketWatchTicker />
         <Header />
       </div>
@@ -578,7 +586,16 @@ const DEFAULT_TICKER_VISIBILITY: TickerVisibility = {
   showBatteries: true,
 };
 
-function MarketWatchTicker() {
+// memo() (2026-08-26, scroll/render perf pass) — this component takes
+// zero props and manages its own CSS-driven marquee animation + polling
+// state entirely internally, so it never actually NEEDS to re-render
+// just because some unrelated state elsewhere in HomePageContent
+// changed (e.g. every keystroke in the bill amount field). Without
+// this, React's default behavior re-renders every child on every
+// parent render regardless of whether its props changed — for a
+// zero-prop component that's pure overhead, and this one is expensive
+// (3 independent ticker rows + animation classes).
+const MarketWatchTicker = memo(function MarketWatchTicker() {
   const [panelItems, setPanelItems] = useState<TickerItem[] | null>(null);
   const [hybridInverterItems, setHybridInverterItems] = useState<TickerItem[] | null>(null);
   const [ongridInverterItems, setOngridInverterItems] = useState<TickerItem[] | null>(null);
@@ -669,7 +686,7 @@ function MarketWatchTicker() {
       )}
     </div>
   );
-}
+});
 
 /** One infinitely-scrolling row. The item list is rendered twice back to
  *  back and the CSS animation translates by exactly -50%/+50% — since
@@ -768,7 +785,9 @@ function scrollToCalculator() {
   document.getElementById("calculator")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function Header() {
+// memo() — same reasoning as MarketWatchTicker just above: zero props,
+// no reason to re-render on unrelated HomePageContent state changes.
+const Header = memo(function Header() {
   return (
     <header className="px-3 pt-3 sm:px-5">
       <div className="mx-auto flex max-w-4xl items-center justify-between gap-2 rounded-full border border-stone-200 bg-white/90 py-2 pl-4 pr-2 shadow-sm shadow-stone-200/50 backdrop-blur-md sm:pl-5 sm:pr-2.5">
@@ -813,7 +832,7 @@ function Header() {
       </div>
     </header>
   );
-}
+});
 
 // ============================================================================
 // Hero + Calculator
