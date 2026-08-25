@@ -663,6 +663,17 @@ async function handleEvChargerQuote(input: CalculateQuoteInput): Promise<NextRes
     getPublicUnitPricesPKR(sector),
   ]);
 
+  // Inventory guardrail (2026-08-25), defense-in-depth — the storefront
+  // picker already disables/hides an out-of-stock model (greyed out,
+  // "Out of Stock" badge, see app/HomePageContent.tsx), so this only
+  // fires for a bypassed/stale client request, same reasoning and same
+  // hard-error-not-silent-substitution convention as calculateSystemPricing's
+  // own Panel/Inverter/Battery inStock check just above in this file's
+  // sibling function.
+  if (evChargerCode !== "OTHER" && unitPrices[evChargerCode]?.inStock === false) {
+    return NextResponse.json({ error: "This charger model is currently out of stock. Please select another." }, { status: 400 });
+  }
+
   // "OTHER" (Other / Specific Requirement) has no RawVendorCost row by
   // design — same convention as every other componentType's reserved
   // "Other" slot (see getPublicUnitPricesPKR's doc comment): no unit

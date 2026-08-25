@@ -3002,6 +3002,7 @@ function CalculatorCard() {
                         }
                         active={evChargerCode === option.code}
                         onClick={() => setEvChargerCode(option.code)}
+                        inStock={option.inStock}
                       />
                     ))}
                   </div>
@@ -3421,23 +3422,40 @@ function SpecCard({
   description,
   active,
   onClick,
+  inStock = true,
 }: {
   title: string;
   description: string;
   active: boolean;
   onClick: () => void;
+  /** Inventory guardrail (2026-08-25) — same treatment as
+   *  SwapOptionCard's own `inStock` prop above: false greys the card
+   *  out, disables its button, and swaps `description` for an "Out of
+   *  Stock" badge; the customer must never be able to select it.
+   *  Defaults to true ("assume in stock") since most SpecCard callers
+   *  (Panel Washing tiers, Target Budget) have no stock concept at
+   *  all. */
+  inStock?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={!inStock}
       aria-pressed={active}
-      className={`flex cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl px-2.5 py-2 text-center transition-all ${
-        active ? CARD_SELECTED_CLASSES : CARD_UNSELECTED_CLASSES
+      aria-disabled={!inStock}
+      className={`flex flex-col items-center justify-center gap-0.5 rounded-xl px-2.5 py-2 text-center transition-all ${
+        !inStock
+          ? "cursor-not-allowed border border-slate-200 bg-slate-100 opacity-60"
+          : `cursor-pointer ${active ? CARD_SELECTED_CLASSES : CARD_UNSELECTED_CLASSES}`
       }`}
     >
-      <span className="text-xs font-semibold">{title}</span>
-      <span className={`text-[10px] leading-tight ${active ? "text-orange-100" : "text-slate-500"}`}>{description}</span>
+      <span className={`text-xs font-semibold ${!inStock ? "text-slate-500" : ""}`}>{title}</span>
+      {!inStock ? (
+        <span className="text-[10px] font-semibold leading-tight text-slate-400">Out of Stock</span>
+      ) : (
+        <span className={`text-[10px] leading-tight ${active ? "text-orange-100" : "text-slate-500"}`}>{description}</span>
+      )}
     </button>
   );
 }

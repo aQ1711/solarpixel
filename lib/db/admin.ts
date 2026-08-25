@@ -1717,6 +1717,14 @@ export async function getEvChargerInstallationFeePKR(): Promise<number> {
 export interface PublicUnitPrice {
   pricePKR: number;
   unit: CostUnit;
+  /** Inventory guardrail — see EquipmentOption.inStock's doc comment in
+   *  schema.prisma. Exposed here (2026-08-25) so a call site that only
+   *  has this map in hand (no separate EquipmentOption query of its
+   *  own — see handleEvChargerQuote in app/api/quote/calculate/route.ts)
+   *  can still enforce the same "never price an out-of-stock item"
+   *  guardrail calculateSystemPricing already does for Panel/Inverter/
+   *  Battery. */
+  inStock: boolean;
 }
 
 export async function getPublicUnitPricesPKR(sector: Sector): Promise<Record<string, PublicUnitPrice>> {
@@ -1748,6 +1756,7 @@ export async function getPublicUnitPricesPKR(sector: Sector): Promise<Record<str
     prices[option.code] = {
       pricePKR: round2(markUp(cost.unitCostRs.toNumber(), effectiveMarginPercent(cost, sectorDefaultMarginPercent))),
       unit: cost.unit,
+      inStock: option.inStock,
     };
   }
   return prices;
