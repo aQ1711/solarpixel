@@ -1,10 +1,25 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
 import { Analytics } from "@/components/Analytics";
 import { CookieConsent } from "@/components/CookieConsent";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+// Inter font (2026-08-25) — switched from next/font/google's self-hosted
+// build to a plain Google Fonts <link> in the head below, specifically
+// to unblock the Cloudflare (OpenNext) production build: next/font's
+// build-time-downloaded .woff2 files were ending up referenced from a
+// SERVER bundle chunk that esbuild (OpenNext's Cloudflare Worker
+// bundling step) has no loader configured for at all — a real, currently
+// undocumented interaction between this app's Next.js 16 + Turbopack
+// build output and @opennextjs/cloudflare's esbuild-based post-
+// processing, not something exposed as a fixable option in that
+// adapter's config surface (checked its types directly before reaching
+// for this workaround). A standard CDN <link> sidesteps the whole
+// bundling step entirely and works identically on every target
+// (localhost, Netlify, Cloudflare) — the only real cost is losing
+// next/font's automatic self-hosting/preload optimization, not a
+// functional loss. --font-inter (consumed by globals.css's
+// --font-sans chain) is now just a literal font-family value below,
+// not a next/font-generated CSS custom property.
 
 // Canonical production domain — confirmed with the user (2026-08-22,
 // Local SEO task) as the real, owned domain, distinct from the
@@ -147,7 +162,20 @@ const localBusinessJsonLd = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* eslint-disable-next-line @next/next/no-page-custom-font -- this
+            rule is a Pages Router holdover (its own message references
+            pages/_document.js, which doesn't exist in this App Router
+            project); the root layout IS the canonical, correct place for
+            a site-wide font link here, not a page-scoped one. */}
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+        />
+      </head>
       <body className="antialiased">
         {/* Static, hardcoded JSON-LD — never user input. */}
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }} />

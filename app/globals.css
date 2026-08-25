@@ -23,7 +23,13 @@
   --color-neon: #35f2a0;
   --color-neon-dim: #1c9d6c;
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* --font-inter was previously a next/font/google-generated CSS custom
+     property (see app/layout.tsx's 2026-08-25 doc comment for why that
+     was dropped in favor of a plain Google Fonts <link>) — now just a
+     literal font-family name, matching the family the linked stylesheet
+     actually serves. */
+  --font-inter: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: var(--font-inter);
 }
 
 /* Storefront primary color (2026-08-24, purple-to-orange rebrand) — a

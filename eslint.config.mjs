@@ -8,7 +8,10 @@ const eslintConfig = [
   // node_modules/ (already excluded by eslint-config-next's own
   // defaults). Already gitignored; this just keeps `eslint .` from
   // reporting thousands of irrelevant problems against generated code.
-  { ignores: [".netlify/**"] },
+  // .open-next/ and .wrangler/ are the same story for the Cloudflare
+  // (OpenNext) build path added 2026-08-25 — bundled/minified Worker
+  // output and local wrangler state, not source.
+  { ignores: [".netlify/**", ".open-next/**", ".wrangler/**"] },
   ...nextCoreWebVitals,
   ...nextTypescript,
 ];
