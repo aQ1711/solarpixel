@@ -19,11 +19,11 @@ import { assertSuperAdminAccess, InternalAuthError } from "@/lib/auth/internal-g
  * touching adminPrisma directly (see that file's module doc for why).
  */
 
-// Only the componentTypes /admin/pricing's 4 inventory tabs cover — new
+// Only the componentTypes /admin/pricing's 5 inventory tabs cover — new
 // materials can't be created for MOUNTING_STRUCTURE/LABOR (those are
 // single-rate KPI fields, not multi-item catalogs) or the exact-BOQ-only
 // buckets (CT_COIL, DB_UPGRADE, TRANSPORT) from here.
-const CATALOG_COMPONENT_TYPES = ["SOLAR_PANEL", "INVERTER", "BATTERY", "DC_CABLE", "AC_CABLE", "BREAKERS"] as const;
+const CATALOG_COMPONENT_TYPES = ["SOLAR_PANEL", "INVERTER", "BATTERY", "DC_CABLE", "AC_CABLE", "BREAKERS", "EV_CHARGER"] as const;
 
 // Loose on purpose — formatGoogleDriveLink() (called from lib/db/admin.ts,
 // never trusting the client) normalizes whatever share-link shape comes

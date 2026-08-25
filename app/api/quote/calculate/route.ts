@@ -7,6 +7,7 @@ import {
   calculateSystemPricing,
   calculatePanelWashingQuote,
   getEvChargerInstallationFeePKR,
+  getPublicUnitPricesPKR,
   PricingConfigurationError,
   type EquipmentSelections,
   type ItemizedBreakdown,
@@ -184,6 +185,16 @@ const calculateQuoteSchema = z
     panelCount: z.number().int().positive().max(2000).optional(),
 
     // ---- EV_CHARGER-only fields ----
+    // A real EquipmentOption.code (componentType=EV_CHARGER) or "OTHER" —
+    // same catalog-driven pattern as panelCode/inverterCode/batteryCode
+    // in the SOLAR flow (2026-08-25, replaced the old fixed-kW-bucket
+    // picker). The charger's own kW rating comes from that option's
+    // specValue, not a separately-submitted field, so the two can never
+    // disagree.
+    evChargerCode: z.string().trim().min(1).max(60).optional(),
+    /** Display-only — the picked option's specValue, echoed back
+     *  unpriced. Purely so the final WhatsApp message can say "(7 kW)"
+     *  without a second server round trip; never used for pricing. */
     evChargerRatingKw: z.number().positive().max(100).optional(),
     /** Total cable run — the first EV_CHARGER_INCLUDED_CABLE_METERS are
      *  included in the base fee, only the excess is charged. Omitted =
@@ -218,8 +229,8 @@ const calculateQuoteSchema = z
         ctx.addIssue({ code: "custom", path: ["panelCount"], message: "panelCount is required" });
       }
     } else if (data.requestKind === "EV_CHARGER") {
-      if (data.evChargerRatingKw === undefined) {
-        ctx.addIssue({ code: "custom", path: ["evChargerRatingKw"], message: "evChargerRatingKw is required" });
+      if (data.evChargerCode === undefined) {
+        ctx.addIssue({ code: "custom", path: ["evChargerCode"], message: "evChargerCode is required" });
       }
     }
   });
@@ -612,18 +623,36 @@ async function handlePanelWashingQuote(input: CalculateQuoteInput): Promise<Next
 }
 
 async function handleEvChargerQuote(input: CalculateQuoteInput): Promise<NextResponse> {
-  // superRefine guarantees evChargerRatingKw is present for this requestKind.
-  const evChargerRatingKw = input.evChargerRatingKw!;
+  // superRefine guarantees evChargerCode is present for this requestKind.
+  const evChargerCode = input.evChargerCode!;
   const cableDistanceMeters = input.evChargerCableDistanceMeters ?? EV_CHARGER_INCLUDED_CABLE_METERS;
   const extraCableMeters = Math.max(0, cableDistanceMeters - EV_CHARGER_INCLUDED_CABLE_METERS);
   const extraCablePKR = Math.round(extraCableMeters * EV_CHARGER_EXTRA_CABLE_RATE_PKR_PER_METER);
 
-  const baseInstallationFeePKR = await getEvChargerInstallationFeePKR();
-  const totalClientPricePKR = Math.round(baseInstallationFeePKR + extraCablePKR);
+  const sector = input.sector ?? "RESIDENTIAL";
+  const [baseInstallationFeePKR, unitPrices] = await Promise.all([
+    getEvChargerInstallationFeePKR(),
+    getPublicUnitPricesPKR(sector),
+  ]);
+
+  // "OTHER" (Other / Specific Requirement) has no RawVendorCost row by
+  // design — same convention as every other componentType's reserved
+  // "Other" slot (see getPublicUnitPricesPKR's doc comment): no unit
+  // price to add, the quote just covers installation + cable, flagged
+  // for manual follow-up on WhatsApp rather than blocking the customer
+  // with an error. A real code that's somehow missing its price row
+  // (data-entry gap) degrades the same way rather than 500ing — pricing
+  // never breaks from a catalog gap, matching this codebase's standing
+  // convention everywhere else.
+  const chargerUnitPricePKR = evChargerCode === "OTHER" ? 0 : (unitPrices[evChargerCode]?.pricePKR ?? 0);
+
+  const totalClientPricePKR = Math.round(chargerUnitPricePKR + baseInstallationFeePKR + extraCablePKR);
 
   return NextResponse.json({
     kind: "EV_CHARGER",
-    evChargerRatingKw,
+    evChargerCode,
+    evChargerRatingKw: input.evChargerRatingKw ?? null,
+    chargerUnitPricePKR,
     cableDistanceMeters,
     includedCableMeters: EV_CHARGER_INCLUDED_CABLE_METERS,
     extraCableMeters,

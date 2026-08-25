@@ -40,6 +40,10 @@ cloudflare-env.d.ts
 # Local Netlify folder
 .netlify
 
+# Local Vercel project link (project/org IDs, not secret, but local tooling
+# state — same reasoning as .netlify above)
+.vercel
+
 # OpenNext
 .open-next
 

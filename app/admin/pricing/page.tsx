@@ -14,6 +14,7 @@ import {
   Zap,
   BatteryCharging,
   Cable,
+  PlugZap,
   Pencil,
   FileText,
   Image as ImageIcon,
@@ -40,7 +41,7 @@ import { formatGoogleDriveLink } from "@/lib/utils/googleDrive";
 // changes real pricing on the next quote calculated, immediately.
 // ============================================================================
 
-type ComponentType = "SOLAR_PANEL" | "INVERTER" | "BATTERY" | "DC_CABLE" | "AC_CABLE" | "BREAKERS";
+type ComponentType = "SOLAR_PANEL" | "INVERTER" | "BATTERY" | "DC_CABLE" | "AC_CABLE" | "BREAKERS" | "EV_CHARGER";
 type ServiceType = "HYBRID_BATTERY" | "ONGRID_ZERO_EXPORT";
 type CostUnit = "PER_WATT" | "PER_METER" | "PER_KWH" | "PER_UNIT" | "PER_PIECE" | "LUMP_SUM";
 type Sector = "RESIDENTIAL" | "COMMERCIAL" | "INDUSTRIAL";
@@ -144,12 +145,13 @@ const UNIT_SUFFIX: Record<CostUnit, string> = {
   LUMP_SUM: " flat",
 };
 
-type TabKey = "SOLAR_PANEL" | "INVERTER" | "BATTERY" | "CABLES_BREAKERS";
+type TabKey = "SOLAR_PANEL" | "INVERTER" | "BATTERY" | "CABLES_BREAKERS" | "EV_CHARGER";
 const TABS: { key: TabKey; label: string; emoji: string; componentTypes: ComponentType[] }[] = [
   { key: "SOLAR_PANEL", label: "Solar Panels", emoji: "☀️", componentTypes: ["SOLAR_PANEL"] },
   { key: "INVERTER", label: "Inverters", emoji: "⚡", componentTypes: ["INVERTER"] },
   { key: "BATTERY", label: "Lithium Batteries", emoji: "🔋", componentTypes: ["BATTERY"] },
   { key: "CABLES_BREAKERS", label: "Cables & Breakers", emoji: "🔌", componentTypes: ["DC_CABLE", "AC_CABLE", "BREAKERS"] },
+  { key: "EV_CHARGER", label: "EV Chargers", emoji: "🚗", componentTypes: ["EV_CHARGER"] },
 ];
 
 const pkr = new Intl.NumberFormat("en-PK", { style: "currency", currency: "PKR", maximumFractionDigits: 0 });
@@ -901,6 +903,7 @@ const COMPONENT_TYPE_ICON: Record<ComponentType, typeof Sun> = {
   DC_CABLE: Cable,
   AC_CABLE: Cable,
   BREAKERS: Cable,
+  EV_CHARGER: PlugZap,
 };
 
 const PHASE_LABEL: Record<InverterPhase, string> = { SINGLE_PHASE: "Single Phase", THREE_PHASE: "Three Phase" };
@@ -913,6 +916,7 @@ function specDisplay(item: MaterialItem): string {
   }
   if (item.specValue == null) return "—";
   if (item.componentType === "SOLAR_PANEL") return `${item.specValue}W`;
+  if (item.componentType === "EV_CHARGER") return `${item.specValue}kW`;
   return String(item.specValue);
 }
 
@@ -1121,6 +1125,7 @@ const CATEGORY_OPTIONS: { value: ComponentType; label: string }[] = [
   { value: "DC_CABLE", label: "DC Cable" },
   { value: "AC_CABLE", label: "AC Cable" },
   { value: "BREAKERS", label: "Protection & Breakers" },
+  { value: "EV_CHARGER", label: "EV Charger" },
 ];
 const UNIT_OPTIONS: CostUnit[] = ["PER_WATT", "PER_KWH", "PER_METER", "PER_UNIT", "PER_PIECE", "LUMP_SUM"];
 
@@ -1269,7 +1274,7 @@ function MaterialModal({
     editingItem?.unit ??
       ((defaultComponentType ?? "SOLAR_PANEL") === "BATTERY"
         ? "PER_KWH"
-        : defaultComponentType === "INVERTER"
+        : defaultComponentType === "INVERTER" || defaultComponentType === "EV_CHARGER"
           ? "PER_PIECE"
           : "PER_WATT")
   );

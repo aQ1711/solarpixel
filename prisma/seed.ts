@@ -452,6 +452,58 @@ async function main() {
       sortOrder: 99,
     },
 
+    // ---- EV Charger (2026-08-25) — the physical charger unit, priced
+    // PER_PIECE like INVERTER/BATTERY. specValue is the unit's rated
+    // kW. No applicableServiceType — a charger is relevant regardless of
+    // Hybrid/On-Grid. These 3 are deliberately generic/unbranded
+    // placeholders (unlike the real sourced SKUs above) — this is a
+    // brand-new product category with no vendor pricing pass done yet;
+    // real market data is what /admin/pricing's new EV Chargers tab
+    // exists for. No isDefault row: unlike Complete Solar's
+    // Recommended-path equipment, EV Charger has no "auto-picked"
+    // default — the customer always picks explicitly (see
+    // EV_CHARGER_TYPES's removal in HomePageContent.tsx).
+    {
+      componentType: "EV_CHARGER",
+      code: "STANDARD_7KW",
+      label: "Standard 7kW AC Charger",
+      brand: "Generic",
+      specValue: 7,
+      applicableServiceType: null,
+      sortOrder: 1,
+      cost: { unitCostRs: 120_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "EV_CHARGER",
+      code: "FAST_11KW",
+      label: "Fast 11kW AC Charger",
+      brand: "Generic",
+      specValue: 11,
+      applicableServiceType: null,
+      sortOrder: 2,
+      cost: { unitCostRs: 180_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "EV_CHARGER",
+      code: "COMMERCIAL_22KW",
+      label: "Commercial 22kW AC Charger",
+      brand: "Generic",
+      specValue: 22,
+      applicableServiceType: null,
+      sortOrder: 3,
+      cost: { unitCostRs: 320_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "EV_CHARGER",
+      code: OTHER_CODE,
+      label: OTHER_LABEL,
+      brand: null,
+      specValue: null,
+      applicableServiceType: null,
+      isOtherOption: true,
+      sortOrder: 99,
+    },
+
     // ---- Cable Brand (Recommended default: PAKISTAN_CABLES) ----
     // One catalog entry drives BOTH DC + AC cost lookups — see
     // app/page.tsx, which derives the AC code from the DC code by

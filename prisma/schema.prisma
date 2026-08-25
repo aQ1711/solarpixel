@@ -224,6 +224,11 @@ enum ComponentType {
   EARTHING
   LABOR
   TRANSPORT
+  EV_CHARGER // The physical charger unit itself (brand/model/kW, flat
+  // PER_PIECE price) — distinct from GlobalPricingSettings.
+  // evChargerInstallationFee, which is a flat admin-set labor fee that
+  // applies regardless of which unit is picked. See EquipmentOption's
+  // doc comment for how the two combine in handleEvChargerQuote.
   OTHER
 
   @@schema("public")

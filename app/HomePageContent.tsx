@@ -213,7 +213,15 @@ type CustomizationPath = "RECOMMENDED" | "CUSTOM";
 /** Mirrors Prisma's ComponentType enum — only the values the Custom
  *  Builder renders pickers for (or reads AC_CABLE costs by convention
  *  from the DC_CABLE picker, per prisma/seed.ts). */
-type ComponentType = "SOLAR_PANEL" | "INVERTER" | "BATTERY" | "DC_CABLE" | "AC_CABLE" | "BREAKERS" | "MOUNTING_STRUCTURE";
+type ComponentType =
+  | "SOLAR_PANEL"
+  | "INVERTER"
+  | "BATTERY"
+  | "DC_CABLE"
+  | "AC_CABLE"
+  | "BREAKERS"
+  | "MOUNTING_STRUCTURE"
+  | "EV_CHARGER";
 
 /** Mirrors GET /api/equipment-options's per-row shape. Cost-free by
  *  design — this is the public catalog, never the confidential
@@ -357,7 +365,9 @@ interface PanelWashingResult {
 
 interface EvChargerResult {
   kind: "EV_CHARGER";
-  evChargerRatingKw: number;
+  evChargerCode: string;
+  evChargerRatingKw: number | null;
+  chargerUnitPricePKR: number;
   cableDistanceMeters: number;
   includedCableMeters: number;
   extraCableMeters: number;
@@ -369,12 +379,6 @@ interface EvChargerResult {
 type AddOnResult = PanelWashingResult | EvChargerResult;
 
 const PANEL_COUNT_PRESETS = [10, 20, 30, 50] as const;
-
-const EV_CHARGER_TYPES: { kw: number; description: string }[] = [
-  { kw: 7, description: "Single Phase. Standard Home" },
-  { kw: 11, description: "Three Phase. Fast Charge" },
-  { kw: 22, description: "Three Phase. Commercial / Heavy Duty" },
-];
 
 // Mirrors the placeholder rate in app/api/quote/calculate/route.ts —
 // duplicated here (not imported, since this is a client component)
@@ -1132,7 +1136,13 @@ function CalculatorCard() {
   const [washPreviewError, setWashPreviewError] = useState<string | null>(null);
 
   // ---- EV Charger ----
-  const [evChargerRatingKw, setEvChargerRatingKw] = useState<number | null>(null);
+  // A real EquipmentOption.code (componentType=EV_CHARGER), fed from the
+  // same equipmentOptions catalog fetch the Custom Equipment Builder
+  // already uses (2026-08-25 — replaced the old fixed 7/11/22kW bucket
+  // picker with a real brand+model+price catalog, same pattern as
+  // Panel/Inverter/Battery). kW rating and price both come from the
+  // picked option, never entered separately.
+  const [evChargerCode, setEvChargerCode] = useState<string | null>(null);
   const [evCableDistanceMeters, setEvCableDistanceMeters] = useState(String(EV_CHARGER_INCLUDED_CABLE_METERS));
   const [evPreview, setEvPreview] = useState<EvChargerResult | null>(null);
   const [evPreviewLoading, setEvPreviewLoading] = useState(false);
@@ -1244,8 +1254,12 @@ function CalculatorCard() {
   // stale prices on the pills after a sector switch. Every setState call
   // here lives inside a promise callback, not synchronously in the effect
   // body — "loading" is derived above instead.
+  //
+  // Also fires for masterService === "EV_CHARGER" (2026-08-25) — that
+  // flow reuses this same EquipmentOptionsByType state for its own real
+  // brand+model+price picker, same catalog fetch, no second endpoint.
   useEffect(() => {
-    if (customizationPath !== "CUSTOM") return;
+    if (customizationPath !== "CUSTOM" && masterService !== "EV_CHARGER") return;
     let cancelled = false;
     fetch(`/api/equipment-options?sector=${sector}`)
       .then(async (res) => {
@@ -1262,7 +1276,7 @@ function CalculatorCard() {
     return () => {
       cancelled = true;
     };
-  }, [customizationPath, sector]);
+  }, [customizationPath, masterService, sector]);
 
   function firstNonOther(list?: EquipmentOptionDTO[]): string | null {
     return list?.find((o) => !o.isOtherOption)?.code ?? null;
@@ -1273,6 +1287,11 @@ function CalculatorCard() {
     (o) => o.isOtherOption || o.applicableServiceType === serviceType,
   );
   const batteryOptions = equipmentOptions?.BATTERY ?? [];
+  // EV Charger's own catalog (2026-08-25) — no serviceType filtering, no
+  // Recommended-default auto-selection; the customer always picks
+  // explicitly (see prisma/seed.ts's EV_CHARGER block doc comment).
+  const evChargerOptions = equipmentOptions?.EV_CHARGER ?? [];
+  const selectedEvChargerOption = evChargerOptions.find((o) => o.code === evChargerCode) ?? null;
 
   // Effective selection = the user's explicit pick, if still valid for the
   // current serviceType — otherwise the Recommended default for that slot.
@@ -1633,10 +1652,10 @@ function CalculatorCard() {
 
   // ---- EV Charger live preview ---- (same pattern as above)
   useEffect(() => {
-    if (masterService !== "EV_CHARGER" || evChargerRatingKw === null) return;
+    if (masterService !== "EV_CHARGER" || evChargerCode === null) return;
     const distance = Number(evCableDistanceMeters);
     if (!Number.isFinite(distance) || distance <= 0) return;
-    if (evPreview && evChargerRatingKw === evPreview.evChargerRatingKw && distance === evPreview.cableDistanceMeters) return;
+    if (evPreview && evChargerCode === evPreview.evChargerCode && distance === evPreview.cableDistanceMeters) return;
 
     const timeoutId = setTimeout(async () => {
       setEvPreviewLoading(true);
@@ -1647,7 +1666,8 @@ function CalculatorCard() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             requestKind: "EV_CHARGER",
-            evChargerRatingKw,
+            evChargerCode,
+            evChargerRatingKw: selectedEvChargerOption?.specValue ?? undefined,
             evChargerCableDistanceMeters: distance,
           }),
         });
@@ -1664,7 +1684,7 @@ function CalculatorCard() {
       }
     }, 500);
     return () => clearTimeout(timeoutId);
-  }, [masterService, evChargerRatingKw, evCableDistanceMeters, evPreview]);
+  }, [masterService, evChargerCode, evCableDistanceMeters, evPreview, selectedEvChargerOption]);
 
   async function handleSolarSubmit() {
     setErrorMessage(null);
@@ -1772,8 +1792,8 @@ function CalculatorCard() {
     }
 
     if (masterService === "EV_CHARGER") {
-      if (evChargerRatingKw === null) {
-        setAddOnError("Select a charger type.");
+      if (evChargerCode === null) {
+        setAddOnError("Select a charger model.");
         return;
       }
       setStatus("loading");
@@ -1783,7 +1803,8 @@ function CalculatorCard() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             requestKind: "EV_CHARGER",
-            evChargerRatingKw,
+            evChargerCode,
+            evChargerRatingKw: selectedEvChargerOption?.specValue ?? undefined,
             evChargerCableDistanceMeters: Number(evCableDistanceMeters) || EV_CHARGER_INCLUDED_CABLE_METERS,
           }),
         });
@@ -1794,7 +1815,13 @@ function CalculatorCard() {
           return;
         }
         const priced = data;
-        const message = `Hi Solar Pixel! I'm ${fullName} and I'd like to request: ${serviceLabel} (${priced.evChargerRatingKw} kW). Quote: ${formatPKR(priced.totalClientPricePKR)} turnkey.${detailsLine}`;
+        // "Other / Specific Requirement" has no real label/kW to quote —
+        // same fallback convention as every other "Other" catalog slot.
+        const chargerDescription =
+          selectedEvChargerOption && !selectedEvChargerOption.isOtherOption
+            ? `${selectedEvChargerOption.label}${priced.evChargerRatingKw ? ` (${priced.evChargerRatingKw} kW)` : ""}`
+            : "a specific charger (details to follow)";
+        const message = `Hi Solar Pixel! I'm ${fullName} and I'd like to request: ${serviceLabel} - ${chargerDescription}. Quote: ${formatPKR(priced.totalClientPricePKR)} turnkey.${detailsLine}`;
         trackWhatsAppClick("ev_charger_inquiry");
         window.open(`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
         setAddOnResult(priced);
@@ -2967,18 +2994,30 @@ function CalculatorCard() {
                   </span>
                   <p className="text-sm font-semibold text-slate-800">EV Charger Installation</p>
                 </div>
-                <p className="mb-1.5 block text-xs font-medium text-slate-600">Charger Type</p>
-                <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
-                  {EV_CHARGER_TYPES.map((type) => (
-                    <SpecCard
-                      key={type.kw}
-                      title={`${type.kw} kW`}
-                      description={type.description}
-                      active={evChargerRatingKw === type.kw}
-                      onClick={() => setEvChargerRatingKw(type.kw)}
-                    />
-                  ))}
-                </div>
+                <p className="mb-1.5 block text-xs font-medium text-slate-600">Charger Model</p>
+                {!equipmentOptions && !equipmentOptionsError && (
+                  <p className="flex items-center gap-2 text-xs text-slate-500">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading charger models...
+                  </p>
+                )}
+                {equipmentOptionsError && <p className="text-xs text-red-500">{equipmentOptionsError}</p>}
+                {equipmentOptions && (
+                  <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
+                    {evChargerOptions.map((option) => (
+                      <SpecCard
+                        key={option.code}
+                        title={option.isOtherOption ? "Other" : option.label}
+                        description={
+                          option.isOtherOption
+                            ? "Specific requirement"
+                            : `${option.specValue}kW${option.unitPricePKR != null ? ` • ${formatPKR(option.unitPricePKR)}` : ""}`
+                        }
+                        active={evChargerCode === option.code}
+                        onClick={() => setEvChargerCode(option.code)}
+                      />
+                    ))}
+                  </div>
+                )}
 
                 <label htmlFor="evCableDistance" className="mb-1.5 mt-4 block text-xs font-medium text-slate-600">
                   Cable Distance (meters)
@@ -3060,6 +3099,12 @@ function CalculatorCard() {
                       {formatPKR(evPreview.totalClientPricePKR)}
                       {evPreviewLoading && <Loader2 className="ml-2 inline h-4 w-4 animate-spin text-orange-400" />}
                     </p>
+                    {evPreview.chargerUnitPricePKR > 0 && (
+                      <p className="text-xs text-slate-500">
+                        incl. {formatPKR(evPreview.chargerUnitPricePKR)} charger unit + {formatPKR(evPreview.baseInstallationFeePKR)}{" "}
+                        installation
+                      </p>
+                    )}
                     {evPreview.extraCablePKR > 0 && (
                       <p className="text-xs text-slate-500">incl. {formatPKR(evPreview.extraCablePKR)} extra cable</p>
                     )}
@@ -3967,9 +4012,9 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
     ? `Hi Solar Pixel! Following up on my Panel Washing quote: ${result.panelCount} panels, ${formatPKR(
         result.oneTimePricePKR
       )} one-time. Please confirm scheduling.`
-    : `Hi Solar Pixel! Following up on my EV Charger installation quote: ${result.evChargerRatingKw} kW, ${formatPKR(
-        result.totalClientPricePKR
-      )} turnkey. Please confirm scheduling.`;
+    : `Hi Solar Pixel! Following up on my EV Charger installation quote: ${
+        result.evChargerRatingKw ? `${result.evChargerRatingKw} kW, ` : ""
+      }${formatPKR(result.totalClientPricePKR)} turnkey. Please confirm scheduling.`;
   const waHref = `https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(waMessage)}`;
 
   return (
@@ -4004,7 +4049,8 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
         </div>
       ) : (
         <div className="mt-5 grid grid-cols-2 gap-3 text-left">
-          <Stat label="Charger Rating" value={`${result.evChargerRatingKw} kW`} />
+          <Stat label="Charger Rating" value={result.evChargerRatingKw ? `${result.evChargerRatingKw} kW` : "Custom"} />
+          <Stat label="Charger Unit" value={result.chargerUnitPricePKR > 0 ? formatPKR(result.chargerUnitPricePKR) : "TBD"} />
           <Stat label="Cable Distance" value={`${result.cableDistanceMeters} m`} />
           <Stat label="Base Installation Fee" value={formatPKR(result.baseInstallationFeePKR)} />
           <Stat
