@@ -2,6 +2,11 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"main": ".open-next/worker.js",
 	"name": "solar-pixel-web",
+	// Explicit: wrangler's logged-in-by-default account (confirmed via
+	// `wrangler deployments list` earlier, f8f16931a51f8a969a70ed633ee981c8)
+	// is NOT this account — the Hyperdrive configs below and the
+	// solarpixel.pk zone all live under this one instead.
+	"account_id": "ffa07d9f1931d7fd52f21157aa272576",
 	"compatibility_date": "2026-08-25",
 	"compatibility_flags": [
 		"nodejs_compat",
