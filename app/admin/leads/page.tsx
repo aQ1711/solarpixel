@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useAdminAuth } from "@/components/admin/AdminAuthContext";
-import { internalFetch } from "@/lib/internal/access";
+import { internalFetch, type ApiJson } from "@/lib/internal/access";
 
 // ============================================================================
 // /admin/leads — Internal Admin Lead Dashboard.
@@ -207,7 +207,7 @@ function LeadsDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
     try {
       const res = await internalFetch("ADMIN", "/api/admin/leads");
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ leads?: LeadListItem[]; viewer?: Viewer | null }>;
       if (!res.ok) throw new Error(data?.error ?? "Could not load leads.");
       setLeads(data.leads ?? []);
       setViewer(data.viewer ?? null);
@@ -368,7 +368,7 @@ function RecommendedSystemCalculator() {
             daytimeUsagePct: CALC_DAYTIME_USAGE_PCT_BY_SECTOR[sector],
           }),
         });
-        const data = await res.json();
+        const data = (await res.json()) as ApiJson<CalcPreviewResult>;
         if (!res.ok) {
           setError(data?.error ?? "Could not calculate this bill.");
           setPreview(null);
@@ -698,9 +698,9 @@ function LeadDetailDrawer({
       try {
         const res = await internalFetch("ADMIN", `/api/admin/leads/${leadId}`);
         if (res.status === 401) return onUnauthorized();
-        const data = await res.json();
+        const data = (await res.json()) as ApiJson<LeadDetail>;
         if (!res.ok) throw new Error(data?.error ?? "Could not load this lead.");
-        if (!cancelled) setDetail(data as LeadDetail);
+        if (!cancelled) setDetail(data);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Network error. Please try again.");
       } finally {

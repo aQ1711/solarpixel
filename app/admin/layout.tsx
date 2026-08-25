@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { AccessGate } from "@/components/internal/AccessGate";
-import { internalFetch } from "@/lib/internal/access";
+import { internalFetch, type ApiJson } from "@/lib/internal/access";
 import { AdminAuthProvider } from "@/components/admin/AdminAuthContext";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { ADMIN_NAV_ITEMS, firstAllowedNavItem, type AdminViewer } from "@/components/admin/adminNav";
@@ -61,7 +61,7 @@ function AdminShell({ onUnauthorized, children }: { onUnauthorized: (reason?: st
       .then(async (res) => {
         if (cancelled) return;
         if (res.status === 401) return onUnauthorized();
-        const data = await res.json();
+        const data = (await res.json()) as ApiJson<{ viewer?: AdminViewer | null }>;
         if (res.ok) setViewer(data.viewer ?? null);
       })
       .catch(() => {})

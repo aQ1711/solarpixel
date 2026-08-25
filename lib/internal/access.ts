@@ -36,3 +36,15 @@ export async function internalFetch(role: InternalRole, input: string, init: Req
   if (token) headers.set("x-internal-token", token);
   return fetch(input, { ...init, headers });
 }
+
+/**
+ * Shape of every internal API route's JSON body: the success payload
+ * `T` plus the optional `error` string every route falls back to on
+ * failure (see lib/auth/internal-guard.ts and each route's own catch
+ * block). Cast `await res.json()` to `ApiJson<Shape>` at each call site
+ * instead of leaving it as `unknown` — see AGENTS.md's note on
+ * `res.json()` typing, and the `cloudflare-env.d.ts` global `Body.json`
+ * override that made the untyped case surface as `unknown` in the first
+ * place.
+ */
+export type ApiJson<T = Record<string, never>> = T & { error?: string };

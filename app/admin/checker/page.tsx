@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useAdminAuth } from "@/components/admin/AdminAuthContext";
-import { internalFetch } from "@/lib/internal/access";
+import { internalFetch, type ApiJson } from "@/lib/internal/access";
 
 // ============================================================================
 // Types (mirrors GET /api/admin/checker/quotes)
@@ -140,8 +140,8 @@ function CheckerDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
       ]);
       if (quotesRes.status === 401 || adminsRes.status === 401) return onUnauthorized();
 
-      const quotesData = await quotesRes.json();
-      const adminsData = await adminsRes.json();
+      const quotesData = (await quotesRes.json()) as ApiJson<{ quotes?: ReviewQuote[]; viewer?: Viewer | null }>;
+      const adminsData = (await adminsRes.json()) as ApiJson<{ admins?: Admin[] }>;
 
       if (!quotesRes.ok) throw new Error(quotesData?.error ?? "Could not load quotes.");
       if (!adminsRes.ok) throw new Error(adminsData?.error ?? "Could not load admins.");
@@ -293,7 +293,7 @@ function QuoteReviewCard({
           onUnauthorized();
           return;
         }
-        const data = await res.json();
+        const data = (await res.json()) as ApiJson<{ pricing?: Pricing }>;
         if (!res.ok) {
           setRecalcError(data?.error ?? "Could not recalculate.");
           return;
@@ -334,12 +334,12 @@ function QuoteReviewCard({
         }),
       });
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<ApproveResult>;
       if (!res.ok) {
         setApproveError(data?.error ?? "Could not approve this quote.");
         return;
       }
-      setResult(data as ApproveResult);
+      setResult(data);
       onApproved(quote.id);
     } catch {
       setApproveError("Network error. Please try again.");

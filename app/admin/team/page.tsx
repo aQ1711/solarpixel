@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, RefreshCw, Plus, KeyRound, Copy, Check, X, ShieldCheck, UserPlus } from "lucide-react";
 import { useAdminAuth } from "@/components/admin/AdminAuthContext";
-import { internalFetch } from "@/lib/internal/access";
+import { internalFetch, type ApiJson } from "@/lib/internal/access";
 
 // ============================================================================
 // /admin/team — Super Admin's "Manage Admins" page. Create delegated Admin
@@ -73,7 +73,7 @@ function TeamDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
     try {
       const res = await internalFetch("ADMIN", "/api/admin/team");
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ admins?: AdminAccount[] }>;
       if (!res.ok) throw new Error(data?.error ?? "Could not load admins.");
       setAdmins(data.admins ?? []);
     } catch (err) {
@@ -89,7 +89,7 @@ function TeamDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
     try {
       const res = await internalFetch("ADMIN", "/api/admin/team/engineers");
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ engineers?: EngineerAccount[] }>;
       if (!res.ok) throw new Error(data?.error ?? "Could not load field engineers.");
       setEngineers(data.engineers ?? []);
     } catch (err) {
@@ -355,7 +355,7 @@ function CreateAdminForm({
         body: JSON.stringify({ name: name.trim(), phone: phone.trim(), email: email.trim() || undefined, modules }),
       });
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ admin: AdminAccount; accessCode: string }>;
       if (!res.ok) {
         setError(data?.error ?? "Could not create this admin.");
         return;
@@ -476,7 +476,7 @@ function AdminRow({
         body: JSON.stringify(body),
       });
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ admin: AdminAccount }>;
       if (!res.ok) {
         setError(data?.error ?? "Could not update this admin.");
         return;
@@ -500,7 +500,7 @@ function AdminRow({
     try {
       const res = await internalFetch("ADMIN", `/api/admin/team/${admin.id}/regenerate-code`, { method: "POST" });
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ accessCode: string }>;
       if (!res.ok) {
         setError(data?.error ?? "Could not regenerate this admin's code.");
         return;
@@ -617,7 +617,7 @@ function CreateEngineerForm({
         body: JSON.stringify({ name: name.trim(), phone: phone.trim(), email: email.trim() || undefined }),
       });
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ engineer: EngineerAccount }>;
       if (!res.ok) {
         setError(data?.error ?? "Could not create this field engineer.");
         return;
@@ -710,7 +710,7 @@ function EngineerRow({
         body: JSON.stringify({ isActive: !engineer.isActive }),
       });
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ engineer: EngineerAccount }>;
       if (!res.ok) {
         setError(data?.error ?? "Could not update this field engineer.");
         return;

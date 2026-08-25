@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useAdminAuth } from "@/components/admin/AdminAuthContext";
-import { internalFetch } from "@/lib/internal/access";
+import { internalFetch, type ApiJson } from "@/lib/internal/access";
 import { formatGoogleDriveLink } from "@/lib/utils/googleDrive";
 
 // ============================================================================
@@ -229,9 +229,9 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
       ]);
       if (pricingRes.status === 401 || adminsRes.status === 401 || tickerRes.status === 401) return onUnauthorized();
 
-      const pricingData = await pricingRes.json();
-      const adminsData = await adminsRes.json();
-      const tickerData = await tickerRes.json();
+      const pricingData = (await pricingRes.json()) as ApiJson<{ items?: MaterialItem[]; globalRules?: GlobalRules | null }>;
+      const adminsData = (await adminsRes.json()) as ApiJson<{ admins?: Admin[] }>;
+      const tickerData = (await tickerRes.json()) as ApiJson<{ tickerSettings?: TickerSettings | null }>;
       if (!pricingRes.ok) throw new Error(pricingData?.error ?? "Could not load pricing data.");
       if (!adminsRes.ok) throw new Error(adminsData?.error ?? "Could not load admins.");
       if (!tickerRes.ok) throw new Error(tickerData?.error ?? "Could not load ticker settings.");
@@ -266,7 +266,7 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
         body: JSON.stringify({ type: "UPDATE_GLOBAL_RULES", updatedById: actingAdminId, ...patch }),
       });
       if (res.status === 401) return onUnauthorized(), false;
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ globalRules: GlobalRules }>;
       if (!res.ok) throw new Error(data?.error ?? "Save failed.");
       setGlobalRules(data.globalRules);
       pushSuccess("Global rate updated.");
@@ -306,7 +306,7 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
         body: JSON.stringify({ updatedById: actingAdminId, ...patch }),
       });
       if (res.status === 401) return onUnauthorized(), false;
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ globalRules: GlobalRules }>;
       if (!res.ok) throw new Error(data?.error ?? "Save failed.");
       setGlobalRules(data.globalRules);
       pushSuccess("Rate updated.");
@@ -332,7 +332,7 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
         body: JSON.stringify({ updatedById: actingAdminId, ...patch }),
       });
       if (res.status === 401) return onUnauthorized(), false;
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ tickerSettings: TickerSettings }>;
       if (!res.ok) throw new Error(data?.error ?? "Save failed.");
       setTickerSettings(data.tickerSettings);
       pushSuccess("Ticker updated.");
@@ -368,11 +368,11 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
         body: JSON.stringify({ updatedById: actingAdminId, ...patch }),
       });
       if (res.status === 401) return onUnauthorized(), false;
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ item: MaterialItem }>;
       if (!res.ok) throw new Error(data?.error ?? "Save failed.");
       setItems((prev) => {
         if (!prev) return prev;
-        const updated = data.item as MaterialItem;
+        const updated = data.item;
         return prev.map((it) => {
           if (it.id === updated.id) return updated;
           // Clearing another item's isDefault client-side when this one
@@ -406,7 +406,7 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
       });
       if (res.status === 401) return onUnauthorized();
       if (!res.ok) {
-        const data = await res.json();
+        const data = (await res.json()) as ApiJson;
         throw new Error(data?.error ?? "Delete failed.");
       }
       setItems((prev) => (prev ? prev.map((it) => (it.id === item.id ? { ...it, isActive: false, isDefault: false } : it)) : prev));
@@ -568,9 +568,9 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
                 body: JSON.stringify({ type: "CREATE_MATERIAL", createdById: actingAdminId, ...input }),
               });
               if (res.status === 401) return onUnauthorized(), false;
-              const data = await res.json();
+              const data = (await res.json()) as ApiJson<{ item: MaterialItem }>;
               if (!res.ok) throw new Error(data?.error ?? "Could not add material.");
-              setItems((prev) => (prev ? [...prev, data.item as MaterialItem] : prev));
+              setItems((prev) => (prev ? [...prev, data.item] : prev));
               pushSuccess(`${data.item.label} added to the catalog.`);
               return true;
             } catch (err) {

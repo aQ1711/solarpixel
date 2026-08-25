@@ -14,7 +14,7 @@ import {
   BatteryCharging,
 } from "lucide-react";
 import { AccessGate } from "@/components/internal/AccessGate";
-import { internalFetch } from "@/lib/internal/access";
+import { internalFetch, type ApiJson } from "@/lib/internal/access";
 
 // ============================================================================
 // Types
@@ -72,7 +72,7 @@ function MakerSurveyApp({ onUnauthorized }: { onUnauthorized: () => void }) {
     internalFetch("MAKER", "/api/maker/engineers")
       .then(async (res) => {
         if (res.status === 401) return onUnauthorized();
-        const data = await res.json();
+        const data = (await res.json()) as ApiJson<{ engineers?: Engineer[] }>;
         if (!res.ok) {
           setEngineersError(data?.error ?? "Could not load engineer list.");
           return;
@@ -135,12 +135,12 @@ function QuoteLookupAndSurvey({
     try {
       const res = await internalFetch("MAKER", `/api/maker/quotes/${encodeURIComponent(id)}`);
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ quote?: QuoteSummary }>;
       if (!res.ok) {
         setLookupError(data?.error ?? "Could not load that quote.");
         return;
       }
-      setQuote(data.quote);
+      setQuote(data.quote ?? null);
     } catch {
       setLookupError("Network error. Please check your connection and try again.");
     } finally {
@@ -282,7 +282,7 @@ function SurveyForm({
     try {
       const res = await internalFetch("MAKER", "/api/maker/survey", { method: "POST", body: fd });
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson;
       if (!res.ok) {
         setSubmitError(data?.error ?? "Something went wrong. Please try again.");
         return;

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ShieldCheck, RefreshCw, Play, ExternalLink, Clock, AlertTriangle } from "lucide-react";
 import { useAdminAuth } from "@/components/admin/AdminAuthContext";
-import { internalFetch } from "@/lib/internal/access";
+import { internalFetch, type ApiJson } from "@/lib/internal/access";
 
 // ============================================================================
 // /admin/market-prices — Market Price Scraper dashboard (2026-08-22).
@@ -68,7 +68,7 @@ function MarketPricesDashboard({ onUnauthorized }: { onUnauthorized: () => void 
     try {
       const res = await internalFetch("ADMIN", "/api/admin/market-prices");
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<{ snapshots?: Snapshot[] }>;
       if (!res.ok) throw new Error(data?.error ?? "Could not load market prices.");
       setSnapshots(data.snapshots ?? []);
     } catch (err) {
@@ -91,7 +91,7 @@ function MarketPricesDashboard({ onUnauthorized }: { onUnauthorized: () => void 
     try {
       const res = await internalFetch("ADMIN", "/api/admin/market-prices", { method: "POST" });
       if (res.status === 401) return onUnauthorized();
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<ScrapeResult>;
       if (!res.ok) throw new Error(data?.error ?? "The scrape run failed.");
       setLastResult(data);
       await loadSnapshots();

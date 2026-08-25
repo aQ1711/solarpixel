@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { trackWhatsAppClick } from "@/lib/analytics";
+import type { ApiJson } from "@/lib/internal/access";
 import {
   Loader2,
   CheckCircle2,
@@ -583,7 +584,7 @@ function MarketWatchTicker() {
   useEffect(() => {
     let cancelled = false;
     fetch("/api/equipment-options?sector=RESIDENTIAL")
-      .then((res) => res.json())
+      .then((res) => res.json() as Promise<ApiJson<{ options?: EquipmentOptionsByType; tickerSettings?: TickerVisibility }>>)
       .then((data) => {
         if (cancelled) return;
         const options: EquipmentOptionsByType = data.options ?? {};
@@ -1248,7 +1249,7 @@ function CalculatorCard() {
     let cancelled = false;
     fetch(`/api/equipment-options?sector=${sector}`)
       .then(async (res) => {
-        const data = await res.json();
+        const data = (await res.json()) as ApiJson<{ options?: EquipmentOptionsByType }>;
         if (!res.ok) throw new Error(data?.error ?? "Failed to load equipment options");
         if (!cancelled) {
           setEquipmentOptions(data.options ?? {});
@@ -1453,12 +1454,12 @@ function CalculatorCard() {
             targetBudgetTier: targetBudgetTier ?? undefined,
           }),
         });
-        const data = await res.json();
+        const data = (await res.json()) as ApiJson<SolarPreviewResult>;
         if (!res.ok) {
           setLivePreviewError(data?.error ?? "Could not calculate an estimate.");
           return;
         }
-        setLivePreview(data as SolarPreviewResult);
+        setLivePreview(data);
       } catch {
         setLivePreviewError("Network error. Please try again.");
       } finally {
@@ -1518,8 +1519,8 @@ function CalculatorCard() {
           }),
         });
         if (!res.ok) return;
-        const data = await res.json();
-        setBaselinePreview(data as SolarPreviewResult);
+        const data = (await res.json()) as ApiJson<SolarPreviewResult>;
+        setBaselinePreview(data);
       } catch {
         // Purely a supplementary reference figure — a failed fetch just
         // leaves the "Starting from" line hidden, never blocks or errors
@@ -1565,7 +1566,7 @@ function CalculatorCard() {
       const formData = new FormData();
       formData.set("file", file);
       const res = await fetch("/api/bill-upload", { method: "POST", body: formData });
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<UploadedBillDetails>;
 
       if (!res.ok) {
         setUploadState("error");
@@ -1573,7 +1574,7 @@ function CalculatorCard() {
         return;
       }
 
-      const details = data as UploadedBillDetails;
+      const details = data;
       setBillDetails(details);
       setBillAmountInput(String(details.currentBillPKR));
       setBillSource(details.source === "uploaded_pdf" ? "UPLOADED_PDF" : "UPLOADED_IMAGE");
@@ -1615,12 +1616,12 @@ function CalculatorCard() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ requestKind: "PANEL_WASHING", panelCount: count, sector }),
         });
-        const data = await res.json();
+        const data = (await res.json()) as ApiJson<PanelWashingResult>;
         if (!res.ok) {
           setWashPreviewError(data?.error ?? "Could not calculate an estimate.");
           return;
         }
-        setWashPreview(data as PanelWashingResult);
+        setWashPreview(data);
       } catch {
         setWashPreviewError("Network error. Please try again.");
       } finally {
@@ -1650,12 +1651,12 @@ function CalculatorCard() {
             evChargerCableDistanceMeters: distance,
           }),
         });
-        const data = await res.json();
+        const data = (await res.json()) as ApiJson<EvChargerResult>;
         if (!res.ok) {
           setEvPreviewError(data?.error ?? "Could not calculate an estimate.");
           return;
         }
-        setEvPreview(data as EvChargerResult);
+        setEvPreview(data);
       } catch {
         setEvPreviewError("Network error. Please try again.");
       } finally {
@@ -1694,7 +1695,7 @@ function CalculatorCard() {
         }),
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as ApiJson<QuoteResult>;
 
       if (!res.ok) {
         setErrorMessage(data?.error ?? "Something went wrong. Please try again.");
@@ -1702,7 +1703,7 @@ function CalculatorCard() {
         return;
       }
 
-      setResult(data as QuoteResult);
+      setResult(data);
       setStatus("success");
       // Push a real history entry so the hardware Back button has
       // something to land on — the effect above reconciles `status` back
@@ -1749,13 +1750,13 @@ function CalculatorCard() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ requestKind: "PANEL_WASHING", panelCount: count, sector }),
         });
-        const data = await res.json();
+        const data = (await res.json()) as ApiJson<PanelWashingResult>;
         if (!res.ok) {
           setAddOnError(data?.error ?? "Could not calculate your quote. Please try again.");
           setStatus("idle");
           return;
         }
-        const priced = data as PanelWashingResult;
+        const priced = data;
         const priceLine = `${formatPKR(priced.oneTimePricePKR)} one-time (${priced.panelCount} panels)`;
         const message = `Hi Solar Pixel! I'm ${fullName} and I'd like to request: ${serviceLabel}. Quote: ${priceLine}.${detailsLine}`;
         trackWhatsAppClick("panel_washing_inquiry");
@@ -1786,13 +1787,13 @@ function CalculatorCard() {
             evChargerCableDistanceMeters: Number(evCableDistanceMeters) || EV_CHARGER_INCLUDED_CABLE_METERS,
           }),
         });
-        const data = await res.json();
+        const data = (await res.json()) as ApiJson<EvChargerResult>;
         if (!res.ok) {
           setAddOnError(data?.error ?? "Could not calculate your quote. Please try again.");
           setStatus("idle");
           return;
         }
-        const priced = data as EvChargerResult;
+        const priced = data;
         const message = `Hi Solar Pixel! I'm ${fullName} and I'd like to request: ${serviceLabel} (${priced.evChargerRatingKw} kW). Quote: ${formatPKR(priced.totalClientPricePKR)} turnkey.${detailsLine}`;
         trackWhatsAppClick("ev_charger_inquiry");
         window.open(`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
