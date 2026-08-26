@@ -78,7 +78,14 @@ export function assertMakerAccess(req: NextRequest): void {
 // schema.prisma).
 // ============================================================================
 
-function isSuperAdminSecret(provided: string | null): boolean {
+// Exported (2026-08-26) for actions/generate-content-plan.ts — a Server
+// Action, which never receives a NextRequest the way every /api/admin/*
+// route handler does. It takes the client-supplied token as a plain
+// string argument instead (read the same way, from the same
+// sessionStorage-backed lib/internal/access.ts on the client) and
+// compares it directly, so the actual secret comparison logic still
+// lives in exactly one place.
+export function isSuperAdminSecret(provided: string | null): boolean {
   const expected = process.env.ADMIN_ACCESS_TOKEN;
   return Boolean(expected) && provided !== null && provided === expected;
 }

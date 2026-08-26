@@ -1,4 +1,4 @@
-import { Users, ClipboardCheck, DollarSign, TrendingUp, UserCog, type LucideIcon } from "lucide-react";
+import { Users, ClipboardCheck, DollarSign, TrendingUp, UserCog, Megaphone, type LucideIcon } from "lucide-react";
 
 /**
  * Single source of truth for "who can see which /admin/* page," shared
@@ -67,6 +67,17 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     href: "/admin/team",
     label: "Team",
     icon: UserCog,
+    allowed: (v) => v.kind === "SUPER_ADMIN",
+  },
+  {
+    href: "/admin/marketing",
+    label: "Marketing",
+    icon: Megaphone,
+    // Super-Admin-only for now, same reasoning as Pricing/Market Prices/
+    // Team: it calls a real, metered external AI API on every
+    // generation (a genuine per-call cost), not something to open up to
+    // every delegated Admin without a deliberate decision to add it as
+    // its own AdminModule grant.
     allowed: (v) => v.kind === "SUPER_ADMIN",
   },
 ];

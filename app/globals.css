@@ -247,6 +247,17 @@ body {
   animation: fade-up 0.45s ease-out both;
 }
 
+/* Marketing Hub (app/admin/marketing) skeleton cards — a light sweep
+   crossing the card left-to-right, referenced via Tailwind's arbitrary
+   `animate-[shimmer_1.8s_infinite]` (no .animate-shimmer utility needed,
+   the class just needs this keyframe name to exist). Reads as "actively
+   working" rather than a flat pulse. */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 /* Lead Detail Drawer (app/admin/leads) — slides in from the right rather
    than just appearing, so it reads as a panel sliding over the grid
    instead of a jarring pop-in. */
