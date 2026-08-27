@@ -578,42 +578,44 @@ async function main() {
       sortOrder: 99,
     },
 
-    // ---- Structure Choice (Recommended default: STANDARD_L1_L2) ----
-    // STANDARD_L1_L2 / CUSTOM_ELEVATED already exist from an earlier
-    // seed pass (used by the Maker survey too) — CORRUGATED_ROOF_MOUNT
-    // is new. Costs only added here if not already present.
+    // ---- Structure Choice (2026-08-27, explicit instruction) ----
+    // Exactly two real Pakistani-market structure types, per the Field
+    // Engineer survey's own StructureChoice enum (app/maker/survey/
+    // page.tsx) — codes unchanged (STANDARD_L1_L2/CUSTOM_ELEVATED are
+    // still what SiteSurvey.structureChoice stores), only labels and the
+    // pricing model changed. isDefault is now IGNORED for this
+    // componentType — the Recommended default always auto-follows
+    // whichever of these two is cheapest right now (see
+    // getCheapestStructureCode in lib/db/admin.ts), never a fixed flag —
+    // "by default we will be setting up the lowest ones." A third,
+    // placeholder-named option (CORRUGATED_ROOF_MOUNT) that used to live
+    // here was removed outright — it was never wired into the Maker
+    // survey or the Checker's structure labels to begin with, just an
+    // orphaned catalog row.
     {
       componentType: "MOUNTING_STRUCTURE",
       code: "STANDARD_L1_L2",
-      label: "Standard Ground/Roof L2",
+      label: "L-2 Standard Structure",
       brand: null,
       specValue: null,
       applicableServiceType: null,
-      isDefault: true,
       sortOrder: 1,
-      // Rs 18/W per the Admin Pricing spec's base rate (was 11/W before
-      // this pass) — this is the "Structure Base Rate" KPI in /admin/pricing.
+      // GI/HDG angle-iron structure, ~2ft standard elevation — the
+      // typical rooftop pick, no shading/obstructions. Admin-editable
+      // via the "Mounting Structure" tab in /admin/pricing.
       cost: { unitCostRs: 18, unit: "PER_WATT" },
     },
     {
       componentType: "MOUNTING_STRUCTURE",
       code: "CUSTOM_ELEVATED",
-      label: "Custom Elevated Pergola",
+      label: "Elevated Customized Structure",
       brand: null,
       specValue: null,
       applicableServiceType: null,
       sortOrder: 2,
+      // Taller, custom-fabricated structure for flat roofs/shading/an
+      // uneven surface — more material and labor than the standard L-2.
       cost: { unitCostRs: 19, unit: "PER_WATT" },
-    },
-    {
-      componentType: "MOUNTING_STRUCTURE",
-      code: "CORRUGATED_ROOF_MOUNT",
-      label: "Corrugated Roof Mount",
-      brand: null,
-      specValue: null,
-      applicableServiceType: null,
-      sortOrder: 3,
-      cost: { unitCostRs: 18, unit: "PER_WATT" },
     },
     {
       componentType: "MOUNTING_STRUCTURE",

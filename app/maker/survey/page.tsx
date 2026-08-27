@@ -48,8 +48,8 @@ const ROOF_TYPES: { value: RoofType; label: string; icon: typeof Home }[] = [
 ];
 
 const STRUCTURE_CHOICES: { value: StructureChoice; label: string; hint: string }[] = [
-  { value: "STANDARD_L1_L2", label: "Standard L1/L2", hint: "Typical rooftop, no obstructions" },
-  { value: "CUSTOM_ELEVATED", label: "Custom Elevated", hint: "Shading, uneven roof, or tall structure needed" },
+  { value: "STANDARD_L1_L2", label: "L-2 Standard Structure", hint: "Typical rooftop, no obstructions" },
+  { value: "CUSTOM_ELEVATED", label: "Elevated Customized Structure", hint: "Shading, uneven roof, or tall structure needed" },
 ];
 
 // ============================================================================

@@ -106,8 +106,8 @@ const ROOF_TYPE_LABELS: Record<string, string> = {
   GROUND_MOUNT: "Ground Mount",
 };
 const STRUCTURE_LABELS: Record<string, string> = {
-  STANDARD_L1_L2: "Standard L1/L2",
-  CUSTOM_ELEVATED: "Custom Elevated",
+  STANDARD_L1_L2: "L-2 Standard Structure",
+  CUSTOM_ELEVATED: "Elevated Customized Structure",
 };
 
 // ============================================================================

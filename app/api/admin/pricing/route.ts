@@ -19,11 +19,25 @@ import { assertSuperAdminAccess, InternalAuthError } from "@/lib/auth/internal-g
  * touching adminPrisma directly (see that file's module doc for why).
  */
 
-// Only the componentTypes /admin/pricing's 5 inventory tabs cover — new
-// materials can't be created for MOUNTING_STRUCTURE/LABOR (those are
-// single-rate KPI fields, not multi-item catalogs) or the exact-BOQ-only
-// buckets (CT_COIL, DB_UPGRADE, TRANSPORT) from here.
-const CATALOG_COMPONENT_TYPES = ["SOLAR_PANEL", "INVERTER", "BATTERY", "DC_CABLE", "AC_CABLE", "BREAKERS", "EV_CHARGER"] as const;
+// Only the componentTypes /admin/pricing's inventory tabs cover — new
+// materials still can't be created for LABOR (a single-rate KPI field,
+// not a multi-item catalog) or the exact-BOQ-only buckets (CT_COIL,
+// DB_UPGRADE, TRANSPORT) from here. MOUNTING_STRUCTURE joined this list
+// 2026-08-27 — it used to be a single-rate KPI field too (one flat
+// "Structure Base Rate" always pointed at DEFAULT_STRUCTURE_CODE), but
+// the Pakistani market has multiple real structure types each needing
+// its own Rs/W rate (see prisma/seed.ts's Structure Choice block), so it
+// now gets the same real multi-item catalog every other component has.
+const CATALOG_COMPONENT_TYPES = [
+  "SOLAR_PANEL",
+  "INVERTER",
+  "BATTERY",
+  "DC_CABLE",
+  "AC_CABLE",
+  "BREAKERS",
+  "EV_CHARGER",
+  "MOUNTING_STRUCTURE",
+] as const;
 
 // Loose on purpose — formatGoogleDriveLink() (called from lib/db/admin.ts,
 // never trusting the client) normalizes whatever share-link shape comes
@@ -70,7 +84,6 @@ const createMaterialSchema = z.object({
 
 const updateGlobalRulesSchema = z.object({
   type: z.literal("UPDATE_GLOBAL_RULES"),
-  structureCostPerWatt: z.number().positive().max(1000).optional(),
   // z.record() with an enum key schema is EXHAUSTIVE in Zod 4 — it
   // requires every Sector key to be present, not just the ones supplied.
   // That silently broke every single-sector margin save from
@@ -163,7 +176,6 @@ export async function POST(req: NextRequest) {
     }
 
     const globalRules = await updateGlobalPricingRule({
-      structureCostPerWatt: input.structureCostPerWatt,
       sectorMargins: input.sectorMargins,
       updatedById: input.updatedById,
     });

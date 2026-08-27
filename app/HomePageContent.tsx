@@ -1092,6 +1092,49 @@ function ShieldWireIcon({ className }: { className?: string }) {
   );
 }
 
+/** L-2 Standard Structure — a low-profile mounting rail: ground line,
+ *  two short uniform legs, a connecting rail, and a barely-tilted panel
+ *  edge sitting just above it. Deliberately low/flat next to
+ *  ElevatedStructureIcon below, so the two read as visually distinct at
+ *  a glance in the Mounting Structure swap picker (2026-08-27, explicit
+ *  instruction: "add some icon or sketch for the structures so customer
+ *  can check"). */
+function StandardStructureIcon({ className }: { className?: string }) {
+  return (
+    <svg {...SKETCH_ICON_PROPS} className={className} aria-hidden>
+      <path d="M4 40 H44" />
+      <path d="M12 40 V31 M36 40 V29" />
+      <path d="M12 31 L36 29" />
+      <path d="M10 25.5 L38 22.5" opacity={0.6} />
+    </svg>
+  );
+}
+
+/** Elevated Customized Structure — a taller tilted A-frame: ground line,
+ *  a short front leg and a tall back leg, a steeply-angled panel edge
+ *  spanning between their tops, and a diagonal brace strut. Noticeably
+ *  taller/steeper than StandardStructureIcon above — the visual cue for
+ *  "elevated." */
+function ElevatedStructureIcon({ className }: { className?: string }) {
+  return (
+    <svg {...SKETCH_ICON_PROPS} className={className} aria-hidden>
+      <path d="M4 40 H44" />
+      <path d="M12 40 V30 M36 40 V14" />
+      <path d="M12 30 L36 14" />
+      <path d="M12 40 L30 21" opacity={0.55} />
+    </svg>
+  );
+}
+
+/** Maps a MOUNTING_STRUCTURE EquipmentOption.code to its sketch icon in
+ *  the Custom Builder's swap picker — undefined for "Other / Specific
+ *  Requirement" (falls back to no icon, same as every other swap row's
+ *  "Other" card) or any future code this map hasn't been updated for. */
+const STRUCTURE_ICON_BY_CODE: Record<string, React.ComponentType<{ className?: string }>> = {
+  STANDARD_L1_L2: StandardStructureIcon,
+  CUSTOM_ELEVATED: ElevatedStructureIcon,
+};
+
 // ============================================================================
 // Step indicators (Part 2) — a high-contrast "STEP N" pill + title above
 // each of the dashboard's 3 major blocks, so the eye has an explicit
@@ -1317,6 +1360,19 @@ function CalculatorCard() {
     return list?.find((o) => !o.isOtherOption)?.code ?? null;
   }
 
+  /** Same "no explicit pick yet" fallback as firstNonOther, but by
+   *  lowest unitPricePKR instead of catalog sortOrder — Mounting
+   *  Structure's own pre-selection (2026-08-27, explicit instruction:
+   *  "by default we will be setting up the lowest ones"). Mirrors
+   *  getCheapestStructureCode's server-side logic in lib/db/admin.ts so
+   *  the Custom Builder's own initial highlight can never disagree with
+   *  what the backend actually prices when structureCode is omitted. */
+  function cheapestNonOther(list?: EquipmentOptionDTO[]): string | null {
+    const real = (list ?? []).filter((o) => !o.isOtherOption && o.inStock && o.unitPricePKR !== null);
+    if (real.length === 0) return firstNonOther(list);
+    return real.reduce((min, o) => (o.unitPricePKR! < min.unitPricePKR! ? o : min)).code;
+  }
+
   // Inverter options are filtered by serviceType (On-Grid vs Hybrid).
   const inverterOptionsForServiceType = (equipmentOptions?.INVERTER ?? []).filter(
     (o) => o.isOtherOption || o.applicableServiceType === serviceType,
@@ -1348,7 +1404,7 @@ function CalculatorCard() {
         : NONE_CODE;
   const effectiveCableCode = cableCode ?? firstNonOther(equipmentOptions?.DC_CABLE);
   const effectiveBreakersCode = breakersCode ?? firstNonOther(equipmentOptions?.BREAKERS);
-  const effectiveStructureCode = structureCode ?? firstNonOther(equipmentOptions?.MOUNTING_STRUCTURE);
+  const effectiveStructureCode = structureCode ?? cheapestNonOther(equipmentOptions?.MOUNTING_STRUCTURE);
 
   const currentPanelOption = equipmentOptions?.SOLAR_PANEL?.find((o) => o.code === effectivePanelCode) ?? null;
 
@@ -2712,6 +2768,7 @@ function CalculatorCard() {
                               key={o.code}
                               label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
                               imageUrl={o.logoUrl}
+                              icon={STRUCTURE_ICON_BY_CODE[o.code]}
                               active={effectiveStructureCode === o.code}
                               inStock={o.inStock}
                               onClick={() => setStructureCode(o.code)}
@@ -3428,6 +3485,7 @@ function EquipmentSwapRow({
 function SwapOptionCard({
   label,
   imageUrl,
+  icon: Icon,
   active,
   onClick,
   deltaLabel,
@@ -3435,6 +3493,13 @@ function SwapOptionCard({
 }: {
   label: string;
   imageUrl: string | null;
+  /** Fallback sketch icon shown when there's no brand `imageUrl` — used
+   *  by Mounting Structure's two real (no-brand) structure types
+   *  (2026-08-27) so a customer can visually tell them apart at a
+   *  glance, same "architectural sketch" icon set the section headers
+   *  already use (see StandardStructureIcon/ElevatedStructureIcon).
+   *  `imageUrl` still wins if both are somehow passed. */
+  icon?: React.ComponentType<{ className?: string }>;
   active: boolean;
   onClick: () => void;
   deltaLabel: string;
@@ -3461,9 +3526,15 @@ function SwapOptionCard({
             : CARD_UNSELECTED_CLASSES
       }`}
     >
-      {imageUrl && (
+      {imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- external Google Drive URL, not a local/optimizable asset
         <img src={imageUrl} alt="" className={`h-6 w-10 shrink-0 object-contain ${!inStock ? "grayscale" : ""}`} />
+      ) : (
+        Icon && (
+          <Icon
+            className={`h-7 w-7 shrink-0 ${!inStock ? "text-slate-300" : active ? "text-orange-100" : "text-violet-400"}`}
+          />
+        )
       )}
       <span className="min-w-0">
         {/* Same "was truncate, real brand/model names clip on mobile"

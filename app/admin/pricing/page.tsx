@@ -15,6 +15,7 @@ import {
   BatteryCharging,
   Cable,
   PlugZap,
+  Blocks,
   Pencil,
   FileText,
   Image as ImageIcon,
@@ -41,7 +42,7 @@ import { formatGoogleDriveLink } from "@/lib/utils/googleDrive";
 // changes real pricing on the next quote calculated, immediately.
 // ============================================================================
 
-type ComponentType = "SOLAR_PANEL" | "INVERTER" | "BATTERY" | "DC_CABLE" | "AC_CABLE" | "BREAKERS" | "EV_CHARGER";
+type ComponentType = "SOLAR_PANEL" | "INVERTER" | "BATTERY" | "DC_CABLE" | "AC_CABLE" | "BREAKERS" | "EV_CHARGER" | "MOUNTING_STRUCTURE";
 type ServiceType = "HYBRID_BATTERY" | "ONGRID_ZERO_EXPORT";
 type CostUnit = "PER_WATT" | "PER_METER" | "PER_KWH" | "PER_UNIT" | "PER_PIECE" | "LUMP_SUM";
 type Sector = "RESIDENTIAL" | "COMMERCIAL" | "INDUSTRIAL";
@@ -97,7 +98,6 @@ type WashingRateField =
   | "washingMinimumVisitFeePKR";
 
 interface GlobalRules {
-  structureCostPerWatt: number;
   installationCostPerWattResidential: number;
   installationCostPerWattCommercial: number;
   installationCostPerWattIndustrial: number;
@@ -145,13 +145,20 @@ const UNIT_SUFFIX: Record<CostUnit, string> = {
   LUMP_SUM: " flat",
 };
 
-type TabKey = "SOLAR_PANEL" | "INVERTER" | "BATTERY" | "CABLES_BREAKERS" | "EV_CHARGER";
+type TabKey = "SOLAR_PANEL" | "INVERTER" | "BATTERY" | "CABLES_BREAKERS" | "EV_CHARGER" | "MOUNTING_STRUCTURE";
 const TABS: { key: TabKey; label: string; emoji: string; componentTypes: ComponentType[] }[] = [
   { key: "SOLAR_PANEL", label: "Solar Panels", emoji: "☀️", componentTypes: ["SOLAR_PANEL"] },
   { key: "INVERTER", label: "Inverters", emoji: "⚡", componentTypes: ["INVERTER"] },
   { key: "BATTERY", label: "Lithium Batteries", emoji: "🔋", componentTypes: ["BATTERY"] },
   { key: "CABLES_BREAKERS", label: "Cables & Breakers", emoji: "🔌", componentTypes: ["DC_CABLE", "AC_CABLE", "BREAKERS"] },
   { key: "EV_CHARGER", label: "EV Chargers", emoji: "🚗", componentTypes: ["EV_CHARGER"] },
+  // 2026-08-27, explicit instruction: multiple real structure types used
+  // in the Pakistani market each need their own Rs/W rate, admin-editable
+  // like every other component — see getCheapestStructureCode's doc
+  // comment in lib/db/admin.ts for how the Recommended default now
+  // auto-follows whichever one is cheapest (this tab hides the usual
+  // "Set Default" star for exactly that reason, see MaterialTable below).
+  { key: "MOUNTING_STRUCTURE", label: "Mounting Structure", emoji: "🏗️", componentTypes: ["MOUNTING_STRUCTURE"] },
 ];
 
 const pkr = new Intl.NumberFormat("en-PK", { style: "currency", currency: "PKR", maximumFractionDigits: 0 });
@@ -256,7 +263,7 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function saveGlobalRules(patch: { structureCostPerWatt?: number; sectorMargins?: Partial<Record<Sector, number>> }) {
+  async function saveGlobalRules(patch: { sectorMargins?: Partial<Record<Sector, number>> }) {
     if (!actingAdminId) {
       pushError("Select an admin identity before saving.");
       return false;
@@ -482,7 +489,6 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
         {globalRules && (
           <KpiBanner
             globalRules={globalRules}
-            onSaveStructure={(v) => saveGlobalRules({ structureCostPerWatt: v })}
             onSaveMargin={(sector, v) => saveGlobalRules({ sectorMargins: { [sector]: v } })}
             onSaveInstallationResidential={(v) => saveGlobalPricingRates({ installationCostPerWattResidential: v })}
             onSaveInstallationCommercial={(v) => saveGlobalPricingRates({ installationCostPerWattCommercial: v })}
@@ -590,12 +596,13 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
 }
 
 // ============================================================================
-// KPI banner — Structure / Installation / Sector margins, inline-editable
+// KPI banner — Installation / Sector margins, inline-editable. Mounting
+// Structure's per-watt rate(s) moved to their own real catalog tab
+// (2026-08-27) — see the "Mounting Structure" TABS entry above.
 // ============================================================================
 
 function KpiBanner({
   globalRules,
-  onSaveStructure,
   onSaveMargin,
   onSaveInstallationResidential,
   onSaveInstallationCommercial,
@@ -607,7 +614,6 @@ function KpiBanner({
   onSaveLightningArrestorRate,
 }: {
   globalRules: GlobalRules;
-  onSaveStructure: (v: number) => Promise<boolean>;
   onSaveMargin: (sector: Sector, v: number) => Promise<boolean>;
   onSaveInstallationResidential: (v: number) => Promise<boolean>;
   onSaveInstallationCommercial: (v: number) => Promise<boolean>;
@@ -620,9 +626,6 @@ function KpiBanner({
 }) {
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      <KpiCard label="Structure Base Rate" suffix="/W">
-        <InlineEditableNumber value={globalRules.structureCostPerWatt} prefix="Rs " suffix="/W" onSave={onSaveStructure} />
-      </KpiCard>
       <KpiCard label="Installation Rate by Sector">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2">
@@ -904,6 +907,7 @@ const COMPONENT_TYPE_ICON: Record<ComponentType, typeof Sun> = {
   AC_CABLE: Cable,
   BREAKERS: Cable,
   EV_CHARGER: PlugZap,
+  MOUNTING_STRUCTURE: Blocks,
 };
 
 const PHASE_LABEL: Record<InverterPhase, string> = { SINGLE_PHASE: "Single Phase", THREE_PHASE: "Three Phase" };
@@ -953,6 +957,16 @@ function MaterialTable({
       </div>
     );
   }
+
+  // Mounting Structure ignores isDefault entirely — the Recommended pick
+  // always auto-follows whichever active, in-stock structure type is
+  // cheapest right now (see getCheapestStructureCode's doc comment in
+  // lib/db/admin.ts). Computed here, client-side, purely to show which
+  // row that currently is — the real resolution happens server-side on
+  // every quote, this is just keeping the admin informed.
+  const cheapestStructureId = items
+    .filter((it) => it.componentType === "MOUNTING_STRUCTURE" && it.unitCostRs !== null && it.isActive && it.inStock)
+    .reduce<MaterialItem | null>((min, it) => (min === null || it.unitCostRs! < min.unitCostRs! ? it : min), null)?.id;
 
   return (
     <div className="mt-4 overflow-x-auto rounded-2xl border border-stone-200 bg-white">
@@ -1056,20 +1070,34 @@ function MaterialTable({
                   {item.customerPricePreviewPKR !== null ? formatPKR(item.customerPricePreviewPKR) : "—"}
                 </td>
                 <td className="px-4 py-3">
-                  <button
-                    type="button"
-                    disabled={item.isDefault}
-                    onClick={() => onSaveMaterial(item.id, { isDefault: true })}
-                    title={item.isDefault ? "Current Recommended default" : "Make this the Recommended default"}
-                    className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors duration-200 ${
-                      item.isDefault
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                        : "border-stone-200 bg-white text-stone-400 hover:border-violet-300 hover:text-violet-600"
-                    }`}
-                  >
-                    <Star className={`h-3 w-3 ${item.isDefault ? "fill-emerald-500 text-emerald-500" : ""}`} />
-                    {item.isDefault ? "Default" : "Set Default"}
-                  </button>
+                  {item.componentType === "MOUNTING_STRUCTURE" ? (
+                    <span
+                      title="Mounting Structure has no manual default — the Recommended pick always auto-follows whichever active, in-stock structure type below has the lowest Rs/W rate."
+                      className={`flex w-fit items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                        item.id === cheapestStructureId
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-stone-200 bg-stone-50 text-stone-400"
+                      }`}
+                    >
+                      <Star className={`h-3 w-3 ${item.id === cheapestStructureId ? "fill-emerald-500 text-emerald-500" : ""}`} />
+                      {item.id === cheapestStructureId ? "Auto Default (Cheapest)" : "—"}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={item.isDefault}
+                      onClick={() => onSaveMaterial(item.id, { isDefault: true })}
+                      title={item.isDefault ? "Current Recommended default" : "Make this the Recommended default"}
+                      className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors duration-200 ${
+                        item.isDefault
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-stone-200 bg-white text-stone-400 hover:border-violet-300 hover:text-violet-600"
+                      }`}
+                    >
+                      <Star className={`h-3 w-3 ${item.isDefault ? "fill-emerald-500 text-emerald-500" : ""}`} />
+                      {item.isDefault ? "Default" : "Set Default"}
+                    </button>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <button
@@ -1126,6 +1154,7 @@ const CATEGORY_OPTIONS: { value: ComponentType; label: string }[] = [
   { value: "AC_CABLE", label: "AC Cable" },
   { value: "BREAKERS", label: "Protection & Breakers" },
   { value: "EV_CHARGER", label: "EV Charger" },
+  { value: "MOUNTING_STRUCTURE", label: "Mounting Structure" },
 ];
 const UNIT_OPTIONS: CostUnit[] = ["PER_WATT", "PER_KWH", "PER_METER", "PER_UNIT", "PER_PIECE", "LUMP_SUM"];
 

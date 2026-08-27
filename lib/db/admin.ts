@@ -223,7 +223,10 @@ export interface EquipmentSelections {
   acCableCode?: string;
   breakersCode?: string;
   /** Must match a MOUNTING_STRUCTURE RawVendorCost.itemName, e.g.
-   *  "STANDARD_L1_L2". Omitted defaults to DEFAULT_STRUCTURE_CODE. */
+   *  "STANDARD_L1_L2". Omitted defaults to whichever active, in-stock
+   *  structure type is currently cheapest (see getCheapestStructureCode's
+   *  doc comment) — not a fixed admin-flagged default like every other
+   *  slot here. */
   structureCode?: string;
   /** "Site Works" quantities — each x its flat admin rate
    *  (GlobalPricingSettings) makes up siteWorksPKR. Not a brand/model
@@ -349,11 +352,13 @@ export function estimatedBatteryCapacityKwh(systemKw: number, selections?: Equip
 /** Looks up the admin-configured Recommended default for a component
  *  slot (EquipmentOption.isDefault, editable via /admin/pricing) —
  *  `applicableServiceType: null` means "applies regardless" (panels,
- *  cables, breakers, structure); pass the actual serviceType for
- *  INVERTER/BATTERY, whose defaults are chosen per service type. Falls
- *  back to `fallbackCode` (one of the DEFAULT_* constants above) if
- *  nothing is marked default yet, so pricing never breaks from an empty
- *  admin table before anyone has touched it. */
+ *  cables, breakers); pass the actual serviceType for INVERTER/BATTERY,
+ *  whose defaults are chosen per service type. Falls back to
+ *  `fallbackCode` (one of the DEFAULT_* constants above) if nothing is
+ *  marked default yet, so pricing never breaks from an empty admin table
+ *  before anyone has touched it. NOT used for MOUNTING_STRUCTURE — see
+ *  getCheapestStructureCode() below for why that slot is the one
+ *  exception. */
 async function getDefaultCode(
   componentType: ComponentType,
   applicableServiceType: ServiceType | null,
@@ -372,6 +377,59 @@ async function getDefaultCode(
     orderBy: { sortOrder: "asc" },
   });
   return row?.code ?? fallbackCode;
+}
+
+/** Mounting Structure's Recommended default (2026-08-27, explicit
+ *  instruction: "by default we will be setting up the lowest ones") —
+ *  the ONE component slot that ignores EquipmentOption.isDefault
+ *  entirely. Every other slot lets the admin manually flag a "Recommended"
+ *  row (see getDefaultCode above); Structure instead always resolves to
+ *  whichever active, in-stock, real (non-"Other") structure type
+ *  currently has the LOWEST Rs/W rate, recomputed fresh on every quote —
+ *  so it stays correct automatically if an admin reprices later, not
+ *  just at seed time. The /admin/pricing "Mounting Structure" tab hides
+ *  its "Set Default" star for this exact reason (nothing for it to
+ *  control). Falls back to DEFAULT_STRUCTURE_CODE if no active in-stock
+ *  structure rate is on file at all (same "never break from an empty
+ *  table" spirit as getDefaultCode). */
+async function getCheapestStructureCode(): Promise<string> {
+  const adminPrisma = await getAdminPrisma();
+  const now = new Date();
+
+  const options = await adminPrisma.equipmentOption.findMany({
+    where: { componentType: "MOUNTING_STRUCTURE", isActive: true, inStock: true, isOtherOption: false },
+    select: { code: true },
+  });
+  if (options.length === 0) return DEFAULT_STRUCTURE_CODE;
+
+  const costs = await adminPrisma.rawVendorCost.findMany({
+    where: {
+      componentType: "MOUNTING_STRUCTURE",
+      unit: "PER_WATT",
+      itemName: { in: options.map((o) => o.code) },
+      isActive: true,
+      effectiveFrom: { lte: now },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+    },
+    orderBy: { effectiveFrom: "desc" },
+  });
+
+  // Most-recent active rate per code (costs is already effectiveFrom
+  // desc, so the first hit per itemName wins) — same "first hit per key"
+  // pattern listMaterialCatalog's costByKey uses. Then just the min.
+  const seen = new Set<string>();
+  let cheapestCode: string | null = null;
+  let cheapestRs = Infinity;
+  for (const cost of costs) {
+    if (seen.has(cost.itemName)) continue;
+    seen.add(cost.itemName);
+    const rs = cost.unitCostRs.toNumber();
+    if (rs < cheapestRs) {
+      cheapestRs = rs;
+      cheapestCode = cost.itemName;
+    }
+  }
+  return cheapestCode ?? DEFAULT_STRUCTURE_CODE;
 }
 
 /** Combines getDefaultCode's DB lookup with the same "OTHER / omitted ->
@@ -533,13 +591,16 @@ export async function calculateSystemPricing(
   // pricing never breaks from an empty admin table. AC_CABLE has no
   // EquipmentOption rows of its own (see DEFAULT_CABLE_CODE's doc comment)
   // so it reuses DC_CABLE's resolved default rather than querying separately.
+  // MOUNTING_STRUCTURE is the one exception to all of this — it doesn't use
+  // getDefaultCode/isDefault at all, see getCheapestStructureCode's own doc
+  // comment for why.
   const [defaultPanelCode, defaultInverterCode, defaultCableCode, defaultBreakersCode, defaultStructureCode, defaultBatteryCode] =
     await Promise.all([
       getDefaultCode("SOLAR_PANEL", null, DEFAULT_PANEL_CODE),
       resolveBudgetTierInverterCode(effectiveBudgetTier, systemKw, serviceType),
       getDefaultCode("DC_CABLE", null, DEFAULT_CABLE_CODE),
       getDefaultCode("BREAKERS", null, DEFAULT_BREAKERS_CODE),
-      getDefaultCode("MOUNTING_STRUCTURE", null, DEFAULT_STRUCTURE_CODE),
+      getCheapestStructureCode(),
       // batteryOptedOut is already true whenever effectiveBudgetTier is
       // UNDER_1M (see above), so reaching here with needsBattery true
       // only happens for 1M_TO_1_5M/1_5M_PLUS — always the budget-tier
@@ -1428,7 +1489,6 @@ export interface MaterialCatalogItem {
 }
 
 export interface GlobalPricingRules {
-  structureCostPerWatt: number;
   /** Replaced the old single flat `installationCostPerWatt` — installation
    *  now varies by sector, see GlobalPricingSettings in schema.prisma and
    *  installationRateForSector() below. */
@@ -1909,12 +1969,9 @@ export async function listMaterialCatalog(): Promise<MaterialCatalogResponse> {
     };
   });
 
-  const structureCost = costByKey.get(`MOUNTING_STRUCTURE::${DEFAULT_STRUCTURE_CODE}`);
-
   return {
     items,
     globalRules: {
-      structureCostPerWatt: structureCost?.unitCostRs.toNumber() ?? 0,
       installationCostPerWattResidential: settings.installationCostPerWattResidential,
       installationCostPerWattCommercial: settings.installationCostPerWattCommercial,
       installationCostPerWattIndustrial: settings.installationCostPerWattIndustrial,
@@ -2189,7 +2246,6 @@ export async function deactivateMaterialItem(id: string): Promise<void> {
 }
 
 export interface UpdateGlobalRulesInput {
-  structureCostPerWatt?: number;
   /** Partial — only the sectors present are changed. */
   sectorMargins?: Partial<Record<Sector, number>>;
   /** Super Admin's User.id — MarginRule.createdById is a required FK,
@@ -2197,8 +2253,13 @@ export interface UpdateGlobalRulesInput {
   updatedById: string;
 }
 
-/** Updates the structure per-watt base rate and/or one or more sectors'
- *  default margin — the KPI banner at the top of /admin/pricing.
+/** Updates one or more sectors' default margin — the KPI banner at the
+ *  top of /admin/pricing. Used to also carry the structure per-watt base
+ *  rate; that's gone (2026-08-27) — Mounting Structure is now a real,
+ *  multi-item catalog tab like every other component (see the
+ *  "Mounting Structure" TABS entry in app/admin/pricing/page.tsx and
+ *  getCheapestStructureCode's doc comment above), each type's rate
+ *  edited the same generic per-item way Panel/Inverter/etc. already are.
  *  Installation rates moved to updateGlobalPricingSettings() below
  *  (POST /api/admin/pricing/rules) since they're no longer one flat
  *  RawVendorCost row — this function's return still includes the full
@@ -2207,13 +2268,6 @@ export interface UpdateGlobalRulesInput {
  *  which endpoint they hit. */
 export async function updateGlobalPricingRule(input: UpdateGlobalRulesInput): Promise<GlobalPricingRules> {
   const adminPrisma = await getAdminPrisma();
-  if (input.structureCostPerWatt !== undefined) {
-    await adminPrisma.rawVendorCost.updateMany({
-      where: { componentType: "MOUNTING_STRUCTURE", itemName: DEFAULT_STRUCTURE_CODE, isActive: true },
-      data: { unitCostRs: input.structureCostPerWatt },
-    });
-  }
-
   if (input.sectorMargins) {
     for (const sector of ALL_SECTORS) {
       const percent = input.sectorMargins[sector];
@@ -2242,17 +2296,9 @@ export async function updateGlobalPricingRule(input: UpdateGlobalRulesInput): Pr
   }
 
   const now = new Date();
-  const [structureCost, sectorMargins, settings] = await Promise.all([
-    adminPrisma.rawVendorCost.findFirst({
-      where: { componentType: "MOUNTING_STRUCTURE", itemName: DEFAULT_STRUCTURE_CODE, ...activeAsOf(now) },
-      orderBy: { effectiveFrom: "desc" },
-    }),
-    getSectorDefaultMargins(now),
-    getGlobalPricingSettings(),
-  ]);
+  const [sectorMargins, settings] = await Promise.all([getSectorDefaultMargins(now), getGlobalPricingSettings()]);
 
   return {
-    structureCostPerWatt: structureCost?.unitCostRs.toNumber() ?? 0,
     installationCostPerWattResidential: settings.installationCostPerWattResidential,
     installationCostPerWattCommercial: settings.installationCostPerWattCommercial,
     installationCostPerWattIndustrial: settings.installationCostPerWattIndustrial,
@@ -2338,16 +2384,9 @@ export async function updateGlobalPricingSettings(input: UpdateGlobalPricingSett
   }
 
   const now = new Date();
-  const [structureCost, sectorMargins] = await Promise.all([
-    adminPrisma.rawVendorCost.findFirst({
-      where: { componentType: "MOUNTING_STRUCTURE", itemName: DEFAULT_STRUCTURE_CODE, ...activeAsOf(now) },
-      orderBy: { effectiveFrom: "desc" },
-    }),
-    getSectorDefaultMargins(now),
-  ]);
+  const sectorMargins = await getSectorDefaultMargins(now);
 
   return {
-    structureCostPerWatt: structureCost?.unitCostRs.toNumber() ?? 0,
     ...merged,
     sectorMargins: Object.fromEntries(ALL_SECTORS.map((s) => [s, sectorMargins.get(s) ?? 0])) as Record<Sector, number>,
   };
