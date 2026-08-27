@@ -62,6 +62,13 @@ const PHASE_LABEL: Record<InverterPhase, string> = {
 // Provenance of the bill amount — mirrors Prisma's BillSource enum.
 type BillSource = "MANUAL" | "UPLOADED_PDF" | "UPLOADED_IMAGE";
 type UploadState = "idle" | "uploading" | "success" | "error";
+// Hidden 2026-08-27, explicit instruction ("hide the upload bill option -
+// we will check and enable it again") — /api/bill-upload's OCR pipeline
+// stays wired up (handleFileUpload, the upload dropzone JSX, BillDetailsPanel)
+// so this is a one-line flip back on, not a re-implementation. Flip to
+// true to restore the "Optional: Upload your recent electricity bill"
+// dropzone under the bill amount field.
+const BILL_UPLOAD_ENABLED = false;
 // Master toggle at the top of the calculator — "Complete Solar System" is
 // the full sizing/pricing flow below; the other two are lightweight
 // WhatsApp inquiry forms with no backend persistence (no pricing/data
@@ -2182,44 +2189,48 @@ function CalculatorCard() {
                 </div>
               )}
 
-              <div className="mt-2">
-                {uploadState === "uploading" ? (
-                  <div className="flex items-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-4 py-4 text-xs text-slate-500">
-                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-orange-600" />
-                    Reading {uploadFileName}…
+              {BILL_UPLOAD_ENABLED && (
+                <>
+                  <div className="mt-2">
+                    {uploadState === "uploading" ? (
+                      <div className="flex items-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-4 py-4 text-xs text-slate-500">
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-orange-600" />
+                        Reading {uploadFileName}…
+                      </div>
+                    ) : uploadState === "success" && billDetails ? (
+                      <div className="flex items-center justify-between rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50 px-4 py-3.5">
+                        <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-emerald-700">
+                          <FileText className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{uploadFileName}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={clearUpload}
+                          className="-mr-1.5 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-emerald-700/70 transition-colors duration-200 hover:text-emerald-900"
+                          aria-label="Remove uploaded file"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex cursor-pointer flex-col items-center gap-1.5 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-4 py-4 text-center transition-colors duration-200 hover:border-orange-400 hover:bg-orange-50/40">
+                        <Upload className="h-5 w-5 text-slate-400" />
+                        <span className="text-xs font-medium leading-relaxed text-slate-600">
+                          Optional: Upload your recent electricity bill (PDF or Image) for a 100% accurate engineering audit.
+                        </span>
+                        <input type="file" accept="application/pdf,image/*" className="hidden" onChange={handleFileUpload} />
+                      </label>
+                    )}
+                    {uploadState === "error" && uploadError && (
+                      <p role="alert" className="mt-1.5 text-xs text-red-500">
+                        {uploadError}
+                      </p>
+                    )}
                   </div>
-                ) : uploadState === "success" && billDetails ? (
-                  <div className="flex items-center justify-between rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50 px-4 py-3.5">
-                    <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-emerald-700">
-                      <FileText className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">{uploadFileName}</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={clearUpload}
-                      className="-mr-1.5 flex min-h-11 min-w-11 shrink-0 items-center justify-center text-emerald-700/70 transition-colors duration-200 hover:text-emerald-900"
-                      aria-label="Remove uploaded file"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <label className="flex cursor-pointer flex-col items-center gap-1.5 rounded-2xl border-2 border-dashed border-slate-300 bg-white px-4 py-4 text-center transition-colors duration-200 hover:border-orange-400 hover:bg-orange-50/40">
-                    <Upload className="h-5 w-5 text-slate-400" />
-                    <span className="text-xs font-medium leading-relaxed text-slate-600">
-                      Optional: Upload your recent electricity bill (PDF or Image) for a 100% accurate engineering audit.
-                    </span>
-                    <input type="file" accept="application/pdf,image/*" className="hidden" onChange={handleFileUpload} />
-                  </label>
-                )}
-                {uploadState === "error" && uploadError && (
-                  <p role="alert" className="mt-1.5 text-xs text-red-500">
-                    {uploadError}
-                  </p>
-                )}
-              </div>
 
-              {billDetails && billSource !== "MANUAL" && <BillDetailsPanel details={billDetails} source={billSource} />}
+                  {billDetails && billSource !== "MANUAL" && <BillDetailsPanel details={billDetails} source={billSource} />}
+                </>
+              )}
             </div>
 
             {/* 2. Service Type — Property Type + Hybrid/On-Grid, both as
@@ -2565,6 +2576,7 @@ function CalculatorCard() {
                                   title={o.specValue !== null ? `${o.specValue}kW` : o.label}
                                   description={o.phase ? PHASE_LABEL[o.phase] : o.label}
                                   active={effectiveInverterCode === o.code}
+                                  inStock={o.inStock}
                                   onClick={() => setInverterCode(o.code)}
                                 />
                               ))}
@@ -2672,6 +2684,7 @@ function CalculatorCard() {
                                     title={o.specValue !== null ? `${formatTrim(o.specValue)}kWh` : o.label}
                                     description={o.label}
                                     active={effectiveBatteryCode === o.code}
+                                    inStock={o.inStock}
                                     onClick={() => setBatteryCode(o.code)}
                                   />
                                 ))}
