@@ -553,7 +553,11 @@ export async function calculateSystemPricing(
     ]);
 
   const panelCode = resolveSelection(selections?.panelCode, defaultPanelCode);
-  const inverterCode = resolveSelection(selections?.inverterCode, defaultInverterCode);
+  // let, not const (2026-08-27) — the out-of-stock auto-substitution
+  // block below can reassign this to a fallback inverter's code. See
+  // that block's own doc comment for why inverter specifically gets
+  // this treatment while Panel/Battery still hard-fail.
+  let inverterCode = resolveSelection(selections?.inverterCode, defaultInverterCode);
   const dcCableCode = resolveSelection(selections?.dcCableCode, defaultCableCode);
   const acCableCode = resolveSelection(selections?.acCableCode, defaultCableCode);
   const breakersCode = resolveSelection(selections?.breakersCode, defaultBreakersCode);
@@ -567,7 +571,7 @@ export async function calculateSystemPricing(
   const earthingBoreQty = resolveQty(selections?.earthingBoreQty, DEFAULT_EARTHING_BORE_QTY);
   const lightningArrestorQty = resolveQty(selections?.lightningArrestorQty, DEFAULT_LIGHTNING_ARRESTOR_QTY);
 
-  const [panel, inverter, dcCable, acCable, breakers, structure, settings, battery, marginRule, panelOption, inverterOption, batteryOption] =
+  const [panel, inverterInitial, dcCable, acCable, breakers, structure, settings, battery, marginRule, panelOption, inverterOptionInitial, batteryOption] =
     await Promise.all([
       adminPrisma.rawVendorCost.findFirst({
         where: activeFilter("SOLAR_PANEL", "PER_WATT", panelCode),
@@ -635,6 +639,11 @@ export async function calculateSystemPricing(
         : null,
     ]);
 
+  // Reassignable (2026-08-27) — see the out-of-stock auto-substitution
+  // block below, right before outOfStock's own check.
+  let inverter = inverterInitial;
+  let inverterOption = inverterOptionInitial;
+
   const missing = [
     !panel && "raw_vendor_costs(SOLAR_PANEL)",
     !inverter && "raw_vendor_costs(INVERTER)",
@@ -658,17 +667,60 @@ export async function calculateSystemPricing(
     );
   }
 
+  // Inverter out-of-stock auto-substitution (2026-08-27, real reported
+  // gap): if the admin marks the inverter this request names as out of
+  // stock AFTER a customer already generated/saved a quote naming it (a
+  // live re-preview, a re-approach on a saved link, a Checker
+  // recalculate), that request would otherwise fall straight into
+  // outOfStock's hard fail below with "quotation not available" — a
+  // dead end for the customer even though the system is perfectly
+  // priceable with a different in-stock inverter. Auto-substitutes the
+  // same "smallest fitting in-stock" inverter the Recommended path's own
+  // default already falls back to (findSmallestFittingInStockInverter)
+  // rather than erroring. If NO in-stock inverter fits at all,
+  // `inverterOption` below still reflects the original out-of-stock one
+  // and outOfStock's own check catches that as a genuine last resort —
+  // this block doesn't need its own separate "still failed" branch.
+  //
+  // Panel/Battery deliberately do NOT get this treatment yet — kept as
+  // the original hard error (see outOfStock's own comment below): the
+  // reported complaint was specifically about inverter, and Panel/
+  // Battery substitution changes the customer's actual system sizing/
+  // capacity in ways an inverter swap (a fixed-capacity product either
+  // way) doesn't, which deserves its own deliberate decision rather than
+  // riding along with this fix.
+  if (inverterOption?.inStock === false) {
+    const fallbackInverterCode = await findSmallestFittingInStockInverter(systemKw, serviceType);
+    if (fallbackInverterCode && fallbackInverterCode !== inverterCode) {
+      const [fallbackInverter, fallbackInverterOption] = await Promise.all([
+        adminPrisma.rawVendorCost.findFirst({
+          where: activeFilter("INVERTER", "PER_PIECE", fallbackInverterCode),
+          orderBy: { effectiveFrom: "desc" },
+        }),
+        adminPrisma.equipmentOption.findFirst({ where: { componentType: "INVERTER", code: fallbackInverterCode } }),
+      ]);
+      if (fallbackInverter) {
+        inverterCode = fallbackInverterCode;
+        inverter = fallbackInverter;
+        inverterOption = fallbackInverterOption;
+      }
+    }
+  }
+
   // Inventory guardrail (2026-08-20), defense-in-depth — the Custom
   // Equipment Builder already disables selecting an out-of-stock item
   // client-side (greyed out, "Out of Stock" badge), so this only fires
-  // for a bypassed/stale client request. Checked for Panel/Inverter/
-  // Battery only (the components this function already fetches
-  // EquipmentOption metadata for) — Cable/Breakers/Structure rely on the
-  // client-side block alone; see project memory for why that scope line
-  // was drawn there. Deliberately a hard error, not a silent
-  // substitution: silently swapping in a DIFFERENT priced item for a
-  // request that named a specific one would be a worse surprise than
-  // failing loudly.
+  // for a bypassed/stale client request (or, for Inverter specifically,
+  // a substitution attempt above that found no in-stock alternative at
+  // all). Checked for Panel/Inverter/Battery only (the components this
+  // function already fetches EquipmentOption metadata for) — Cable/
+  // Breakers/Structure rely on the client-side block alone; see project
+  // memory for why that scope line was drawn there. Panel/Battery stay a
+  // hard error, not a silent substitution: silently swapping in a
+  // DIFFERENT priced item for a request that named a specific one would
+  // be a worse surprise than failing loudly — see the substitution
+  // block's own comment above for why Inverter now gets different
+  // treatment.
   const outOfStock = [
     panelOption?.inStock === false && `Panel "${panelCode}" is out of stock`,
     inverterOption?.inStock === false && `Inverter "${inverterCode}" is out of stock`,

@@ -491,6 +491,22 @@ function formatTrim(n: number, decimals = 2): string {
   return Number(n.toFixed(decimals)).toString();
 }
 
+/** Pakistani-numbering ("Lac"/"Crore", not "Hundred Thousand"/"Million")
+ *  readback of a bill amount as it's typed (2026-08-27) — the single
+ *  most common real-world data-entry mistake on this field is an extra
+ *  trailing zero (25000 fat-fingered as 250000), which a plain "Rs
+ *  25,000" vs "Rs 250,000" comparator is easy to miss at a glance but
+ *  "25 Thousand" vs "2.5 Lac" is not. Shown live under the field, purely
+ *  a confirmation readback — never used for pricing, which always reads
+ *  billAmountInput/resolvedBillPKR directly. */
+function formatBillInWords(n: number): string {
+  const trimDecimalWord = (v: number) => Number(v.toFixed(1)).toString();
+  if (n >= 10_000_000) return `${trimDecimalWord(n / 10_000_000)} Crore`;
+  if (n >= 100_000) return `${trimDecimalWord(n / 100_000)} Lac`;
+  if (n >= 1_000) return `${trimDecimalWord(n / 1_000)} Thousand`;
+  return String(n);
+}
+
 // ============================================================================
 // Page
 // ============================================================================
@@ -1987,6 +2003,9 @@ function CalculatorCard() {
                       <BadgeCheck className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-600" />
                     )}
                   </div>
+                  {resolvedBillPKR !== null && resolvedBillPKR > 0 && (
+                    <p className="mt-1.5 text-xs font-medium text-slate-500">= {formatBillInWords(resolvedBillPKR)}</p>
+                  )}
                 </div>
                 <div>
                   {/* Target Budget (2026-08-20) — auto-selects the
@@ -3194,30 +3213,54 @@ function CalculatorCard() {
 // Dual Customization Paths — Recommended vs Custom Equipment Builder
 // ============================================================================
 
+/** Real complaint (2026-08-27): "many customers didn't see [Custom
+ *  Equipment Builder]" — the old toggle's unselected state was plain
+ *  slate-grey text, which read as a disabled/secondary label rather
+ *  than a real second option worth clicking. Fixed two ways: the Custom
+ *  side now keeps its own violet color identity even while inactive
+ *  (not "grey until picked"), plus a small pulsing dot + one-line
+ *  caption call out what it actually does — visible exactly when
+ *  Recommended is active, i.e. exactly when a customer might not
+ *  realize there's an alternative. */
 function PathToggle({ path, onChange }: { path: CustomizationPath; onChange: (path: CustomizationPath) => void }) {
-  const options: { value: CustomizationPath; label: string; icon: typeof Sparkles }[] = [
-    { value: "RECOMMENDED", label: "Solar Pixel Recommended", icon: Sparkles },
-    { value: "CUSTOM", label: "Custom Equipment Builder", icon: SlidersHorizontal },
-  ];
   return (
-    <div className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
-      {options.map(({ value, label, icon: Icon }) => {
-        const active = path === value;
-        return (
-          <button
-            key={value}
-            type="button"
-            onClick={() => onChange(value)}
-            aria-pressed={active}
-            className={`flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-[11px] font-semibold leading-tight transition-colors duration-200 sm:text-xs ${
-              active ? "bg-white text-orange-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            <Icon className="h-3.5 w-3.5 shrink-0" />
-            {label}
-          </button>
-        );
-      })}
+    <div>
+      <div className="grid grid-cols-2 gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-1.5">
+        <button
+          type="button"
+          onClick={() => onChange("RECOMMENDED")}
+          aria-pressed={path === "RECOMMENDED"}
+          className={`flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-[11px] font-semibold leading-tight transition-colors duration-200 sm:text-xs ${
+            path === "RECOMMENDED" ? "bg-white text-orange-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          <Sparkles className="h-3.5 w-3.5 shrink-0" />
+          Solar Pixel Recommended
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange("CUSTOM")}
+          aria-pressed={path === "CUSTOM"}
+          className={`relative flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-[11px] font-bold leading-tight transition-colors duration-200 sm:text-xs ${
+            path === "CUSTOM" ? "bg-white text-violet-700 shadow-sm" : "bg-violet-50 text-violet-700 hover:bg-violet-100"
+          }`}
+        >
+          {path !== "CUSTOM" && (
+            <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-violet-500" />
+            </span>
+          )}
+          <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" />
+          Custom Equipment Builder
+        </button>
+      </div>
+      {path === "RECOMMENDED" && (
+        <p className="mt-1.5 text-center text-[11px] text-violet-600">
+          Want to pick the exact brands yourself? Tap <span className="font-semibold">Custom Equipment Builder</span>{" "}
+          above.
+        </p>
+      )}
     </div>
   );
 }
@@ -3268,6 +3311,20 @@ function swapDeltaLabel(candidateUnitPricePKR: number | null, activeUnitPricePKR
   const delta = Math.round((candidateUnitPricePKR - activeUnitPricePKR) * scale);
   if (Math.abs(delta) < 1) return "Included in Base";
   return delta > 0 ? `+ ${formatPKR(delta)}` : `− ${formatPKR(Math.abs(delta))}`;
+}
+
+/** Red for a "+" (costs more than the current selection) label, green
+ *  for a "−" (costs less) one — clear at-a-glance affordability signal
+ *  swapDeltaLabel's own orange/emerald split (Part 3) didn't quite give:
+ *  orange doesn't read as unambiguously "this costs more" the way red
+ *  does. Every OTHER label swapDeltaLabel can return ("Included in
+ *  Base", "Custom pricing", "Enter your bill to see pricing") isn't a
+ *  real price comparison at all, so those stay neutral slate rather
+ *  than being force-fit into red or green. */
+function deltaColorClass(deltaLabel: string): string {
+  if (deltaLabel.startsWith("+")) return "text-red-600";
+  if (deltaLabel.startsWith("−")) return "text-emerald-600";
+  return "text-slate-500";
 }
 
 /** Exact line cost for one Cables/Protection/Mounting catalog option
@@ -3417,9 +3474,7 @@ function SwapOptionCard({
         {!inStock ? (
           <span className="block text-[11px] font-semibold text-slate-400">Out of Stock</span>
         ) : (
-          <span
-            className={`block text-[11px] font-semibold ${active ? "text-orange-100" : deltaLabel.startsWith("+") ? "text-orange-700" : "text-emerald-700"}`}
-          >
+          <span className={`block text-[11px] font-semibold ${active ? "text-orange-100" : deltaColorClass(deltaLabel)}`}>
             {deltaLabel}
           </span>
         )}
