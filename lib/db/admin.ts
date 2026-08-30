@@ -151,7 +151,17 @@ export interface ResolvedEquipment {
    *  never re-derive it from systemKw — that guess breaks the instant
    *  the customer adjusts the count away from baseline. */
   panel: ResolvedEquipmentItem & { count: number; baselineCount: number; maxCount: number | null };
-  inverter: ResolvedEquipmentItem;
+  /** `quantity` added 2026-08-29 for industrial-scale "clubbing" — how
+   *  many of this exact SKU are actually priced/installed. 1 for the
+   *  overwhelming majority of quotes (a single unit already covers the
+   *  system); >1 only once systemKw exceeds every single in-stock
+   *  unit's own rated capacity, in which case this is N × the largest
+   *  available unit (see findLargestInStockInverter/
+   *  inverterQuantityFor). Always present (never optional/undefined) so
+   *  every consumer can safely render `× {quantity}` without a
+   *  fallback — mirrors panel.count's own "always a real number, never
+   *  re-derived client-side" contract. */
+  inverter: ResolvedEquipmentItem & { quantity: number };
   /** null for ONGRID_ZERO_EXPORT (no battery line at all). `capacityKwh`
    *  is the TOTAL capacity actually priced (explicit selection, or the
    *  DEFAULT_BATTERY_KWH_PER_SYSTEM_KW × systemKw fallback) — distinct
@@ -247,8 +257,10 @@ export interface EquipmentSelections {
   lightningArrestorQty?: number;
   /** Panel Quantity Adjuster (2026-08-20) — a customer-adjustable count
    *  of panels, Custom Builder only. Clamped server-side to
-   *  [baselinePanelCount, maxPanelCount] (see calculateSystemPricing) —
-   *  never below what the bill actually requires, never above what the
+   *  [PANEL_COUNT_ABSOLUTE_MINIMUM, maxPanelCount] (see
+   *  calculateSystemPricing) — NOT floored at baselinePanelCount as of
+   *  2026-08-29 (explicit instruction: "don't block user to lower the
+   *  panels - lower they can go at any level"); never above what the
    *  selected inverter's own rated kW can carry. Omitted defaults to
    *  baselinePanelCount (today's existing bill-derived count, unchanged
    *  behavior). Only panelsPKR scales with this — inverter/cabling/
@@ -256,6 +268,19 @@ export interface EquipmentSelections {
    *  a deliberate v1 simplification (see calculateSystemPricing's
    *  comment on why), not an oversight. */
   panelQtyOverride?: number;
+  /** Manual inverter "clubbing" override (2026-08-29) — lets the customer
+   *  deliberately raise how many of the RESOLVED inverter SKU get priced,
+   *  beyond what inverterQuantityFor(systemKw, specValue) alone would
+   *  pick (e.g. 2× a 100kW unit instead of the auto-computed 1×, to
+   *  leave headroom for a planned future expansion). Server-clamped to
+   *  never go BELOW the auto-computed minimum needed to actually cover
+   *  systemKw — this can only ever add headroom, never silently
+   *  undersize the system (see calculateSystemPricing's use of this
+   *  field). Omitted/undefined = pure auto (inverterQuantityFor's answer,
+   *  unchanged from before this field existed). Ignored entirely once
+   *  MAX_INVERTER_UNITS is exceeded (Zod already rejects that at the API
+   *  boundary, this is just defense in depth). */
+  inverterQuantityOverride?: number;
   /** "One-Time Panel Washing Visit" (2026-08-21) — a toggleable Services/
    *  Maintenance add-on in the Custom Equipment Builder, priced with the
    *  SAME tiered per-panel rate the standalone "System Upgrades &
@@ -317,6 +342,20 @@ const DEFAULT_BATTERY_KWH_PER_SYSTEM_KW = 1.2;
  *  used a customer's inverter once they picked one larger than their
  *  bill-derived baseline. */
 const PANEL_OVERSIZE_ALLOWANCE = 1.15;
+/** Panel Quantity Adjuster's floor (2026-08-29, explicit instruction:
+ *  "don't block user to lower the panels - lower they can go at any
+ *  level") — a bare data-integrity minimum (can't have a system with 0
+ *  or negative panels), NOT the bill-derived baselinePanelCount the
+ *  adjuster used to floor at. Customers can now deliberately configure a
+ *  system smaller than their bill technically calls for. This also fixes
+ *  a real reported bug: once manual inverter "clubbing" (see
+ *  resolveInverterQuantity) lets a customer shrink inverterQuantity well
+ *  below what systemKw needs, maxPanelCount (inverter-capacity-derived)
+ *  can end up SMALLER than baselinePanelCount (bill-derived) — flooring
+ *  at baselinePanelCount in that case produced the nonsensical
+ *  "min 525 · max 188" display; flooring at this constant instead keeps
+ *  min ≤ max always. */
+const PANEL_COUNT_ABSOLUTE_MINIMUM = 1;
 /** Reserved EquipmentOption code for "Other / Specific Requirement". */
 const OTHER_CODE = "OTHER";
 /** Reserved `batteryCode` value meaning "the customer explicitly opted
@@ -534,7 +573,16 @@ export async function calculateSystemPricing(
   // told us their budget; the price should only go UP as they pick a
   // higher Target Budget tier). Every other spot in this function that
   // used to branch on `targetBudgetTier` now uses this instead.
-  const effectiveBudgetTier: BudgetTier = targetBudgetTier ?? "UNDER_1M";
+  //
+  // Industrial (2026-08-29, explicit instruction): Target Budget isn't
+  // offered at all for this sector — the tiers are Residential/
+  // Commercial budget brackets that don't map to industrial-scale
+  // pricing, and Industrial has no battery to opt in/out of either way
+  // (locked On-Grid, needsBattery is always false above). Forced to
+  // "UNDER_1M" here regardless of what's sent — never trust the client
+  // for something pricing depends on, same reasoning as
+  // resolveServiceType() force-locking serviceType for this sector.
+  const effectiveBudgetTier: BudgetTier = sector === "INDUSTRIAL" ? "UNDER_1M" : (targetBudgetTier ?? "UNDER_1M");
   // See NONE_CODE's doc comment — an explicit customer opt-out, distinct
   // from "no preference." Forces batteryCode/batteryCapacityKwh to the
   // same null/0 shape ONGRID_ZERO_EXPORT already produces below, so every
@@ -751,7 +799,14 @@ export async function calculateSystemPricing(
   // way) doesn't, which deserves its own deliberate decision rather than
   // riding along with this fix.
   if (inverterOption?.inStock === false) {
-    const fallbackInverterCode = await findSmallestFittingInStockInverter(systemKw, serviceType);
+    // 2026-08-29: fall back to the largest available unit (re-clubbing)
+    // when nothing single-unit-sized fits, same fallback
+    // resolveBudgetTierInverterCode itself uses — without this, an
+    // industrial-scale clubbed selection whose specific unit goes out
+    // of stock would find no substitute at all and hard-fail below,
+    // even though a different in-stock unit could still cover it.
+    const fallbackInverterCode =
+      (await findSmallestFittingInStockInverter(systemKw, serviceType)) ?? (await findLargestInStockInverter(serviceType));
     if (fallbackInverterCode && fallbackInverterCode !== inverterCode) {
       const [fallbackInverter, fallbackInverterOption] = await Promise.all([
         adminPrisma.rawVendorCost.findFirst({
@@ -793,25 +848,51 @@ export async function calculateSystemPricing(
 
   // Panel Quantity Adjuster (2026-08-20) — baselinePanelCount is the same
   // Math.ceil(watts / panelWattage) the client has always derived for
-  // display; it's now also computed here so it can be the adjuster's
-  // real, server-enforced floor. maxPanelCount is the selected
-  // inverter's own rated kW (specValue), with PANEL_OVERSIZE_ALLOWANCE
+  // display; it's now also computed here as the bill-derived REFERENCE
+  // figure (no longer a hard floor — see PANEL_COUNT_ABSOLUTE_MINIMUM's
+  // own doc comment, 2026-08-29 explicit instruction: "don't block user
+  // to lower the panels"). maxPanelCount is the selected inverter's own
+  // rated kW (specValue) × inverterQuantity, with PANEL_OVERSIZE_ALLOWANCE
   // (115%, 2026-08-24 — was a flat 100%/zero-headroom cap before)
   // applied, converted to a panel count — its ceiling; null (no cap)
   // when that inverter has no specValue on file, since "stuck at
   // baseline" would make the adjuster pointless for the many catalog
   // inverters missing this field (see EquipmentOption.specValue's doc
   // comment). effectivePanelCount is the actual, already-clamped count
-  // this quote prices — panelQtyOverride can only ever raise the count
-  // within the inverter's real (now 115%) headroom, never drop it below
-  // what the bill requires.
+  // this quote prices — panelQtyOverride can now go anywhere from
+  // PANEL_COUNT_ABSOLUTE_MINIMUM up to the inverter's real (115%)
+  // headroom, deliberately including below what the bill requires.
+  // Inverter "clubbing" (2026-08-29) — see inverterQuantityFor's own doc
+  // comment. 1 for every ordinary quote; >1 only once systemKw exceeds
+  // even the largest single in-stock unit, in which case
+  // resolveBudgetTierInverterCode already resolved inverterCode to that
+  // largest unit and this just multiplies it out. Computed here (not
+  // earlier) because it needs the FINAL inverterOption — post out-of-
+  // stock substitution above — not the originally-resolved one.
+  // resolveInverterQuantity (not the bare inverterQuantityFor) so a
+  // manual override (selections.inverterQuantityOverride, Custom
+  // Equipment Builder only) can take effect — Residential can only ever
+  // raise this above the auto-computed minimum; Commercial/Industrial
+  // get true manual control, including deliberately below it. See that
+  // function's own doc comment.
+  const inverterQuantity = resolveInverterQuantity(
+    systemKw,
+    inverterOption?.specValue?.toNumber() ?? null,
+    selections?.inverterQuantityOverride,
+    sector
+  );
   const panelWattage = panelOption?.specValue?.toNumber() ?? FALLBACK_PANEL_WATTAGE_W;
   const baselinePanelCount = Math.ceil(watts / panelWattage);
   const maxPanelCount = inverterOption?.specValue
-    ? Math.floor((inverterOption.specValue.toNumber() * 1000 * PANEL_OVERSIZE_ALLOWANCE) / panelWattage)
+    ? Math.floor((inverterOption.specValue.toNumber() * inverterQuantity * 1000 * PANEL_OVERSIZE_ALLOWANCE) / panelWattage)
     : null;
+  // Floor is Math.min(PANEL_COUNT_ABSOLUTE_MINIMUM, maxPanelCount) rather
+  // than the bare constant, so min never ends up ABOVE max even in a
+  // pathological edge case — the same defensive clamp that fixes the
+  // reported "min 525 · max 188" bug also protects this from a
+  // theoretical inverse of it.
   const effectivePanelCount = Math.min(
-    Math.max(Math.round(selections?.panelQtyOverride ?? baselinePanelCount), baselinePanelCount),
+    Math.max(Math.round(selections?.panelQtyOverride ?? baselinePanelCount), Math.min(PANEL_COUNT_ABSOLUTE_MINIMUM, maxPanelCount ?? Infinity)),
     maxPanelCount ?? Infinity
   );
   // Civil Blocks (2026-08-20) — always auto-computed from the REAL,
@@ -835,7 +916,10 @@ export async function calculateSystemPricing(
   // system size only determines which SKUs are big enough to cover it
   // (see resolveInverterCodeForCapacity/the Custom Builder's Company ->
   // SKU picker), it doesn't scale the price of whichever one is chosen.
-  const rawInverterPKR = inverter!.unitCostRs.toNumber();
+  // Multiplied by inverterQuantity (2026-08-29) — 1 for every ordinary
+  // quote, >1 only for a "clubbed" industrial-scale system (see
+  // inverterQuantityFor's own doc comment above).
+  const rawInverterPKR = inverter!.unitCostRs.toNumber() * inverterQuantity;
   const rawDcCablePKR = dcCable!.unitCostRs.toNumber() * watts;
   const rawAcCablePKR = acCable!.unitCostRs.toNumber() * watts;
   const rawBreakersPKR = breakers!.unitCostRs.toNumber() * watts;
@@ -920,6 +1004,7 @@ export async function calculateSystemPricing(
       brand: inverterOption?.brand ?? null,
       label: inverterOption?.label ?? inverterCode,
       specValue: inverterOption?.specValue?.toNumber() ?? null,
+      quantity: inverterQuantity,
     },
     battery:
       needsBattery && batteryCode
@@ -1090,8 +1175,10 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
   // (see AdminBoqPricingInput.targetBudgetTier's doc comment) — this is
   // the SAME effectiveBudgetTier normalization calculateSystemPricing
   // uses, so the two engines can't drift on which equipment a given
-  // quote actually resolves to.
-  const effectiveBudgetTier: BudgetTier = input.targetBudgetTier ?? "UNDER_1M";
+  // quote actually resolves to. Industrial forces "UNDER_1M" here too,
+  // same as calculateSystemPricing — see that assignment's own doc
+  // comment for why.
+  const effectiveBudgetTier: BudgetTier = sector === "INDUSTRIAL" ? "UNDER_1M" : (input.targetBudgetTier ?? "UNDER_1M");
   // Same reserved opt-out value calculateSystemPricing honors above (see
   // NONE_CODE's doc comment), PLUS the UNDER_1M budget tier ALSO forcing
   // no battery — the Checker's exact BOQ must respect the customer's
@@ -1294,13 +1381,32 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
   // inverter changed between the instant estimate and this exact-BOQ
   // pass. Civil Blocks derives from THIS real, re-clamped count, same
   // formula as the instant estimate.
+  // Inverter "clubbing" (2026-08-29) — same as calculateSystemPricing's
+  // matching inverterQuantity; see inverterQuantityFor's own doc
+  // comment. Re-derived here too (not just trusted from the original
+  // quote) for the same reason maxPanelCount below already is.
+  // resolveInverterQuantity, not the bare inverterQuantityFor — same
+  // manual-override support as calculateSystemPricing (including the
+  // Commercial/Industrial "no floor" behavior), so a Checker recalculate
+  // never drops a customer's confirmed manual quantity back down to the
+  // auto-computed minimum.
+  const inverterQuantity = resolveInverterQuantity(
+    systemKw,
+    inverterOption?.specValue?.toNumber() ?? null,
+    selections?.inverterQuantityOverride,
+    sector
+  );
   const panelWattage = panelOption?.specValue?.toNumber() ?? FALLBACK_PANEL_WATTAGE_W;
   const baselinePanelCount = Math.ceil(watts / panelWattage);
   const maxPanelCount = inverterOption?.specValue
-    ? Math.floor((inverterOption.specValue.toNumber() * 1000 * PANEL_OVERSIZE_ALLOWANCE) / panelWattage)
+    ? Math.floor((inverterOption.specValue.toNumber() * inverterQuantity * 1000 * PANEL_OVERSIZE_ALLOWANCE) / panelWattage)
     : null;
+  // Floor is Math.min(PANEL_COUNT_ABSOLUTE_MINIMUM, maxPanelCount), same
+  // defensive clamp as calculateSystemPricing — see that one's own
+  // comment and PANEL_COUNT_ABSOLUTE_MINIMUM's doc comment for why this
+  // is no longer flooring at baselinePanelCount.
   const effectivePanelCount = Math.min(
-    Math.max(Math.round(selections?.panelQtyOverride ?? baselinePanelCount), baselinePanelCount),
+    Math.max(Math.round(selections?.panelQtyOverride ?? baselinePanelCount), Math.min(PANEL_COUNT_ABSOLUTE_MINIMUM, maxPanelCount ?? Infinity)),
     maxPanelCount ?? Infinity
   );
   const civilBlockQty = Math.ceil(effectivePanelCount * 1.5);
@@ -1325,8 +1431,10 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     // simplification as calculateSystemPricing (see its comment).
     panelPKR: round2(p.unitCostRs.toNumber() * (effectivePanelCount * panelWattage)),
     // Flat PER_PIECE (2026-08-22) — see calculateSystemPricing's matching
-    // rawInverterPKR comment; not scaled by watts.
-    inverterPKR: round2(inv.unitCostRs.toNumber()),
+    // rawInverterPKR comment; not scaled by watts. Multiplied by
+    // inverterQuantity (2026-08-29) — 1 for every ordinary quote, see
+    // that variable's own comment above.
+    inverterPKR: round2(inv.unitCostRs.toNumber() * inverterQuantity),
     // Flat PER_PIECE (2026-08-22) — see calculateSystemPricing's matching
     // rawBatteryPKR comment; not scaled by batteryCapacityKwh (that's a
     // TARGET used to resolve which SKU to price, not a multiplier).
@@ -1670,6 +1778,94 @@ async function findOversizedInStockInverter(systemKw: number, serviceType: Servi
   return rows[0]?.code ?? findSmallestFittingInStockInverter(systemKw, serviceType);
 }
 
+/** Largest in-stock inverter for this service type — the "clubbing"
+ *  building block once systemKw exceeds what any single catalog unit
+ *  can cover (e.g. a 140kW Industrial system → 2 × the largest 100kW
+ *  unit, see inverterQuantityFor below). Mirrors the shape of
+ *  findSmallestFittingInStockInverter/findOversizedInStockInverter
+ *  above; sorted descending, no capacity filter at all — this is
+ *  reached only once THOSE finders have already both failed (nothing
+ *  single-unit-sized fits), so the goal here is simply "the biggest
+ *  thing we can actually sell," not a fit check. Null only if nothing
+ *  at all is in stock for this service type. */
+async function findLargestInStockInverter(serviceType: ServiceType): Promise<string | null> {
+  const adminPrisma = await getAdminPrisma();
+  const rows = await adminPrisma.equipmentOption.findMany({
+    where: {
+      componentType: "INVERTER",
+      applicableServiceType: serviceType,
+      isActive: true,
+      inStock: true,
+      isOtherOption: false,
+      specValue: { not: null },
+    },
+    orderBy: { specValue: "desc" },
+    take: 1,
+  });
+  return rows[0]?.code ?? null;
+}
+
+/** How many of the resolved inverter SKU are actually needed to cover
+ *  systemKw. 1 for the overwhelming majority of quotes — the resolved
+ *  SKU's own rated kW already covers the whole system, same as always.
+ *  >1 ("clubbing") only once systemKw exceeds every single in-stock
+ *  unit's own rated capacity, in which case resolveBudgetTierInverterCode
+ *  below has already resolved to the LARGEST available unit (via
+ *  findLargestInStockInverter) — this just computes how many of THAT
+ *  unit are needed to cover the load. Shared by calculateSystemPricing
+ *  and calculateAdminBoqPricing so the two engines can never disagree
+ *  on unit count for the same inputs (same convention as
+ *  effectiveMarginPercent/markUp above). */
+function inverterQuantityFor(systemKw: number, inverterSpecValueKw: number | null): number {
+  if (!inverterSpecValueKw) return 1;
+  return Math.max(1, Math.ceil(systemKw / inverterSpecValueKw));
+}
+
+/** Manual "future expansion" ceiling for EquipmentSelections.
+ *  inverterQuantityOverride (2026-08-29) — a sanity cap against a
+ *  fat-fingered or malicious quantity, not a real business constraint.
+ *  Kept in sync with the matching Zod `.max()` on inverterQuantityOverride
+ *  in app/api/quote/calculate/route.ts's equipmentSelectionsSchema (the
+ *  actual API-boundary enforcement; this is defense in depth for the
+ *  rare direct caller). */
+const MAX_INVERTER_UNITS = 20;
+
+/** Resolves the FINAL inverter quantity actually priced: the customer's
+ *  manual override (EquipmentSelections.inverterQuantityOverride) if
+ *  present, otherwise inverterQuantityFor's own auto-computed minimum.
+ *
+ *  Residential keeps the original (2026-08-29) safety floor: an override
+ *  can only ever ADD headroom above the auto-computed minimum, never
+ *  undersize the system below what systemKw actually requires. A request
+ *  that names a downgrade there is a no-op, not an error.
+ *
+ *  Commercial/Industrial Custom Builder picks get TRUE manual control
+ *  instead (2026-08-29, explicit instruction: "complete freedom over
+ *  inverter choices and quantities" for C&I) — free to deliberately
+ *  undersize (a phased installation, intentionally covering only part of
+ *  the load, etc.) down to a bare minimum of 1 unit. Only reachable via
+ *  an explicit Custom Builder pick in the first place (the Recommended
+ *  path never sends equipmentSelections/an override at all), so this
+ *  never affects the Recommended-path sizing math either sector gets.
+ *  Still hard-capped at MAX_INVERTER_UNITS either way — a sanity ceiling,
+ *  not a business rule. */
+function resolveInverterQuantity(
+  systemKw: number,
+  inverterSpecValueKw: number | null,
+  override: number | undefined,
+  sector: Sector
+): number {
+  const autoQuantity = inverterQuantityFor(systemKw, inverterSpecValueKw);
+  if (override === undefined || !Number.isFinite(override) || override > MAX_INVERTER_UNITS) {
+    return autoQuantity;
+  }
+  const flooredOverride = Math.floor(override);
+  if (sector !== "RESIDENTIAL") {
+    return Math.max(1, flooredOverride);
+  }
+  return flooredOverride <= autoQuantity ? autoQuantity : flooredOverride;
+}
+
 /** Smallest in-stock battery (for this service type) whose own real
  *  capacity (specValue, kWh) covers the target — "smallest that fits,"
  *  the exact same principle as findSmallestFittingInStockInverter above
@@ -1698,15 +1894,26 @@ async function findSmallestFittingInStockBattery(targetKwh: number, serviceType:
 }
 
 /** Resolves the budget-tier-driven inverter default — smallest-fitting
- *  for UNDER_1M/1M_TO_1_5M, oversized for 1_5M_PLUS. Falls back to the
- *  ordinary admin-configured Recommended default when nothing in-stock
- *  actually qualifies, so a thin/empty catalog never breaks pricing. */
+ *  for UNDER_1M/1M_TO_1_5M, oversized for 1_5M_PLUS. If nothing
+ *  single-unit-sized covers systemKw at all (Industrial-scale, beyond
+ *  even the biggest catalog unit — see findLargestInStockInverter's own
+ *  doc comment), clubs multiple of the largest available unit instead
+ *  of falling straight to the admin default (2026-08-29 fix — that
+ *  default is a small residential/commercial-sized unit, wildly
+ *  undersized for a system this large; see inverterQuantityFor, called
+ *  separately by both pricing engines once this code is resolved, for
+ *  the actual unit-count math). Only falls back to the ordinary
+ *  admin-configured Recommended default when NOTHING at all is in
+ *  stock for this service type, so a thin/empty catalog never breaks
+ *  pricing. */
 async function resolveBudgetTierInverterCode(tier: BudgetTier, systemKw: number, serviceType: ServiceType): Promise<string> {
   const code =
     tier === "1_5M_PLUS"
       ? await findOversizedInStockInverter(systemKw, serviceType)
       : await findSmallestFittingInStockInverter(systemKw, serviceType);
-  return code ?? getDefaultCode("INVERTER", serviceType, DEFAULT_INVERTER_CODE_BY_SERVICE_TYPE[serviceType]);
+  if (code) return code;
+  const largest = await findLargestInStockInverter(serviceType);
+  return largest ?? getDefaultCode("INVERTER", serviceType, DEFAULT_INVERTER_CODE_BY_SERVICE_TYPE[serviceType]);
 }
 
 /** Resolves the budget-tier-driven battery default — smallest REAL,

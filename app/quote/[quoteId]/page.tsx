@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { MessageCircle } from "lucide-react";
 import { getDb } from "@/lib/db/client";
+import { BrandMark } from "@/components/BrandMark";
 import { PrintButton } from "./PrintButton";
 
 /**
@@ -65,7 +66,9 @@ interface ResolvedEquipmentItem {
 }
 interface ResolvedEquipmentSnapshot {
   panel: ResolvedEquipmentItem & { count: number };
-  inverter: ResolvedEquipmentItem;
+  // quantity is optional here because older snapshots (saved before the
+  // 2026-08-29 multi-inverter "clubbing" fix) never had this field.
+  inverter: ResolvedEquipmentItem & { quantity?: number };
   battery: (ResolvedEquipmentItem & { capacityKwh: number }) | null;
 }
 interface BreakdownSnapshot {
@@ -110,7 +113,10 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
 
   const breakdownRows: { label: string; valuePKR: number }[] = [
     { label: "Solar Panels", valuePKR: breakdown.panelsPKR },
-    { label: "Inverter", valuePKR: breakdown.inverterPKR },
+    {
+      label: equipment.inverter.quantity && equipment.inverter.quantity > 1 ? `Inverter (× ${equipment.inverter.quantity})` : "Inverter",
+      valuePKR: breakdown.inverterPKR,
+    },
     ...(breakdown.batteryPKR > 0 ? [{ label: "Lithium Battery", valuePKR: breakdown.batteryPKR }] : []),
     { label: "Mounting Structure", valuePKR: breakdown.structurePKR },
     { label: "Cables, Protection & Safety Equipment", valuePKR: breakdown.cablingAndProtectionPKR },
@@ -127,9 +133,9 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
       <div className="mx-auto max-w-2xl">
         <div className="mb-6 flex items-center justify-between print:hidden">
           <span className="flex items-center gap-2 text-lg font-semibold tracking-tight text-stone-900">
-            {/* Same "pixel" mark as the storefront Header — see its
-                doc comment in app/HomePageContent.tsx. */}
-            <span aria-hidden className="h-5 w-5 shrink-0 rounded-md bg-orange-700" />
+            {/* Real Solar Pixel brand mark (2026-08-29) — same one the
+                storefront Header uses, see components/BrandMark.tsx. */}
+            <BrandMark className="h-7 w-7 shrink-0" />
             Solar Pixel
           </span>
           <PrintButton />
@@ -171,6 +177,7 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
             <ul className="space-y-1.5 text-sm text-stone-700">
               <li>
                 Inverter: {equipment.inverter.label}
+                {equipment.inverter.quantity && equipment.inverter.quantity > 1 ? ` × ${equipment.inverter.quantity}` : ""}
                 {equipment.inverter.specValue ? ` (${equipment.inverter.specValue}kW)` : ""}
               </li>
               {equipment.battery && (

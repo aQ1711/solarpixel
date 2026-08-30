@@ -274,6 +274,52 @@ async function main() {
       sortOrder: 12,
       cost: { unitCostRs: 275_000, unit: "PER_PIECE" },
     },
+    // ---- Industrial-scale ON_GRID (2026-08-29) ----
+    // Real Goodwe units sourced live from w11stop.com (same source this
+    // catalog's other inverter SKUs already came from — see the
+    // 2026-08-22 rework note above), added to close a real gap:
+    // roundUpToStandardInverterSize() in app/api/quote/calculate/
+    // route.ts has always assumed real inverters exist up to 100kW
+    // ("Anything above the largest entry is industrial-custom"), but
+    // this catalog only ever had SKUs up to 20kW — any Industrial bill
+    // sizing above ~20kW silently fell back to the single 10kW default,
+    // producing a nonsensical Panel Quantity Adjuster range (the
+    // bill-required floor far exceeding that one small inverter's own
+    // ceiling). These three, plus the new "clubbing" logic in
+    // getCheapestStructureCode's neighbor functions in lib/db/admin.ts
+    // (findLargestInStockInverter/inverterQuantityFor), let a system
+    // beyond even 100kW auto-select N × the largest available unit
+    // instead (e.g. 140kW → 2 × this 100kW inverter).
+    {
+      componentType: "INVERTER",
+      code: "GOODWE_30KW_ONGRID",
+      label: "Goodwe 30kW On-Grid Inverter",
+      brand: "Goodwe",
+      specValue: 30,
+      applicableServiceType: "ONGRID_ZERO_EXPORT",
+      sortOrder: 13,
+      cost: { unitCostRs: 342_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "INVERTER",
+      code: "GOODWE_50KW_ONGRID",
+      label: "Goodwe 50kW On-Grid Inverter",
+      brand: "Goodwe",
+      specValue: 50,
+      applicableServiceType: "ONGRID_ZERO_EXPORT",
+      sortOrder: 14,
+      cost: { unitCostRs: 472_000, unit: "PER_PIECE" },
+    },
+    {
+      componentType: "INVERTER",
+      code: "GOODWE_100KW_ONGRID",
+      label: "Goodwe 100kW On-Grid Inverter",
+      brand: "Goodwe",
+      specValue: 100,
+      applicableServiceType: "ONGRID_ZERO_EXPORT",
+      sortOrder: 15,
+      cost: { unitCostRs: 1_050_000, unit: "PER_PIECE" },
+    },
     {
       componentType: "INVERTER",
       code: OTHER_CODE,

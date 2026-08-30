@@ -84,6 +84,12 @@ const equipmentSelectionsSchema = z.object({
   // [baselinePanelCount, maxPanelCount] regardless of what's sent here
   // (see calculateSystemPricing); this is just a shape/range check.
   panelQtyOverride: z.number().int().positive().max(5000).optional(),
+  // Manual inverter "clubbing" override (2026-08-29) — server-clamped to
+  // never go below the auto-computed minimum for systemKw regardless of
+  // what's sent here (see lib/db/admin.ts's resolveInverterQuantity);
+  // this is just a shape/range check. Cap (20) kept in sync with that
+  // file's MAX_INVERTER_UNITS.
+  inverterQuantityOverride: z.number().int().positive().max(20).optional(),
   // "One-Time Panel Washing Visit" (2026-08-21) — Custom Builder toggle.
   includePanelWashing: z.boolean().optional(),
 });

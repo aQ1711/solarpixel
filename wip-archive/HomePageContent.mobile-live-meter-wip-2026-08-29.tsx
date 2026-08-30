@@ -1,9 +1,9 @@
 "use client";
 
 import { Suspense, memo, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { trackWhatsAppClick } from "@/lib/analytics";
-import { BrandMark } from "@/components/BrandMark";
 import type { ApiJson } from "@/lib/internal/access";
 import {
   Loader2,
@@ -17,6 +17,7 @@ import {
   Wrench,
   BadgeCheck,
   ChevronLeft,
+  ChevronRight,
   ChevronDown,
   Download,
   Sparkles,
@@ -158,12 +159,9 @@ interface ResolvedEquipment {
    *  count actually priced; render panel count from THIS, never
    *  re-derive it from systemKw (that guess breaks the instant the
    *  customer adjusts the count away from baseline). baselineCount is
-   *  the bill-derived RECOMMENDED count — the adjuster's default/starting
-   *  value, no longer its hard floor as of 2026-08-29 (the customer can
-   *  go as low as 1; see PANEL_COUNT_ABSOLUTE_MINIMUM's doc comment in
-   *  lib/db/admin.ts); maxCount is the selected inverter's own rated-kW
-   *  ceiling, or null (unbounded) when that inverter has no specValue on
-   *  file. */
+   *  the adjuster's floor (bill-required minimum); maxCount is the
+   *  selected inverter's own rated-kW ceiling, or null (unbounded) when
+   *  that inverter has no specValue on file. */
   panel: ResolvedEquipmentItem & { count: number; baselineCount: number; maxCount: number | null };
   /** quantity added 2026-08-29 for the multi-inverter "clubbing" fix —
    *  the number of THIS resolved inverter SKU actually priced. 1 for the
@@ -305,19 +303,17 @@ interface EquipmentSelections {
   earthingBoreQty?: number;
   lightningArrestorQty?: number;
   /** Panel Quantity Adjuster (2026-08-20) — Custom Builder only. Clamped
-   *  server-side to [1, maxPanelCount] regardless of what's sent here —
-   *  NOT floored at the bill-derived baseline as of 2026-08-29 (explicit
-   *  instruction: "don't block user to lower the panels - lower they can
-   *  go at any level"; see livePreview.equipment.panel's doc comment for
-   *  the exact limits). Omitted defaults to the bill-derived baseline
-   *  count, unchanged behavior. */
+   *  server-side to [baselinePanelCount, maxPanelCount] regardless of
+   *  what's sent here (see livePreview.equipment.panel's doc comment for
+   *  those limits). Omitted defaults to the bill-derived baseline count,
+   *  unchanged behavior. */
   panelQtyOverride?: number;
-  /** Manual inverter "clubbing" override (2026-08-29) — Custom Equipment
-   *  Builder's Inverter row QuantityStepper. Residential is clamped
-   *  server-side to never go below the auto-computed minimum for
-   *  systemKw; Commercial/Industrial get true manual control, including
-   *  deliberately below it (see lib/db/admin.ts's resolveInverterQuantity).
-   *  Omitted = pure auto, unchanged behavior. */
+  /** Manual inverter "clubbing" override (2026-08-29) — Custom Builder
+   *  only, Mobile Builder's INVERTER sheet QuantityStepper. Server-
+   *  clamped to never go below the auto-computed minimum for systemKw
+   *  (see lib/db/admin.ts's resolveInverterQuantity) — can only ever add
+   *  headroom for a planned future expansion, never undersize. Omitted =
+   *  pure auto, unchanged behavior. */
   inverterQuantityOverride?: number;
   /** "One-Time Panel Washing Visit" (2026-08-21) — Custom Builder
    *  Services toggle. Omitted/false = not included, 0 cost. */
@@ -464,12 +460,6 @@ const INDUSTRIAL_SECTOR_THRESHOLD_PKR = 250_000;
 // with lib/db/admin.ts's MAX_INVERTER_UNITS and the matching Zod
 // `.max()` in app/api/quote/calculate/route.ts's equipmentSelectionsSchema.
 const MAX_INVERTER_UNITS = 20;
-
-// Panel Quantity Adjuster's floor (2026-08-29) — kept in sync with
-// lib/db/admin.ts's PANEL_COUNT_ABSOLUTE_MINIMUM. See that constant's own
-// doc comment: no longer flooring at the bill-derived baseline count
-// (explicit instruction: "don't block user to lower the panels").
-const PANEL_COUNT_ABSOLUTE_MINIMUM = 1;
 
 const RESIDENTIAL_ONGRID_WARNING =
   "On-Grid inverters shut down during power outages. For 24/7 uninterrupted power, a Hybrid System is strongly recommended.";
@@ -852,11 +842,12 @@ const Header = memo(function Header() {
     <header className="px-3 pt-3 sm:px-5">
       <div className="mx-auto flex max-w-4xl items-center justify-between gap-2 rounded-full border border-stone-200 bg-white/90 py-2 pl-4 pr-2 shadow-sm shadow-stone-200/50 backdrop-blur-md sm:pl-5 sm:pr-2.5">
         <div className="flex items-center gap-2">
-          {/* The real Solar Pixel brand mark (2026-08-29) — see
-              components/BrandMark.tsx's own doc comment. Replaces the
-              plain solid-square placeholder that stood in for it since
-              the 2026-08-24 purple-to-orange rebrand. */}
-          <BrandMark className="h-7 w-7 shrink-0 sm:h-8 sm:w-8" />
+          {/* The "pixel" mark (2026-08-24, purple-to-orange rebrand) — a
+              single solid orange square, same motif as the generated
+              favicon (app/icon.tsx) and OG share image
+              (app/opengraph-image.tsx), now also on the live header
+              itself rather than just those two generated images. */}
+          <span aria-hidden className="h-5 w-5 shrink-0 rounded-md bg-orange-700 sm:h-6 sm:w-6" />
           <span className="text-base font-semibold tracking-tight text-stone-900 sm:text-lg">Solar Pixel</span>
           <span className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 sm:inline-block">
             No Net Metering
@@ -1336,6 +1327,48 @@ function CalculatorCard() {
   // Null means every section is collapsed (the user closed the open one).
   const [openEquipmentSection, setOpenEquipmentSection] = useState<EquipmentSectionKey | null>("PANEL");
 
+  // ---- Mobile-only "Live Meter" flow (2026-08-28) ----
+  // Kept entirely separate from the desktop accordion's own state above
+  // (openEquipmentSection) rather than shared — the two UIs render
+  // simultaneously (see the `lg:hidden` / `hidden lg:grid` split further
+  // down), so sharing one "which section is open" variable would make a
+  // mobile bottom-sheet open/close fight with the desktop accordion's
+  // own expand/collapse. See the "Mobile Home / Builder / Quote Screens"
+  // section further down this file for how these are consumed.
+  const [mobileScreen, setMobileScreen] = useState<"home" | "builder" | "quote">("home");
+  const [mobileSheetKey, setMobileSheetKey] = useState<EquipmentSectionKey | null>(null);
+  // "Balance of System" (Cable/Breakers/Structure/Site Works) rows on the
+  // mobile Builder screen are collapsed behind a "Customise defaults"
+  // toggle by default — display-only, the underlying effective*Code
+  // values already resolve to real defaults either way, so this never
+  // changes what's actually priced, only what's visibly tappable.
+  const [showBalanceOfSystem, setShowBalanceOfSystem] = useState(false);
+  // Battery Sizing Helper scratch state (mobile Builder's Battery sheet
+  // only) — purely a client-side rough estimate feeding a suggested SKU;
+  // never sent to the server itself, only ever applied via the existing
+  // setBatteryCode when the customer taps "Use this." See
+  // suggestBatterySku's own doc comment further down.
+  const [batteryHelperSelectedLoads, setBatteryHelperSelectedLoads] = useState<Set<string>>(new Set());
+  const [batteryHelperHours, setBatteryHelperHours] = useState(4);
+
+  /** Mobile equivalent of clicking PathToggle's "Custom" tab — entering
+   *  the Builder screen IS the mobile user's explicit signal that they
+   *  want to customize equipment, so it flips customizationPath exactly
+   *  like the desktop toggle does. Deliberately NOT done on mount/via an
+   *  effect (which would have no way to know "mobile vs desktop" and
+   *  would flip desktop's own default tab too) — this only ever fires
+   *  from a mobile-only click handler, so desktop's "Recommended" tab
+   *  default and Target-Budget-tier battery behavior are untouched
+   *  unless a desktop user explicitly clicks their own toggle. Also
+   *  naturally satisfies the existing equipment-catalog fetch guard
+   *  below (customizationPath === "CUSTOM") with no changes needed
+   *  there — the catalog starts loading the moment Builder opens, same
+   *  equipmentOptionsLoading UX desktop already has for this case. */
+  function openMobileBuilder() {
+    setCustomizationPath("CUSTOM");
+    setMobileScreen("builder");
+  }
+
   // Raw state holds only the user's explicit picks (null = "no override
   // yet"). The Recommended-default fallback is computed during render
   // below (effective*Code) rather than written back via an effect, so a
@@ -1364,9 +1397,9 @@ function CalculatorCard() {
   // Manual inverter "clubbing" override (2026-08-29) — same "null = no
   // override yet" pattern as panelQtyOverride above. Only meaningful once
   // a live preview exists (there's no client-known "auto quantity" to
-  // compare against before that) — see the Custom Equipment Builder's
-  // Inverter row for where this actually renders a QuantityStepper. Reset
-  // to null by handleInverterCodeChange whenever the customer swaps to a
+  // compare against before that) — see the Mobile Builder's INVERTER
+  // sheet for where this actually renders a QuantityStepper. Reset to
+  // null by handleInverterCodeChange whenever the customer swaps to a
   // different inverter model — a leftover "×3" from a smaller unit makes
   // no sense once they've switched to a bigger one.
   const [inverterQuantityOverride, setInverterQuantityOverride] = useState<number | null>(null);
@@ -1411,10 +1444,9 @@ function CalculatorCard() {
   /** Client mirror of lib/db/admin.ts's inverterQuantityFor (2026-08-29)
    *  — the auto-computed MINIMUM number of the resolved inverter SKU
    *  needed to cover systemKw, no manual override applied. Only used as
-   *  the Custom Equipment Builder's inverter QuantityStepper's floor
-   *  (`min`, Residential only — see resolveInverterQuantity's own doc
-   *  comment for why Commercial/Industrial skip this floor entirely) —
-   *  the server independently re-derives and
+   *  the Mobile Builder's inverter QuantityStepper's floor (`min`), so
+   *  the customer can add headroom but can never step below what the
+   *  system structurally needs — the server independently re-derives and
    *  clamps this too (see resolveInverterQuantity), this is purely a
    *  same-tick UI bound, not the pricing source of truth. */
   function clientInverterQuantityFor(systemKw: number, specValueKw: number | null): number {
@@ -1574,10 +1606,45 @@ function CalculatorCard() {
     if (inStockSkus.length === 0) return skus[0] ?? null;
     return inStockSkus.reduce((cheapest, o) => ((o.unitPricePKR ?? Infinity) < (cheapest.unitPricePKR ?? Infinity) ? o : cheapest));
   }
+  /** Mobile Battery Sizing Helper's "smallest that fits" pick — a
+   *  client-side port of findSmallestFittingInStockBattery in
+   *  lib/db/admin.ts (same "isActive/inStock, specValue >= target,
+   *  cheapest/smallest first" shape), run against the real catalog
+   *  already fetched into batteryOptions rather than a second server
+   *  round trip. Falls back to the single largest in-stock real SKU
+   *  when nothing covers targetKwh, so the helper always resolves to
+   *  SOME real, in-stock, priced product rather than failing silently. */
+  function suggestBatterySku(targetKwh: number): EquipmentOptionDTO | null {
+    const inStockReal = realBatteryOptions.filter((o) => o.inStock && o.specValue !== null);
+    const fitting = inStockReal
+      .filter((o) => o.specValue! >= targetKwh)
+      .sort((a, b) => a.specValue! - b.specValue!);
+    if (fitting.length > 0) return fitting[0];
+    if (inStockReal.length === 0) return null;
+    return inStockReal.reduce((biggest, o) => (o.specValue! > biggest.specValue! ? o : biggest));
+  }
   const currentBatteryBrand =
     effectiveBatteryCode !== OTHER_CODE && effectiveBatteryCode !== NONE_CODE
       ? (currentBatteryOption?.brand ?? currentBatteryOption?.label ?? null)
       : null;
+
+  // Mobile Battery Sizing Helper's derived numbers — see
+  // suggestBatterySku's own doc comment above for the "smallest that
+  // fits" logic. targetKwh is 0 (no suggestion) until at least one load
+  // is toggled on.
+  const batteryHelperTargetKwh =
+    BATTERY_HELPER_LOADS.filter((l) => batteryHelperSelectedLoads.has(l.key)).reduce((sum, l) => sum + l.kw, 0) *
+    batteryHelperHours *
+    BATTERY_HELPER_HEADROOM_MULTIPLIER;
+  const batteryHelperSuggestion = batteryHelperSelectedLoads.size > 0 ? suggestBatterySku(batteryHelperTargetKwh) : null;
+  function toggleBatteryHelperLoad(key: string) {
+    setBatteryHelperSelectedLoads((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   // Cable/Breakers/Structure Default & Swap rows (Part 5) — same
   // "resolve the actual active catalog row" pattern as Panel/Inverter/
@@ -1739,9 +1806,10 @@ function CalculatorCard() {
   // Auto Sector & System Routing (2026-08-29, explicit instruction) —
   // extracted to a standalone helper (not inlined in handleBillAmountChange)
   // so any other path that can set the bill amount (today: the manual
-  // input via handleBillAmountChange; the bill-upload OCR path below once
-  // BILL_UPLOAD_ENABLED is re-flipped on) goes through the exact same
-  // routing logic — one source of truth, not two copies that can drift.
+  // input + mobile RangeSlider via handleBillAmountChange; the bill-upload
+  // OCR path below once BILL_UPLOAD_ENABLED is re-flipped on) goes through
+  // the exact same routing logic — one source of truth, not two copies
+  // that can drift.
   //
   // Fires on CROSSING the threshold, not on every edit while already on
   // one side of it — so a customer who manually picks Commercial while
@@ -1782,8 +1850,8 @@ function CalculatorCard() {
     }
   }
 
-  // Wraps every explicit inverter pick (Custom Equipment Builder) so a
-  // manual quantity override from a PREVIOUS model selection
+  // Wraps every explicit inverter pick (Custom Builder, desktop + mobile
+  // alike) so a manual quantity override from a PREVIOUS model selection
   // never silently carries over onto a newly-picked one (2026-08-29) — a
   // leftover "×3" from a smaller unit makes no sense once the customer
   // has switched to a bigger one; the new model's own auto quantity (or
@@ -2167,8 +2235,14 @@ function CalculatorCard() {
       </fieldset>
 
       {masterService === "COMPLETE_SOLAR" ? (
-        // ============ Tesla-style split dashboard ============
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px] lg:items-start">
+        // ============ Tesla-style split dashboard (desktop, lg: and up
+        // only — see the "Mobile-Only Live Meter Shell" block further
+        // down for the <lg replacement). `hidden lg:grid` instead of the
+        // old unconditional `grid` is the ONLY change in this whole
+        // block versus before the mobile redesign — every other class/
+        // line here is untouched, so desktop output at lg+ is
+        // byte-identical to what it always was. ============
+        <div className="mt-6 hidden gap-6 lg:grid lg:grid-cols-[1fr_360px] lg:items-start">
           {/* ---- LEFT COLUMN: inputs ---- */}
           <div className="space-y-5">
             {/* 1. Average Monthly Bill — top, auto-calculates recommended
@@ -2548,16 +2622,14 @@ function CalculatorCard() {
                   {equipmentOptions && (
                     <div className="space-y-3">
                       {/* 1. Solar Panels — Default & Swap, plus the Panel
-                          Quantity Adjuster (2026-08-20). Max comes from
-                          the live backend response (the currently
-                          selected inverter's own rated-kW ceiling, null =
-                          unbounded when that inverter has no specValue on
-                          file); the floor is PANEL_COUNT_ABSOLUTE_MINIMUM
-                          (2026-08-29 — no longer baselineCount, see that
-                          constant's doc comment). Never computed purely
-                          client-side beyond that shared constant, so the
-                          adjuster's limits can never drift from what the
-                          server will actually accept. */}
+                          Quantity Adjuster (2026-08-20). Min/max come
+                          from the live backend response (baselineCount =
+                          the bill-required floor; maxCount = the
+                          currently selected inverter's own rated-kW
+                          ceiling, null = unbounded when that inverter has
+                          no specValue on file) — never computed
+                          client-side, so the adjuster's limits can never
+                          drift from what the server will actually accept. */}
                       <EquipmentSwapRow
                         title="Solar Panels"
                         icon={SolarPanelIcon}
@@ -2638,59 +2710,48 @@ function CalculatorCard() {
                             </div>
                           </div>
                         )}
-                        {livePreview &&
-                          (() => {
-                            // Floor is no longer baselineCount (2026-08-29,
-                            // explicit instruction: "don't block user to
-                            // lower the panels - lower they can go at any
-                            // level") — Math.min against maxCount guards
-                            // against the exact bug reported ("min 525 ·
-                            // max 188"): once a manually-shrunk inverter
-                            // quantity drops maxCount below the bill-
-                            // derived baseline, flooring at the baseline
-                            // produced a contradictory min > max range.
-                            // Flooring at this instead keeps min ≤ max
-                            // always. See PANEL_COUNT_ABSOLUTE_MINIMUM and
-                            // lib/db/admin.ts's matching constant.
-                            const panelFloor = Math.min(PANEL_COUNT_ABSOLUTE_MINIMUM, livePreview.equipment.panel.maxCount ?? Infinity);
-                            return (
-                              <div>
-                                <p className="mb-1.5 block text-xs font-medium text-slate-600">
-                                  Number of Panels
-                                  <span className="ml-1.5 font-normal text-slate-400">
-                                    (min {panelFloor}
-                                    {livePreview.equipment.panel.maxCount !== null && ` · max ${livePreview.equipment.panel.maxCount}`})
-                                  </span>
-                                </p>
-                                <QuantityStepper
-                                  label="Panels"
-                                  // Optimistic display value (2026-08-24) — was
-                                  // livePreview.equipment.panel.count directly,
-                                  // which only updates once the debounced
-                                  // (500ms) live-preview fetch actually
-                                  // resolves, so the stepper visually froze for
-                                  // however long that round trip took after
-                                  // every click. panelQtyOverride is set
-                                  // synchronously by onChange below, so using
-                                  // it here (clamped the same way the server
-                                  // clamps it) makes the number move the
-                                  // instant you click, with the real server
-                                  // value simply confirming/correcting it a
-                                  // moment later. Falls back to the server
-                                  // value only before any override has been
-                                  // set (panelQtyOverride === null).
-                                  value={
-                                    panelQtyOverride !== null
-                                      ? Math.min(Math.max(panelQtyOverride, panelFloor), livePreview.equipment.panel.maxCount ?? Infinity)
-                                      : livePreview.equipment.panel.count
-                                  }
-                                  onChange={(v) => setPanelQtyOverride(v)}
-                                  min={panelFloor}
-                                  max={livePreview.equipment.panel.maxCount ?? undefined}
-                                />
-                              </div>
-                            );
-                          })()}
+                        {livePreview && (
+                          <div>
+                            <p className="mb-1.5 block text-xs font-medium text-slate-600">
+                              Number of Panels
+                              <span className="ml-1.5 font-normal text-slate-400">
+                                (min {livePreview.equipment.panel.baselineCount}
+                                {livePreview.equipment.panel.maxCount !== null &&
+                                  ` · max ${livePreview.equipment.panel.maxCount}`}
+                                )
+                              </span>
+                            </p>
+                            <QuantityStepper
+                              label="Panels"
+                              // Optimistic display value (2026-08-24) — was
+                              // livePreview.equipment.panel.count directly,
+                              // which only updates once the debounced
+                              // (500ms) live-preview fetch actually
+                              // resolves, so the stepper visually froze for
+                              // however long that round trip took after
+                              // every click. panelQtyOverride is set
+                              // synchronously by onChange below, so using
+                              // it here (clamped the same way the server
+                              // clamps it) makes the number move the
+                              // instant you click, with the real server
+                              // value simply confirming/correcting it a
+                              // moment later. Falls back to the server
+                              // value only before any override has been
+                              // set (panelQtyOverride === null).
+                              value={
+                                panelQtyOverride !== null
+                                  ? Math.min(
+                                      Math.max(panelQtyOverride, livePreview.equipment.panel.baselineCount),
+                                      livePreview.equipment.panel.maxCount ?? Infinity
+                                    )
+                                  : livePreview.equipment.panel.count
+                              }
+                              onChange={(v) => setPanelQtyOverride(v)}
+                              min={livePreview.equipment.panel.baselineCount}
+                              max={livePreview.equipment.panel.maxCount ?? undefined}
+                            />
+                          </div>
+                        )}
                       </EquipmentSwapRow>
 
                       {/* 2. Inverter — Default & Swap */}
@@ -3254,51 +3315,726 @@ function CalculatorCard() {
         </div>
       ) : null}
 
-      {/* Mobile-Only Floating Bottom Bar (Part 3) — lg:hidden since the
-          desktop layout already has the live total permanently visible in
-          the sticky right column; on mobile that column is pushed far
-          below the fold by the single-column stack, so this repeats the
-          number where a thumb can actually act on it. Only for Complete
-          Solar (this is the only flow with a real "Quotation" / turnkey price
-          to show — EV Charger/System Upgrades use different terminology
-          and already read fine without a second summary bar).
-
-          Reverted back to this simple bar from the "Live Meter" 3-screen
-          mobile redesign (2026-08-29, explicit instruction — the redesign
-          had real UX issues; the full WIP is kept at
-          wip-archive/HomePageContent.mobile-live-meter-wip-2026-08-29.tsx
-          for future development). Every functional/pricing fix built on
-          top of that redesign in the same session (inverter "clubbing",
-          manual quantity override, bill-threshold sector auto-routing,
-          Target Budget's Industrial lock) is unaffected by this revert —
-          none of it lived in the mobile-only JSX being removed here. */}
+      {/* ============ Mobile-Only "Live Meter" Shell (2026-08-28) ============
+          lg:hidden — replaces the old floating bottom bar entirely (that
+          bar only ever rendered below lg anyway, so removing it changes
+          nothing at lg+). A genuinely different, screen-based flow
+          (Home / Builder / Quote) rather than the desktop's single
+          continuous scroll, built from the exact same state/setters/
+          livePreview CalculatorCard already computes above — no second
+          pricing call, no duplicated equipment logic. See the plan this
+          was built from (mobile "Live Meter" redesign) for the full
+          rendering-split rationale. ============ */}
       {masterService === "COMPLETE_SOLAR" && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between bg-slate-950 p-4 text-white shadow-2xl lg:hidden print:hidden">
-          <div className="min-w-0">
-            {/* Same "real configured capacity, not the frozen bill-derived
-                figure" fix as the Live Estimate panel's System stat. */}
-            <p className="text-[10px] text-slate-400">
-              Est. Total
-              {livePreview
-                ? ` · ${formatTrim(
-                    livePreview.equipment.panel.specValue
-                      ? (livePreview.equipment.panel.count * livePreview.equipment.panel.specValue) / 1000
-                      : livePreview.systemKw,
-                    1
-                  )} kW System`
-                : ""}
-            </p>
-            <p className="truncate text-base font-bold">
-              {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "Enter your bill above"}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => document.getElementById("contact-and-submit")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-teal px-4 py-2.5 text-sm font-semibold text-brand-teal-ink transition-all duration-200 hover:brightness-95"
+        <div className="lg:hidden">
+          {mobileScreen === "home" && (
+            <div className="mt-5 pb-28">
+              <h1 className="text-[27px] font-extrabold leading-tight tracking-tight text-slate-900">
+                Drag your bill.
+                <br />
+                <span className="text-orange-700">Watch the system size itself.</span>
+              </h1>
+
+              <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-5">
+                <p className="font-mono text-[11px] font-semibold uppercase tracking-widest text-slate-500">Monthly bill</p>
+                <div className="mt-1.5 flex items-baseline gap-2">
+                  <span className="text-lg font-bold text-slate-400">Rs</span>
+                  <span className="text-[38px] font-extrabold leading-none tracking-tight text-slate-900">
+                    {billAmountInput.trim() === "" ? "0" : Number(billAmountInput).toLocaleString("en-US")}
+                  </span>
+                </div>
+                <div className="mt-3.5">
+                  <RangeSlider
+                    value={resolvedBillPKR ?? 10000}
+                    min={5000}
+                    max={400000}
+                    step={5000}
+                    onChange={(v) => handleBillAmountChange(String(v))}
+                    ariaLabel="Average Monthly Bill"
+                  />
+                  <div className="flex justify-between font-mono text-[10.5px] text-slate-400">
+                    <span>Rs 5,000</span>
+                    <span>Rs 4 Lac</span>
+                  </div>
+                </div>
+              </div>
+
+              {livePreview ? (
+                <>
+                  <div className="mt-3 rounded-3xl border border-slate-200 bg-white p-5">
+                    <div className="flex items-baseline justify-between">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-[32px] font-extrabold leading-none tracking-tight text-orange-700">
+                          {formatTrim(livePreview.systemKw, 1)}
+                        </span>
+                        <span className="text-base font-bold text-slate-400">kW</span>
+                      </div>
+                      <span className="text-sm text-slate-500">{livePreview.equipment.panel.count} panels</span>
+                    </div>
+                    <div className="mt-4">
+                      <PanelVisualizerGrid count={livePreview.equipment.panel.count} />
+                    </div>
+                    <p className="mt-3.5 text-[13px] leading-relaxed text-slate-500">
+                      {livePreview.equipment.panel.label} at{" "}
+                      <span className="font-bold text-slate-900">
+                        Rs {Math.round(livePreview.breakdown.panelsPKR / (livePreview.equipment.panel.count * (livePreview.equipment.panel.specValue ?? 1)))}
+                        /W
+                      </span>{" "}
+                      · {livePreview.equipment.inverter.label}
+                      {livePreview.equipment.inverter.quantity > 1
+                        ? ` × ${livePreview.equipment.inverter.quantity}`
+                        : ""}
+                    </p>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2.5">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <p className="text-[11px] font-semibold text-slate-500">Monthly Saving</p>
+                      <p className="mt-1 text-lg font-extrabold text-emerald-700">{formatPKR(livePreview.estimatedMonthlySavingsPKR)}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <p className="text-[11px] font-semibold text-slate-500">Payback</p>
+                      <p className="mt-1 text-lg font-extrabold text-slate-900">
+                        {livePreview.paybackYears !== null ? `${livePreview.paybackYears} yrs` : "—"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-3xl bg-slate-900 p-5 text-white">
+                    <p className="font-mono text-[11px] font-semibold uppercase tracking-widest text-brand-teal">Recommended system</p>
+                    <p className="mt-2 text-[28px] font-extrabold leading-none tracking-tight">{formatPKR(livePreview.totalClientPricePKR)}</p>
+                    <p className="mt-1.5 text-sm text-slate-300">Turnkey, installed</p>
+                  </div>
+
+                  {/* Prominent Custom Equipment Builder CTA — immediately
+                      visible on Home, not buried behind a toggle or an
+                      accordion (2026-08-28, explicit instruction: users
+                      must clearly see they can customize brands/inverters/
+                      batteries, not just accept the default estimate). */}
+                  <button
+                    type="button"
+                    onClick={openMobileBuilder}
+                    className="mt-3 flex w-full items-center gap-3 rounded-3xl border-[1.5px] border-orange-300 bg-orange-50 px-5 py-4 text-left"
+                  >
+                    <PanelsTopLeft className="h-6 w-6 shrink-0 text-orange-700" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[15.5px] font-extrabold text-orange-950">
+                        Want to pick the brands yourself?
+                      </span>
+                      <span className="mt-0.5 block text-[12.5px] leading-snug text-orange-800">
+                        Open the Custom Equipment Builder — swap panels, inverters, batteries and more
+                      </span>
+                    </span>
+                    <ChevronRight className="h-5 w-5 shrink-0 text-orange-700" />
+                  </button>
+
+                  <div className="mt-3 flex items-start gap-2 rounded-2xl border border-orange-200 bg-orange-50/60 px-4 py-3 text-[12.5px] leading-relaxed text-orange-900">
+                    <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-orange-600" />
+                    Priced on today&apos;s real market rates. No WAPDA net-metering paperwork. Live in 48 hours.
+                  </div>
+                </>
+              ) : (
+                <p className="mt-4 text-center text-sm text-slate-500">Drag the slider above to see your recommended system.</p>
+              )}
+              {livePreviewError && <p className="mt-2 text-center text-xs text-red-500">{livePreviewError}</p>}
+            </div>
+          )}
+
+          {mobileScreen === "builder" && (
+            <div className="-mx-4 pb-28 sm:mx-0">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur">
+                <button
+                  type="button"
+                  onClick={() => setMobileScreen("home")}
+                  aria-label="Back"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[16.5px] font-extrabold tracking-tight text-slate-900">Build It Yourself</p>
+                  <p className="text-xs text-slate-500">
+                    {livePreview ? `${formatTrim(livePreview.systemKw, 1)} kW ${SERVICE_TYPE_LABEL[serviceType]}` : "Loading…"}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-mono text-[9.5px] font-semibold uppercase tracking-widest text-slate-400">Total</p>
+                  <p className="whitespace-nowrap text-[16px] font-extrabold text-slate-900">
+                    {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "—"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="px-4">
+                <p className="mt-3.5 text-[13px] leading-relaxed text-slate-500">
+                  Everything below starts from our recommended build. Swap any part and the total moves.
+                </p>
+
+                {equipmentOptionsLoading && (
+                  <div className="mt-3 flex items-center gap-2 py-2 text-xs text-slate-500">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-600" />
+                    Loading equipment options…
+                  </div>
+                )}
+                {equipmentOptionsError && (
+                  <p role="alert" className="mt-3 text-xs text-red-500">
+                    {equipmentOptionsError}
+                  </p>
+                )}
+
+                {equipmentOptions && (
+                  <>
+                    <p className="mt-4 font-mono text-[11px] font-bold uppercase tracking-widest text-sky-800">Core Equipment</p>
+                    <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                      <MobileSpecRow
+                        category="Solar Panels"
+                        name={currentPanelOption ? `${currentPanelOption.label} × ${livePreview?.equipment.panel.count ?? "—"}` : "Select a panel"}
+                        deltaLabel={livePreview ? formatPKR(livePreview.breakdown.panelsPKR) : ""}
+                        onOpen={() => setMobileSheetKey("PANEL")}
+                      />
+                      <MobileSpecRow
+                        category={`Inverter · ${SERVICE_TYPE_LABEL[serviceType]}`}
+                        name={
+                          currentInverterOption
+                            ? livePreview && livePreview.equipment.inverter.quantity > 1
+                              ? `${currentInverterOption.label} × ${livePreview.equipment.inverter.quantity}`
+                              : currentInverterOption.label
+                            : "Select an inverter"
+                        }
+                        deltaLabel={livePreview ? formatPKR(livePreview.breakdown.inverterPKR) : ""}
+                        onOpen={() => setMobileSheetKey("INVERTER")}
+                      />
+                      {serviceType === "HYBRID_BATTERY" && (
+                        <MobileSpecRow
+                          category="Lithium Battery"
+                          name={
+                            effectiveBatteryCode === NONE_CODE
+                              ? "No Battery Selected"
+                              : (currentBatteryOption?.label ?? "Select a battery")
+                          }
+                          deltaLabel={
+                            effectiveBatteryCode === NONE_CODE ? "Not Included" : livePreview ? formatPKR(livePreview.breakdown.batteryPKR) : ""
+                          }
+                          onOpen={() => setMobileSheetKey("BATTERY")}
+                        />
+                      )}
+                    </div>
+
+                    <div className="mt-5 flex items-center justify-between gap-3">
+                      <p className="font-mono text-[11px] font-bold uppercase tracking-widest text-sky-800">Balance of System</p>
+                      <button
+                        type="button"
+                        onClick={() => setShowBalanceOfSystem((s) => !s)}
+                        className="min-h-9 rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700"
+                      >
+                        {showBalanceOfSystem ? "Use Defaults" : "Customise"}
+                      </button>
+                    </div>
+                    {showBalanceOfSystem ? (
+                      <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                        <MobileSpecRow
+                          category="DC/AC Cabling"
+                          name={currentCableOption?.label ?? "Select a cable"}
+                          deltaLabel={equipmentUnitCostLabel(currentCableOption?.unitPricePKR ?? null, systemWatts) ?? ""}
+                          onOpen={() => setMobileSheetKey("CABLE")}
+                        />
+                        <MobileSpecRow
+                          category="Protection & Breakers"
+                          name={currentBreakersOption?.label ?? "Select protection"}
+                          deltaLabel={equipmentUnitCostLabel(currentBreakersOption?.unitPricePKR ?? null, systemWatts) ?? ""}
+                          onOpen={() => setMobileSheetKey("BREAKERS")}
+                        />
+                        <MobileSpecRow
+                          category="Mounting Structure"
+                          name={currentStructureOption?.label ?? "Select a structure"}
+                          deltaLabel={livePreview ? formatPKR(livePreview.breakdown.structurePKR) : ""}
+                          onOpen={() => setMobileSheetKey("STRUCTURE")}
+                        />
+                        <MobileSpecRow
+                          category="Site Works"
+                          name={(() => {
+                            const civilBlockQty = livePreview?.siteWorks.civilBlockQty ?? 0;
+                            const total = civilBlockQty + earthingBoreQty + lightningArrestorQty;
+                            return total > 0 ? `${total} item${total === 1 ? "" : "s"} selected` : "No site works selected";
+                          })()}
+                          deltaLabel={livePreview ? formatPKR(livePreview.breakdown.siteWorksPKR) : ""}
+                          onOpen={() => setMobileSheetKey("SITE_WORKS")}
+                        />
+                      </div>
+                    ) : (
+                      <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-[12.5px] leading-relaxed text-slate-500">
+                        Cabling, protection, mounting and site works are set to our standard spec. Tap Customise to choose them.
+                      </div>
+                    )}
+
+                    <p className="mt-5 font-mono text-[11px] font-bold uppercase tracking-widest text-sky-800">Optional Service</p>
+                    <div className="mt-2">
+                      <ServiceToggleCard
+                        title="One-Time Panel Washing Visit"
+                        icon={WaterDropIcon}
+                        description="A single professional cleaning visit after installation, not a recurring plan."
+                        active={includePanelWashing}
+                        onToggle={() => setIncludePanelWashing((v) => !v)}
+                        priceLabel={livePreview?.panelWashing ? formatPKR(livePreview.breakdown.panelWashingPKR) : null}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {mobileScreen === "quote" && (
+            <MobileQuoteScreen
+              livePreview={livePreview}
+              fullName={fullName}
+              onFullNameChange={setFullName}
+              whatsappPhone={whatsappPhone}
+              onWhatsappPhoneChange={setWhatsappPhone}
+              status={status}
+              errorMessage={errorMessage}
+              onBack={() => setMobileScreen("builder")}
+            />
+          )}
+
+          {/* Sticky bottom bar — Home shows the running estimate + a way
+              into Quote; Builder shows the same, since the total there
+              already reflects every custom pick. Quote has its own
+              inline submit button instead (see MobileQuoteScreen), so no
+              bar duplicates it there. Portaled via ClientPortal for the
+              exact same reason as MobileBottomSheet just above — the
+              form ancestor's `animate-fade-up` transform makes `fixed`
+              positioning relative to IT, not the true viewport, so
+              without the portal this bar would only look correctly
+              pinned by coincidence on a short screen. */}
+          {mobileScreen !== "quote" && (
+            <ClientPortal>
+              <div className="fixed bottom-0 left-0 right-0 z-40 flex items-center gap-3 border-t border-slate-200 bg-white/95 p-4 backdrop-blur lg:hidden print:hidden">
+                <div className="min-w-0">
+                  <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+                    {mobileScreen === "home" ? "Estimate" : "Total"}
+                  </p>
+                  <p className="truncate text-lg font-extrabold text-slate-900">
+                    {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "Enter your bill above"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileScreen("quote")}
+                  disabled={!livePreview}
+                  className="flex min-h-[52px] flex-1 items-center justify-center gap-1.5 rounded-2xl bg-brand-teal text-[15px] font-extrabold text-brand-teal-ink transition-all duration-200 hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {mobileScreen === "home" ? "Get Official Quote" : "Quote This Build"}
+                </button>
+              </div>
+            </ClientPortal>
+          )}
+
+          {/* Bottom sheets — always mounted (needed for the slide-in/out
+              transition), content driven by mobileSheetKey. Every option
+              grid inside is the exact same SwapOptionCard/SpecCard JSX
+              the desktop accordion above already renders, just placed in
+              a sheet instead of an inline expand. */}
+          <MobileBottomSheet
+            isOpen={mobileSheetKey === "PANEL"}
+            title="Solar Panels"
+            onClose={() => setMobileSheetKey(null)}
+            footer={
+              <button
+                type="button"
+                onClick={() => setMobileSheetKey(null)}
+                className="flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-slate-900 text-[15px] font-bold text-white"
+              >
+                Done · {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "—"}
+              </button>
+            }
           >
-            Get Quotation <ArrowRight className="h-4 w-4" />
-          </button>
+            <div className="grid grid-cols-1 gap-2.5">
+              {panelBrands.map((brand) => {
+                const defaultSku = defaultPanelSkuForBrand(brand);
+                const active = currentPanelBrand === brand;
+                return (
+                  <SwapOptionCard
+                    key={brand}
+                    label={brand}
+                    imageUrl={defaultSku?.logoUrl ?? null}
+                    active={active}
+                    inStock={panelSkusForBrand(brand).some((o) => o.inStock)}
+                    onClick={() => {
+                      if (defaultSku) setPanelCode(defaultSku.code);
+                    }}
+                    deltaLabel={swapDeltaLabel(defaultSku?.unitPricePKR ?? null, currentPanelOption?.unitPricePKR ?? null, systemWatts, active)}
+                  />
+                );
+              })}
+              {otherPanelOption && (
+                <SwapOptionCard
+                  key={otherPanelOption.code}
+                  label="Other / Specific Requirement"
+                  imageUrl={null}
+                  active={effectivePanelCode === OTHER_CODE}
+                  inStock={otherPanelOption.inStock}
+                  onClick={() => setPanelCode(OTHER_CODE)}
+                  deltaLabel={swapDeltaLabel(
+                    otherPanelOption.unitPricePKR,
+                    currentPanelOption?.unitPricePKR ?? null,
+                    systemWatts,
+                    effectivePanelCode === OTHER_CODE
+                  )}
+                />
+              )}
+            </div>
+            {currentPanelBrand && panelSkusForBrand(currentPanelBrand).length > 1 && (
+              <div className="mt-1">
+                <p className="mb-1.5 text-xs font-medium text-slate-600">Wattage</p>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {panelSkusForBrand(currentPanelBrand).map((o) => (
+                    <SpecCard
+                      key={o.code}
+                      title={o.specValue !== null ? `${o.specValue}W` : o.label}
+                      description={o.label}
+                      active={effectivePanelCode === o.code}
+                      onClick={() => setPanelCode(o.code)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </MobileBottomSheet>
+
+          <MobileBottomSheet
+            isOpen={mobileSheetKey === "INVERTER"}
+            title="Inverter"
+            hint="Battery-ready either way."
+            onClose={() => setMobileSheetKey(null)}
+            footer={
+              <button
+                type="button"
+                onClick={() => setMobileSheetKey(null)}
+                className="flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-slate-900 text-[15px] font-bold text-white"
+              >
+                Done · {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "—"}
+              </button>
+            }
+          >
+            <div className="grid grid-cols-1 gap-2.5">
+              {inverterBrands.map((brand) => {
+                const defaultSku = defaultInverterSkuForBrand(brand);
+                const active = currentInverterBrand === brand;
+                return (
+                  <SwapOptionCard
+                    key={brand}
+                    label={brand}
+                    imageUrl={defaultSku?.logoUrl ?? null}
+                    active={active}
+                    inStock={inverterSkusForBrand(brand).some((o) => o.inStock)}
+                    onClick={() => {
+                      if (defaultSku) handleInverterCodeChange(defaultSku.code);
+                    }}
+                    deltaLabel={swapDeltaLabel(defaultSku?.unitPricePKR ?? null, currentInverterOption?.unitPricePKR ?? null, 1, active)}
+                  />
+                );
+              })}
+              {otherInverterOption && (
+                <SwapOptionCard
+                  key={otherInverterOption.code}
+                  label="Other / Specific Requirement"
+                  imageUrl={null}
+                  active={effectiveInverterCode === OTHER_CODE}
+                  inStock={otherInverterOption.inStock}
+                  onClick={() => handleInverterCodeChange(OTHER_CODE)}
+                  deltaLabel={swapDeltaLabel(
+                    otherInverterOption.unitPricePKR,
+                    currentInverterOption?.unitPricePKR ?? null,
+                    1,
+                    effectiveInverterCode === OTHER_CODE
+                  )}
+                />
+              )}
+            </div>
+            {currentInverterBrand && inverterSkusForBrand(currentInverterBrand).length > 1 && (
+              <div className="mt-1">
+                <p className="mb-1.5 text-xs font-medium text-slate-600">Model</p>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {inverterSkusForBrand(currentInverterBrand).map((o) => (
+                    <SpecCard
+                      key={o.code}
+                      title={o.specValue !== null ? `${o.specValue}kW` : o.label}
+                      description={o.phase ? PHASE_LABEL[o.phase] : o.label}
+                      active={effectiveInverterCode === o.code}
+                      inStock={o.inStock}
+                      onClick={() => handleInverterCodeChange(o.code)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Manual inverter "clubbing" override (2026-08-29) —
+                Residential only surfaces this once clubbing is actually
+                in play (server already resolved >1 unit); Commercial/
+                Industrial always get it, fully manual down to 1 unit,
+                completely decoupled from systemKw sizing. Mirrors the
+                desktop EquipmentSwapRow's Inverter "Step 3: Quantity"
+                block exactly — see that block's own doc comment, and
+                resolveInverterQuantity in lib/db/admin.ts for the
+                matching server-side source of truth. */}
+            {livePreview &&
+              (sector !== "RESIDENTIAL" || livePreview.equipment.inverter.quantity > 1) &&
+              (() => {
+                const autoQuantity = clientInverterQuantityFor(livePreview.systemKw, livePreview.equipment.inverter.specValue);
+                const isFullyManual = sector !== "RESIDENTIAL";
+                const displayQuantity =
+                  inverterQuantityOverride !== null
+                    ? isFullyManual
+                      ? Math.max(1, inverterQuantityOverride)
+                      : Math.max(inverterQuantityOverride, autoQuantity)
+                    : livePreview.equipment.inverter.quantity;
+                const specKw = currentInverterOption?.specValue ?? livePreview.equipment.inverter.specValue ?? 0;
+                const totalCapacityKw = specKw * displayQuantity;
+                return (
+                  <div className="mt-1">
+                    <p className="mb-1.5 text-xs font-medium text-slate-600">
+                      Number of Units
+                      <span className="ml-1.5 font-normal text-slate-400">
+                        {isFullyManual ? "fully manual for Commercial/Industrial" : `(min ${autoQuantity})`}
+                      </span>
+                    </p>
+                    <QuantityStepper
+                      label={`${currentInverterOption?.label ?? livePreview.equipment.inverter.label} units`}
+                      // Optimistic display value (same pattern as the Panel
+                      // Quantity Adjuster above) — inverterQuantityOverride
+                      // is set synchronously by onChange, so the stepper
+                      // moves the instant you click; the real server value
+                      // simply confirms/corrects it once the debounced
+                      // fetch resolves ~500ms later.
+                      value={displayQuantity}
+                      onChange={(v) => setInverterQuantityOverride(v)}
+                      min={isFullyManual ? 1 : autoQuantity}
+                      max={MAX_INVERTER_UNITS}
+                    />
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                      Total inverter capacity:{" "}
+                      <span className="font-semibold text-slate-700">{formatTrim(totalCapacityKw)} kW</span>
+                      {isFullyManual
+                        ? " — set any quantity independent of your bill's calculated system size."
+                        : " Add extra units now to leave headroom for a planned future expansion, without a later hardware swap."}
+                    </p>
+                  </div>
+                );
+              })()}
+          </MobileBottomSheet>
+
+          <MobileBottomSheet
+            isOpen={mobileSheetKey === "BATTERY"}
+            title="Lithium Battery"
+            hint="Optional. Sized against your night-time load."
+            onClose={() => setMobileSheetKey(null)}
+            footer={
+              <button
+                type="button"
+                onClick={() => setMobileSheetKey(null)}
+                className="flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-slate-900 text-[15px] font-bold text-white"
+              >
+                Done · {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "—"}
+              </button>
+            }
+          >
+            <BatterySizingHelper
+              selectedLoads={batteryHelperSelectedLoads}
+              onToggleLoad={toggleBatteryHelperLoad}
+              hours={batteryHelperHours}
+              onHoursChange={setBatteryHelperHours}
+              targetKwh={batteryHelperTargetKwh}
+              suggestion={batteryHelperSuggestion}
+              onApply={() => {
+                if (batteryHelperSuggestion) setBatteryCode(batteryHelperSuggestion.code);
+              }}
+            />
+            <div className="mt-3 grid grid-cols-1 gap-2.5">
+              {batteryBrands.map((brand) => {
+                const defaultSku = defaultBatterySkuForBrand(brand);
+                const active = currentBatteryBrand === brand;
+                return (
+                  <SwapOptionCard
+                    key={brand}
+                    label={brand}
+                    imageUrl={defaultSku?.logoUrl ?? null}
+                    active={active}
+                    inStock={batterySkusForBrand(brand).some((o) => o.inStock)}
+                    onClick={() => {
+                      if (defaultSku) setBatteryCode(defaultSku.code);
+                    }}
+                    deltaLabel={swapDeltaLabel(defaultSku?.unitPricePKR ?? null, currentBatteryUnitPricePKR, 1, active)}
+                  />
+                );
+              })}
+              <SwapOptionCard
+                label="No Battery"
+                imageUrl={null}
+                active={effectiveBatteryCode === NONE_CODE}
+                onClick={() => setBatteryCode(NONE_CODE)}
+                deltaLabel={swapDeltaLabel(0, currentBatteryUnitPricePKR, 1, effectiveBatteryCode === NONE_CODE)}
+              />
+              {otherBatteryOption && (
+                <SwapOptionCard
+                  key={otherBatteryOption.code}
+                  label="Other / Specific Requirement"
+                  imageUrl={null}
+                  active={effectiveBatteryCode === OTHER_CODE}
+                  inStock={otherBatteryOption.inStock}
+                  onClick={() => setBatteryCode(OTHER_CODE)}
+                  deltaLabel={swapDeltaLabel(
+                    otherBatteryOption.unitPricePKR,
+                    currentBatteryUnitPricePKR,
+                    1,
+                    effectiveBatteryCode === OTHER_CODE
+                  )}
+                />
+              )}
+            </div>
+            {currentBatteryBrand && batterySkusForBrand(currentBatteryBrand).length > 1 && (
+              <div className="mt-1">
+                <p className="mb-1.5 text-xs font-medium text-slate-600">Capacity</p>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {batterySkusForBrand(currentBatteryBrand).map((o) => (
+                    <SpecCard
+                      key={o.code}
+                      title={o.specValue !== null ? `${formatTrim(o.specValue)}kWh` : o.label}
+                      description={o.label}
+                      active={effectiveBatteryCode === o.code}
+                      inStock={o.inStock}
+                      onClick={() => setBatteryCode(o.code)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </MobileBottomSheet>
+
+          <MobileBottomSheet
+            isOpen={mobileSheetKey === "CABLE"}
+            title="DC/AC Cabling"
+            onClose={() => setMobileSheetKey(null)}
+            footer={
+              <button
+                type="button"
+                onClick={() => setMobileSheetKey(null)}
+                className="flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-slate-900 text-[15px] font-bold text-white"
+              >
+                Done · {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "—"}
+              </button>
+            }
+          >
+            <div className="grid grid-cols-1 gap-2.5">
+              {(equipmentOptions?.DC_CABLE ?? []).map((o) => (
+                <SwapOptionCard
+                  key={o.code}
+                  label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
+                  imageUrl={o.logoUrl}
+                  active={effectiveCableCode === o.code}
+                  inStock={o.inStock}
+                  onClick={() => setCableCode(o.code)}
+                  deltaLabel={swapDeltaLabel(o.unitPricePKR, currentCableOption?.unitPricePKR ?? null, systemWatts, effectiveCableCode === o.code)}
+                />
+              ))}
+            </div>
+          </MobileBottomSheet>
+
+          <MobileBottomSheet
+            isOpen={mobileSheetKey === "BREAKERS"}
+            title="Protection & Breakers"
+            onClose={() => setMobileSheetKey(null)}
+            footer={
+              <button
+                type="button"
+                onClick={() => setMobileSheetKey(null)}
+                className="flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-slate-900 text-[15px] font-bold text-white"
+              >
+                Done · {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "—"}
+              </button>
+            }
+          >
+            <div className="grid grid-cols-1 gap-2.5">
+              {(equipmentOptions?.BREAKERS ?? []).map((o) => (
+                <SwapOptionCard
+                  key={o.code}
+                  label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
+                  imageUrl={o.logoUrl}
+                  active={effectiveBreakersCode === o.code}
+                  inStock={o.inStock}
+                  onClick={() => setBreakersCode(o.code)}
+                  deltaLabel={swapDeltaLabel(
+                    o.unitPricePKR,
+                    currentBreakersOption?.unitPricePKR ?? null,
+                    systemWatts,
+                    effectiveBreakersCode === o.code
+                  )}
+                />
+              ))}
+            </div>
+          </MobileBottomSheet>
+
+          <MobileBottomSheet
+            isOpen={mobileSheetKey === "STRUCTURE"}
+            title="Mounting Structure"
+            onClose={() => setMobileSheetKey(null)}
+            footer={
+              <button
+                type="button"
+                onClick={() => setMobileSheetKey(null)}
+                className="flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-slate-900 text-[15px] font-bold text-white"
+              >
+                Done · {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "—"}
+              </button>
+            }
+          >
+            <div className="grid grid-cols-1 gap-2.5">
+              {(equipmentOptions?.MOUNTING_STRUCTURE ?? []).map((o) => (
+                <SwapOptionCard
+                  key={o.code}
+                  label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
+                  imageUrl={o.logoUrl}
+                  icon={STRUCTURE_ICON_BY_CODE[o.code]}
+                  active={effectiveStructureCode === o.code}
+                  inStock={o.inStock}
+                  onClick={() => setStructureCode(o.code)}
+                  deltaLabel={swapDeltaLabel(
+                    o.unitPricePKR,
+                    currentStructureOption?.unitPricePKR ?? null,
+                    systemWatts,
+                    effectiveStructureCode === o.code
+                  )}
+                />
+              ))}
+            </div>
+          </MobileBottomSheet>
+
+          <MobileBottomSheet
+            isOpen={mobileSheetKey === "SITE_WORKS"}
+            title="Site Works"
+            onClose={() => setMobileSheetKey(null)}
+            footer={
+              <button
+                type="button"
+                onClick={() => setMobileSheetKey(null)}
+                className="flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-slate-900 text-[15px] font-bold text-white"
+              >
+                Done · {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "—"}
+              </button>
+            }
+          >
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Civil Blocks</p>
+                  <p className="text-[11px] text-slate-500">Auto-calculated: {formatTrim(1.5)}× your panel count</p>
+                </div>
+                <span className="text-sm font-bold text-slate-900">{livePreview?.siteWorks.civilBlockQty ?? "—"}</span>
+              </div>
+              <QuantityStepper label="Earthing & Boring" value={earthingBoreQty} onChange={setEarthingBoreQty} />
+              <QuantityStepper label="Lightning Arrestor" value={lightningArrestorQty} onChange={setLightningArrestorQty} />
+            </div>
+          </MobileBottomSheet>
         </div>
       )}
 
@@ -3984,13 +4720,14 @@ function ServiceToggleCard({
       >
         <span
           className="absolute h-5 w-5 rounded-full bg-white shadow transition-transform duration-200"
-          // Inline style, not Tailwind's translate-x-6/translate-x-1 — this
+          // Inline style, not Tailwind's translate-x-6/translate-x-1 —
+          // see MobileBottomSheet's identical fix/comment above: this
           // project's compiled Tailwind output doesn't include the
           // translate-* utility family at all (verified live), so those
-          // classes silently no-op. Pre-existing bug (this knob has never
-          // actually slid) — see the separate "Fix broken Tailwind
-          // translate-* utility scale" follow-up task for the two other
-          // known instances and the root config gap.
+          // classes silently no-op. Pre-existing bug (this knob has
+          // never actually slid, on desktop or mobile) surfaced while
+          // building the mobile Panel Washing row, which reuses this
+          // exact component.
           style={{ transform: active ? "translateX(24px)" : "translateX(4px)" }}
         />
       </button>
@@ -4006,6 +4743,489 @@ function CustomRequirementNotice() {
         <span className="font-semibold">Custom Requirement Noted:</span> Our senior engineering team will source
         pricing for your specific equipment request and include it in your final WhatsApp Quotation.
       </p>
+    </div>
+  );
+}
+
+// ============================================================================
+// Mobile-Only "Live Meter" UI (2026-08-28) — the generic, closure-free
+// widgets the mobile 3-screen flow (Home / Builder / Quote) is built
+// from. Placed here, next to the equipment-picker toolkit above
+// (SwapOptionCard/SpecCard/ModelPill/swapDeltaLabel/deltaColorClass),
+// since the Builder screen's bottom sheets reuse those exact same
+// components unchanged — see CalculatorCard's own JSX for how these are
+// wired together with the real equipmentOptions/livePreview state.
+// Desktop is completely unaffected: none of this renders above the
+// `lg:` breakpoint. See the plan this was built from for the full
+// rendering-split rationale.
+// ============================================================================
+
+/** Renders `children` into document.body once mounted — used by
+ *  MobileBottomSheet and the mobile sticky bottom bar to escape
+ *  CalculatorCard's own `animate-fade-up` ancestor (its keyframes leave
+ *  a non-"none" transform on it even at rest, which per the CSS spec
+ *  makes it the containing block for any `position: fixed` descendant
+ *  — verified live: without the portal, "fixed to the viewport" was
+ *  actually relative to that scrollable form).
+ *
+ *  Gated on a useEffect-set `mounted` flag, NOT a synchronous
+ *  `typeof document` check — the synchronous version renders the
+ *  portal on the client's very first pass (browsers always have
+ *  `document`) while SSR renders nothing there, a real hydration
+ *  mismatch verified live (React's dev overlay flagged it: "Hydration
+ *  failed... server rendered HTML didn't match the client"). The
+ *  useEffect only runs post-mount, client-side, after hydration's
+ *  first-pass reconciliation has already matched server output
+ *  (nothing) against client output (also nothing) — so the portal only
+ *  appears on a second, later render, never during the pass hydration
+ *  itself compares. */
+function ClientPortal({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  // Standard SSR-safe "mounted" flag pattern every portal needs (Radix/
+  // Headless UI use the same shape): this deliberately forces a second
+  // render, post-hydration, precisely so the FIRST render (server +
+  // client's initial hydration pass) stays identical (both render
+  // null) — see this component's own doc comment above for the
+  // hydration mismatch this fixes.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above; this IS the intended one-shot mount signal
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return createPortal(children, document.body);
+}
+
+/** Native range input, styled via Tailwind's `accent-color` utility
+ *  rather than the hand-rolled thumb/track CSS a raw <input type="range">
+ *  would otherwise need — no new dependency, works in every modern
+ *  mobile browser. `h-11` (44px) on the input itself keeps the full
+ *  element a real touch target even though the visible track is thin. */
+function RangeSlider({
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  ariaLabel,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <input
+      type="range"
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      aria-label={ariaLabel}
+      className="h-11 w-full cursor-pointer accent-orange-600"
+    />
+  );
+}
+
+/** Pure function of a panel count — no pricing, no fetch. Renders up to
+ *  `max` colored squares (real count, capped for layout, never a
+ *  fabricated smaller number) with an overflow label so the grid never
+ *  visually implies a smaller system than what's actually priced. */
+function PanelVisualizerGrid({ count, max = 40 }: { count: number; max?: number }) {
+  const shown = Math.min(Math.max(count, 0), max);
+  const overflow = count - shown;
+  return (
+    <div>
+      <div className="grid grid-cols-8 gap-1">
+        {Array.from({ length: max }, (_, i) => (
+          <div
+            key={i}
+            className={`aspect-[5/7] rounded-sm border border-slate-900/10 transition-colors duration-300 ${
+              i >= shown ? "bg-slate-100" : (i + 1) % 3 === 0 ? "bg-orange-500" : "bg-brand-teal"
+            }`}
+          />
+        ))}
+      </div>
+      {overflow > 0 && <p className="mt-1.5 text-[11px] font-medium text-slate-500">+{overflow} more panels</p>}
+    </div>
+  );
+}
+
+/** One full-width tappable row in the mobile Builder screen's "Spec
+ *  Sheet" (category / current pick / one-line sub / price delta /
+ *  chevron) — always opens a MobileBottomSheet on tap, never expands
+ *  inline (unlike the desktop EquipmentSwapRow, which IS the expand
+ *  target). `deltaLabel` reuses swapDeltaLabel's output and
+ *  deltaColorClass's coloring, same convention as every other price
+ *  delta on this page. */
+function MobileSpecRow({
+  category,
+  name,
+  sub,
+  deltaLabel,
+  onOpen,
+}: {
+  category: string;
+  name: string;
+  sub?: string | null;
+  deltaLabel: string;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex min-h-[72px] w-full items-center gap-3 border-b border-slate-100 px-4 py-3.5 text-left last:border-0"
+    >
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{category}</p>
+        <p className="mt-0.5 truncate text-[15px] font-bold text-slate-900">{name}</p>
+        {sub && <p className="mt-0.5 truncate text-xs text-slate-500">{sub}</p>}
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <span className={`font-mono text-[13px] font-bold ${deltaColorClass(deltaLabel)}`}>{deltaLabel}</span>
+        <ChevronRight className="h-4 w-4 text-slate-300" />
+      </div>
+    </button>
+  );
+}
+
+/** Shared slide-up sheet chrome for the mobile Builder screen — dims the
+ *  background, slides up from the bottom, grabber handle, title/hint,
+ *  close button, scrollable body, sticky footer. Purely presentational:
+ *  `children` is whatever content the caller passes (the exact same
+ *  SwapOptionCard/ModelPill/SpecCard grids the desktop accordion
+ *  already renders, unchanged), and `footer` is the sheet's bottom CTA.
+ *  Always mounted (not conditionally rendered) so the slide transition
+ *  can actually animate open/closed, same "always mounted, CSS/
+ *  transform decides visibility" approach the mobile floating bottom
+ *  bar this replaces used to use.
+ *
+ *  Portaled to document.body (2026-08-28) — CalculatorCard's own
+ *  outermost wrapper carries `animate-fade-up`, whose keyframes leave a
+ *  non-"none" `transform` on it even at rest (translateY(0) is still a
+ *  transform, not its absence). Per the CSS spec, ANY ancestor with a
+ *  transform becomes the containing block for `position: fixed`
+ *  descendants — so without the portal, this sheet's "fixed to the
+ *  viewport" positioning was actually relative to that scrollable form
+ *  instead, and translateY(100%) only moved it below ITS OWN bottom
+ *  edge, not the real screen — visible verified live: closed sheets
+ *  stayed visibly peeking in wherever the form's own bottom happened to
+ *  land on screen. Escaping to document.body sidesteps the containing-
+ *  block entirely, independent of whatever ancestor transforms exist
+ *  now or get added later. */
+function MobileBottomSheet({
+  isOpen,
+  title,
+  hint,
+  onClose,
+  footer,
+  children,
+}: {
+  isOpen: boolean;
+  title: string;
+  hint?: string | null;
+  onClose: () => void;
+  footer: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <ClientPortal>
+      <div
+        className={`fixed inset-0 z-[90] bg-slate-900/40 transition-opacity duration-300 ${
+          isOpen ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div
+        className="fixed inset-x-0 bottom-0 z-[95] flex max-h-[85vh] flex-col rounded-t-3xl border-t border-slate-200 bg-white px-4 pb-8 pt-3 shadow-2xl transition-transform duration-300 ease-out"
+        // Inline style, not Tailwind's translate-y-full/translate-y-0
+        // utilities — this project's compiled Tailwind output doesn't
+        // include the translate-* scale (verified live: transition-
+        // transform/duration-300/opacity-0 all compile fine, but
+        // translate-y-full produces no transform at all), so those two
+        // classes silently no-op and leave the sheet visible at the
+        // bottom of the screen even when closed. A literal
+        // translateY(...) sidesteps whatever theme/scale gap causes
+        // that, with the exact same visual result.
+        style={{ transform: isOpen ? "translateY(0)" : "translateY(100%)" }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <div className="mx-auto mb-3.5 h-1.5 w-11 shrink-0 rounded-full bg-slate-200" />
+        <div className="flex shrink-0 items-start gap-3 pb-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-bold text-slate-900">{title}</p>
+            {hint && <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{hint}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex flex-col gap-2 overflow-y-auto pt-1">{children}</div>
+        <div className="mt-3 shrink-0">{footer}</div>
+      </div>
+    </ClientPortal>
+  );
+}
+
+/** Rough, illustrative per-appliance draw — chosen independently for
+ *  this feature, NOT copied from the design reference's own invented
+ *  numbers. Framed to the customer as an estimate (see
+ *  BatterySizingHelper's own copy), never as a precise engineering
+ *  spec — the real, final capacity is whatever real in-stock SKU the
+ *  customer (or later, the Field Engineer) actually selects. */
+const BATTERY_HELPER_LOADS: { key: string; label: string; kw: number }[] = [
+  { key: "lights_fans", label: "Lights & Fans", kw: 0.4 },
+  { key: "fridge", label: "Fridge", kw: 0.3 },
+  { key: "wifi_tv", label: "WiFi & TV", kw: 0.2 },
+  { key: "ac_1ton", label: "1 AC (1 Ton)", kw: 1.3 },
+];
+/** Rough safety margin on top of raw load×hours — not a real
+ *  engineering derating table, just enough headroom that the suggested
+ *  SKU doesn't come back exactly at the customer's stated minimum. */
+const BATTERY_HELPER_HEADROOM_MULTIPLIER = 1.2;
+
+/** "Not sure what size?" battery load/hours estimator, shown at the top
+ *  of the mobile Builder's Battery sheet only. Deliberately "dumb" —
+ *  every number it displays (targetKwh, suggestion) is computed by the
+ *  caller (CalculatorCard, via suggestBatterySku) and passed in, so
+ *  this component has no direct dependency on equipmentOptions/the
+ *  catalog itself. "Use this" only ever calls the existing
+ *  setBatteryCode setter through onApply — no new state, no new
+ *  pricing field. */
+function BatterySizingHelper({
+  selectedLoads,
+  onToggleLoad,
+  hours,
+  onHoursChange,
+  targetKwh,
+  suggestion,
+  onApply,
+}: {
+  selectedLoads: Set<string>;
+  onToggleLoad: (key: string) => void;
+  hours: number;
+  onHoursChange: (hours: number) => void;
+  targetKwh: number;
+  suggestion: EquipmentOptionDTO | null;
+  onApply: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+      <p className="text-[15px] font-bold text-sky-900">Not sure what size?</p>
+      <p className="mt-0.5 text-xs leading-relaxed text-sky-700">Tell us what has to stay on, and for how long.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {BATTERY_HELPER_LOADS.map((load) => {
+          const active = selectedLoads.has(load.key);
+          return (
+            <button
+              key={load.key}
+              type="button"
+              onClick={() => onToggleLoad(load.key)}
+              className={`min-h-11 rounded-full border-[1.5px] px-3.5 text-[13px] font-semibold ${
+                active ? "border-sky-600 bg-sky-100 text-sky-900" : "border-sky-200 bg-white text-slate-700"
+              }`}
+            >
+              {load.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-3.5 flex items-baseline justify-between">
+        <span className="text-[13px] font-semibold text-sky-800">Hours of backup</span>
+        <span className="font-mono text-lg font-extrabold text-sky-900">{hours}h</span>
+      </div>
+      <RangeSlider value={hours} min={1} max={12} step={1} onChange={onHoursChange} ariaLabel="Hours of backup" />
+      <div className="mt-2 flex items-center gap-3 rounded-xl border border-sky-200 bg-white px-3.5 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] text-sky-800">
+            You need about <span className="font-bold text-slate-900">{targetKwh.toFixed(1)} kWh</span>
+          </p>
+          <p className="mt-0.5 truncate text-[13.5px] font-bold text-slate-900">
+            {suggestion ? suggestion.label : "Pick at least one load"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onApply}
+          disabled={!suggestion}
+          className="min-h-11 shrink-0 rounded-full bg-sky-800 px-4 text-[13px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Use this
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-sky-600">
+        Rough estimate, actual load varies by appliance. Confirmed for real on your site survey.
+      </p>
+    </div>
+  );
+}
+
+/** Mobile Screen 3: Quote — the pre-submit itemized preview, reached by
+ *  tapping "Get official quote" (Home) or "Quote this build" (Builder).
+ *  This is NOT the post-submit ResultSummary (which still fires
+ *  unconditionally, for both mobile and desktop, the moment
+ *  `status === "success"` — see CalculatorCard's own top-level return).
+ *  Line items come from buildCostBreakdownRows(livePreview) — the exact
+ *  same grouping/omission logic ResultSummary itself uses, just fed the
+ *  live preview instead of the final persisted result, since both types
+ *  share the same breakdown/equipment/panelWashing/serviceType shape.
+ *  The submit button is `type="submit"`, not a separate onClick handler
+ *  — CalculatorCard's single <form onSubmit={handleSubmit}> already
+ *  dispatches to the real, unmodified handleSolarSubmit for
+ *  masterService === "COMPLETE_SOLAR", so tapping it here does exactly
+ *  what the desktop submit button does, no new submission logic. */
+function MobileQuoteScreen({
+  livePreview,
+  fullName,
+  onFullNameChange,
+  whatsappPhone,
+  onWhatsappPhoneChange,
+  status,
+  errorMessage,
+  onBack,
+}: {
+  livePreview: SolarPreviewResult | null;
+  fullName: string;
+  onFullNameChange: (v: string) => void;
+  whatsappPhone: string;
+  onWhatsappPhoneChange: (v: string) => void;
+  status: FormStatus;
+  errorMessage: string | null;
+  onBack: () => void;
+}) {
+  const rows = livePreview ? buildCostBreakdownRows(livePreview) : [];
+  return (
+    <div className="pb-8">
+      <div className="flex items-center gap-3 border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <p className="text-[17px] font-extrabold tracking-tight text-slate-900">Your Quotation</p>
+      </div>
+
+      <div className="px-4 pt-4">
+        <div className="rounded-3xl bg-slate-900 p-5 text-white">
+          <p className="font-mono text-[11px] font-semibold uppercase tracking-widest text-brand-teal">Your build</p>
+          <p className="mt-2.5 text-[28px] font-extrabold leading-none tracking-tight">
+            {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "—"}
+          </p>
+          <p className="mt-1.5 text-sm text-slate-300">
+            {livePreview
+              ? `${formatTrim(livePreview.systemKw, 1)} kW ${SERVICE_TYPE_LABEL[livePreview.serviceType]} · Rs ${Math.round(
+                  livePreview.totalClientPricePKR / (livePreview.systemKw * 1000)
+                )}/W all-in`
+              : "Enter your bill to see your build"}
+          </p>
+        </div>
+
+        {livePreview && (
+          <>
+            <div className="mt-3 overflow-hidden rounded-3xl border border-slate-200 bg-white">
+              <p className="border-b border-slate-100 px-4 py-3 font-mono text-[11px] font-semibold uppercase tracking-widest text-sky-800">
+                Line items
+              </p>
+              {rows.map((row) => (
+                <div key={row.label} className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-0">
+                  <p className="min-w-0 text-[14px] font-semibold text-slate-900">{row.label}</p>
+                  <p className="shrink-0 font-mono text-[13px] font-bold text-slate-900">
+                    {row.displayOverride ?? formatPKR(row.valuePKR)}
+                  </p>
+                </div>
+              ))}
+              <div className="flex items-center justify-between bg-orange-50 px-4 py-3.5">
+                <p className="text-[15px] font-extrabold text-slate-900">Turnkey Total</p>
+                <p className="text-[17px] font-extrabold text-slate-900">{formatPKR(livePreview.totalClientPricePKR)}</p>
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2.5">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-[11px] font-semibold text-slate-500">Monthly Saving</p>
+                <p className="mt-1 text-lg font-extrabold text-emerald-700">{formatPKR(livePreview.estimatedMonthlySavingsPKR)}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-[11px] font-semibold text-slate-500">Payback</p>
+                <p className="mt-1 text-lg font-extrabold text-slate-900">
+                  {livePreview.paybackYears !== null ? `${livePreview.paybackYears} yrs` : "—"}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4 text-[12.5px] leading-relaxed text-slate-500">
+              Final price confirmed after an on-site engineering survey (Rs 5,000, adjusted into your invoice). No WAPDA
+              net-metering paperwork.
+            </div>
+          </>
+        )}
+
+        <div className="mt-4 space-y-3">
+          <div>
+            <label htmlFor="mobileFullName" className="mb-1 block text-xs font-medium text-slate-600">
+              Full Name
+            </label>
+            <input
+              id="mobileFullName"
+              type="text"
+              required
+              minLength={2}
+              value={fullName}
+              onChange={(e) => onFullNameChange(e.target.value)}
+              placeholder="Ahmed Khan"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-[15px] text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
+            />
+          </div>
+          <div>
+            <label htmlFor="mobileWhatsappPhone" className="mb-1 block text-xs font-medium text-slate-600">
+              WhatsApp Number
+            </label>
+            <input
+              id="mobileWhatsappPhone"
+              type="tel"
+              required
+              pattern="^\+?[0-9]{10,15}$"
+              value={whatsappPhone}
+              onChange={(e) => onWhatsappPhoneChange(e.target.value)}
+              placeholder="+92 3XX XXXXXXX"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-[15px] text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
+            />
+          </div>
+        </div>
+
+        {errorMessage && (
+          <p role="alert" className="mt-2 text-xs text-red-500">
+            {errorMessage}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={status === "loading"}
+          className="glow-cta-teal mt-4 flex min-h-[54px] w-full items-center justify-center gap-2 rounded-2xl bg-brand-teal text-[16px] font-extrabold text-brand-teal-ink transition-all duration-200 hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          {status === "loading" ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Generating…
+            </>
+          ) : (
+            "Send to My WhatsApp"
+          )}
+        </button>
+      </div>
     </div>
   );
 }
@@ -4129,13 +5349,12 @@ interface BoqRow {
  *  out gets an explicit "Not Included" row instead of silent omission.
  *
  *  Extracted (2026-08-28) from ResultSummary's own inline
- *  costBreakdownRows into a standalone pure function — currently only
- *  called by ResultSummary itself (post-submit), but accepts either
- *  QuoteResult or SolarPreviewResult with no cast (both carry
- *  structurally identical breakdown/equipment/panelWashing/serviceType
- *  fields), so a future pre-submit preview surface can reuse it directly
- *  without re-deriving these rows. No behavior change from the original
- *  inline version. */
+ *  costBreakdownRows so the mobile Quote screen's pre-submit preview
+ *  can build the identical rows from `livePreview` (SolarPreviewResult)
+ *  — both that type and the post-submit QuoteResult carry structurally
+ *  identical breakdown/equipment/panelWashing/serviceType fields, so
+ *  this accepts either with no cast. Pure function, no behavior change
+ *  from the original inline version. */
 function buildCostBreakdownRows(source: {
   breakdown: ItemizedBreakdown;
   serviceType: ServiceType;

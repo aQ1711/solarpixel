@@ -76,7 +76,9 @@ interface ResolvedEquipmentItem {
 
 export interface ResolvedEquipment {
   panel: ResolvedEquipmentItem;
-  inverter: ResolvedEquipmentItem;
+  // quantity is optional here because older snapshots (saved before the
+  // 2026-08-29 multi-inverter "clubbing" fix) never had this field.
+  inverter: ResolvedEquipmentItem & { quantity?: number };
   battery: (ResolvedEquipmentItem & { capacityKwh: number }) | null;
 }
 
@@ -850,7 +852,15 @@ export function LeadDetailContent({
             {quote.resolvedEquipment ? (
               <>
                 <DetailRow icon={Sun} label="Solar Panel" value={quote.resolvedEquipment.panel.label} />
-                <DetailRow icon={Zap} label="Inverter" value={quote.resolvedEquipment.inverter.label} />
+                <DetailRow
+                  icon={Zap}
+                  label="Inverter"
+                  value={
+                    quote.resolvedEquipment.inverter.quantity && quote.resolvedEquipment.inverter.quantity > 1
+                      ? `${quote.resolvedEquipment.inverter.label} × ${quote.resolvedEquipment.inverter.quantity}`
+                      : quote.resolvedEquipment.inverter.label
+                  }
+                />
                 <DetailRow
                   icon={BatteryCharging}
                   label="Battery"
