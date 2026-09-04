@@ -25,6 +25,22 @@ const BRAND_QUERIES: { componentType: ComponentType; searchBrand: string; query:
   { componentType: "BATTERY", searchBrand: "Pylontech", query: "pylontech" },
   { componentType: "BATTERY", searchBrand: "Dyness", query: "dyness" },
   { componentType: "BATTERY", searchBrand: "Felicity", query: "felicity battery" },
+  // BREAKERS (2026-09-04, "market scrapper to fetch other equipment
+  // prices as well - cables, breakers etc.") — each of these 4 was
+  // individually confirmed live to return real, brand-matching circuit
+  // breaker listings (w11stop.com stocks a genuine electrical-components
+  // range under these brands), same bar as every query above. DC_CABLE/
+  // AC_CABLE were investigated too (many query variants: "dc cable", "pv
+  // cable", "solar cable", real Pakistani cable brand names) and
+  // DELIBERATELY left out — w11stop just doesn't stock a real, brand-
+  // searchable solar cable line; every attempt returned either unrelated
+  // noise (audio/USB/HDMI cables) or unbranded one-off listings. Adding
+  // guessed queries here would violate this file's own "confirmed live,
+  // not guessed" rule and just accumulate silent no-result rows.
+  { componentType: "BREAKERS", searchBrand: "Chint", query: "chint breaker" },
+  { componentType: "BREAKERS", searchBrand: "Schneider", query: "schneider breaker" },
+  { componentType: "BREAKERS", searchBrand: "ABB", query: "abb breaker" },
+  { componentType: "BREAKERS", searchBrand: "Legrand", query: "legrand breaker" },
 ];
 
 // Small bounded concurrency — polite to w11stop (never all 10 requests

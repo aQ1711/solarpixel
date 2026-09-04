@@ -3,8 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronsLeft, ChevronsRight, ShieldCheck, LogOut } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, LogOut } from "lucide-react";
 import { ADMIN_NAV_ITEMS, type AdminViewer } from "@/components/admin/adminNav";
+import { BrandMark } from "@/components/BrandMark";
 
 /**
  * Unified left sidebar for every /admin/* page (app/admin/layout.tsx).
@@ -30,7 +31,15 @@ export function AdminSidebar({ viewer, onLogout }: { viewer: AdminViewer | null;
       }`}
     >
       <div className={`flex items-center gap-2 border-b border-stone-100 px-4 py-4 ${collapsed ? "justify-center px-0" : ""}`}>
-        <ShieldCheck className="h-5 w-5 shrink-0 text-violet-600" />
+        {/* Real Solar Pixel brand mark (2026-09-04, "update logo/icon
+            everywhere") — was a generic Lucide ShieldCheck standing in
+            for the actual logo, the one real gap in an otherwise
+            consistent icon.png/storefront-header rollout. Own gradientId
+            not needed here — this is the only BrandMark instance that
+            ever mounts on an admin page (every /admin/* route shares
+            this one sidebar via app/admin/layout.tsx), so no <defs> id
+            collision risk. */}
+        <BrandMark className="h-6 w-6 shrink-0" />
         {!collapsed && <span className="truncate text-sm font-bold text-stone-900">Solar Pixel</span>}
       </div>
 

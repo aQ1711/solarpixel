@@ -4,6 +4,9 @@ import { Suspense, memo, useEffect, useRef, useState, type ChangeEvent, type For
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { trackWhatsAppClick } from "@/lib/analytics";
 import { BrandMark } from "@/components/BrandMark";
+import { SiteHeader } from "@/components/SiteHeader";
+import { SiteFooter } from "@/components/SiteFooter";
+import { WHATSAPP_BUSINESS_NUMBER, GENERAL_INQUIRY_WA_MESSAGE } from "@/lib/constants/contact";
 import type { ApiJson } from "@/lib/internal/access";
 import {
   Loader2,
@@ -30,11 +33,7 @@ import {
   AlertTriangle,
   Receipt,
   BatteryCharging,
-  Mail,
-  Phone,
-  Globe,
   Calculator,
-  Info,
   TrendingDown,
   Clock,
   CalendarCheck,
@@ -544,13 +543,6 @@ const MASTER_SERVICE_DESCRIPTION: Record<MasterService, string> = {
   SYSTEM_UPGRADES: "Panel washing, inverter servicing, capacity upgrades, and more. Describe what you need below.",
 };
 
-const WHATSAPP_BUSINESS_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_BUSINESS_NUMBER || "923000000000";
-// Generic prefilled text for every WhatsApp CTA that has no quote/inquiry
-// context yet (header, footer, the floating badge before a result
-// exists) — distinct from the quote-specific messages built in
-// ResultSummary/AddOnResultSummary, which include real numbers.
-const GENERAL_INQUIRY_WA_MESSAGE = "Assalam o Alaikum! I'd like to learn more about Solar Pixel's solar systems.";
-
 const pkr = new Intl.NumberFormat("en-PK", {
   style: "currency",
   currency: "PKR",
@@ -621,10 +613,10 @@ export default function HomePageContent() {
           already-composited layer. */}
       <div className="sticky top-0 z-30 [transform:translateZ(0)] will-change-transform print:hidden">
         <MarketWatchTicker />
-        <Header />
+        <SiteHeader />
       </div>
       <Hero />
-      <Footer />
+      <SiteFooter />
     </main>
   );
 }
@@ -932,62 +924,10 @@ function scrollToCalculator() {
   document.getElementById("calculator")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-// memo() — same reasoning as MarketWatchTicker just above: zero props,
-// no reason to re-render on unrelated HomePageContent state changes.
-const Header = memo(function Header() {
-  return (
-    <header className="px-3 pt-3 sm:px-5">
-      <div className="mx-auto flex max-w-4xl items-center justify-between gap-2 rounded-full border border-stone-200 bg-white/90 py-2 pl-4 pr-2 shadow-sm shadow-stone-200/50 backdrop-blur-md sm:pl-5 sm:pr-2.5">
-        <div className="flex items-center gap-2">
-          {/* The real Solar Pixel brand mark (2026-08-29) — see
-              components/BrandMark.tsx's own doc comment. Replaces the
-              plain solid-square placeholder that stood in for it since
-              the 2026-08-24 purple-to-orange rebrand. */}
-          <BrandMark className="h-7 w-7 shrink-0 sm:h-8 sm:w-8" />
-          <span className="text-base font-semibold tracking-tight text-stone-900 sm:text-lg">Solar Pixel</span>
-          <span className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 sm:inline-block">
-            No Net Metering
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {/* "Chat with us" (2026-08-24) — renamed and its icon dropped:
-              this is a WhatsApp message link, not a live chat widget, and
-              the site doesn't offer live chat at all right now, so
-              wording/iconography that implies one is misleading. Same
-              fix applied to the footer's matching link and the floating
-              mobile WhatsApp button's aria-label below. */}
-          {/* Mobile header — a static location pill instead of the
-              Contact Us/Get Instant Quote CTAs below (calculator is
-              right underneath the hero, so a header CTA is redundant on
-              a screen this short). "Punjab · Pakistan" (2026-09-04
-              feedback), not "LESCO · Lahore" — LESCO only serves Lahore;
-              this business quotes across Punjab, not one DISCO's area.
-              Desktop keeps both real CTAs, unchanged. */}
-          <span className="flex min-h-9 items-center rounded-full border border-[#E8E1D8] bg-white px-3.5 font-mono text-[11px] font-semibold text-[#5A6472] lg:hidden">
-            Punjab · Pakistan
-          </span>
-          <a
-            href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(GENERAL_INQUIRY_WA_MESSAGE)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => trackWhatsAppClick("header")}
-            className="hidden min-h-9 items-center rounded-full border border-stone-200 px-3.5 text-xs font-medium text-stone-600 transition-colors duration-200 hover:border-stone-300 hover:text-stone-900 lg:flex"
-          >
-            Contact Us
-          </a>
-          <button
-            type="button"
-            onClick={scrollToCalculator}
-            className="hidden min-h-9 items-center gap-1.5 rounded-full bg-stone-900 px-4 text-xs font-semibold text-white transition-colors duration-200 hover:bg-stone-800 lg:flex"
-          >
-            Get Instant Quote
-            <ArrowRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-    </header>
-  );
-});
+// (The site header used to be defined here as a local `Header` component
+// — moved to components/SiteHeader.tsx, 2026-09-05, "header should
+// remain the same across the application" — see that file's own doc
+// comment. Rendered below via <SiteHeader />.)
 
 // ============================================================================
 // Hero + Calculator
@@ -6041,162 +5981,7 @@ function PrintRow({ label, value }: { label: string; value: string }) {
 // calculator), so submitting just opens a prefilled WhatsApp chat, same
 // as before this redesign — no Lead/Quote row gets created.
 
-// ============================================================================
-// Footer
-// ============================================================================
-
-// Bang & Olufsen-style luxury footer (Part 4, 2026-08-20 replacement of
-// the old plain centered footer). Real, already-established contact
-// details only (Email/Phone/Site — the exact same values already quoted
-// in the BOQ report footer below) — no fabricated social-media accounts
-// or links. Lucide-react 1.31 doesn't ship brand icons (Facebook/
-// Instagram/etc. were dropped from the library), which settled that
-// question anyway: rather than hand-drawing brand marks for accounts
-// that don't exist, "Social" lists the one channel this business
-// genuinely uses for that kind of direct engagement (WhatsApp) plus the
-// public site URL.
-//
-// 2026-08-22 (Legal Trust Pages task): "Legal" items are now real links
-// — app/about, app/privacy-policy, and app/terms all exist now (see
-// components/legal/LegalPageShell.tsx), closing the gap this comment
-// used to describe (a styled link that 404s is worse than an honest
-// label — that's no longer the tradeoff). Gained a 4th "Company" column
-// (About Us + Live Calculator, the latter a plain #calculator hash link
-// — works on this page via native anchor scroll, and works from any
-// OTHER page via a full navigation back to "/" that lands on the
-// section, no JS wiring needed either way).
-const WEBSITE_URL = "https://www.solarpixel.pk";
-const CONTACT_EMAIL = "solarpixelpk@gmail.com";
-const CONTACT_PHONE_DISPLAY = "+92 328 2155550";
-const CONTACT_PHONE_TEL = "+923282155550";
-
-function Footer() {
-  return (
-    <footer className="relative overflow-hidden bg-[#0a0714] text-white print:hidden">
-      <div className="mx-auto flex max-w-7xl">
-        {/* LEFT EDGE: "SOLAR", vertical, bottom-to-top. Hidden below md
-            per the brief — at narrow widths there's no room for a full-
-            height typographic column without crushing the center
-            content, so it drops out entirely rather than being scaled
-            down into illegibility. */}
-        <div className="hidden shrink-0 border-r border-white/10 md:flex md:items-center md:justify-center md:px-1 lg:px-4">
-          <span
-            aria-hidden
-            className="pointer-events-none select-none whitespace-nowrap font-black uppercase leading-none tracking-tight text-white/[0.07]"
-            style={{ writingMode: "vertical-lr", transform: "rotate(180deg)", fontSize: "clamp(3.5rem, 9vw, 8rem)" }}
-          >
-            Solar
-          </span>
-        </div>
-
-        {/* CENTER: standard footer link columns */}
-        <div className="flex-1 px-6 py-16 sm:px-10 sm:py-20">
-          <div className="mx-auto grid max-w-4xl gap-10 text-center sm:grid-cols-2 sm:text-left lg:grid-cols-4">
-            <FooterColumn title="Company">
-              <FooterLink href="/about" icon={Info}>
-                About Us
-              </FooterLink>
-              <FooterLink href="/#calculator" icon={Calculator}>
-                Live Calculator
-              </FooterLink>
-            </FooterColumn>
-
-            <FooterColumn title="Contact">
-              <FooterLink
-                href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(GENERAL_INQUIRY_WA_MESSAGE)}`}
-                icon={MessageCircle}
-                onClick={() => trackWhatsAppClick("footer_contact")}
-              >
-                WhatsApp
-              </FooterLink>
-              <FooterLink href={`mailto:${CONTACT_EMAIL}`} icon={Mail}>
-                {CONTACT_EMAIL}
-              </FooterLink>
-              <FooterLink href={`tel:${CONTACT_PHONE_TEL}`} icon={Phone}>
-                {CONTACT_PHONE_DISPLAY}
-              </FooterLink>
-            </FooterColumn>
-
-            <FooterColumn title="Social">
-              <FooterLink
-                href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(GENERAL_INQUIRY_WA_MESSAGE)}`}
-                icon={MessageCircle}
-                onClick={() => trackWhatsAppClick("footer_social")}
-              >
-                Message Us
-              </FooterLink>
-              <FooterLink href={WEBSITE_URL} icon={Globe}>
-                www.solarpixel.pk
-              </FooterLink>
-            </FooterColumn>
-
-            <FooterColumn title="Legal">
-              <a href="/privacy-policy" className="block text-sm text-white/70 transition-colors duration-200 hover:text-white">
-                Privacy Policy
-              </a>
-              <a href="/terms" className="block text-sm text-white/70 transition-colors duration-200 hover:text-white">
-                Terms of Service
-              </a>
-            </FooterColumn>
-          </div>
-
-          <div className="mx-auto mt-14 max-w-3xl border-t border-white/10 pt-6 text-center text-xs text-white/40 sm:text-left">
-            <p className="max-w-md sm:mx-0 mx-auto">
-              Smart Solar for Residential, Commercial and Industrial. No net billing, no green meters. Just a
-              system that goes live fast.
-            </p>
-            <p className="mt-2">
-              © {new Date().getFullYear()} Solar Pixel. Estimates are indicative and confirmed after an on-site
-              engineering survey (Rs 5,000 fee applies).
-            </p>
-          </div>
-        </div>
-
-        {/* RIGHT EDGE: "PIXEL", vertical, top-to-bottom */}
-        <div className="hidden shrink-0 border-l border-white/10 md:flex md:items-center md:justify-center md:px-1 lg:px-4">
-          <span
-            aria-hidden
-            className="pointer-events-none select-none whitespace-nowrap font-black uppercase leading-none tracking-tight text-white/[0.07]"
-            style={{ writingMode: "vertical-rl", fontSize: "clamp(3.5rem, 9vw, 8rem)" }}
-          >
-            Pixel
-          </span>
-        </div>
-      </div>
-    </footer>
-  );
-}
-
-function FooterColumn({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/50">{title}</p>
-      <div className="mt-3 space-y-2.5">{children}</div>
-    </div>
-  );
-}
-
-function FooterLink({
-  href,
-  icon: Icon,
-  onClick,
-  children,
-}: {
-  href: string;
-  icon: React.ComponentType<{ className?: string }>;
-  onClick?: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <a
-      href={href}
-      target={href.startsWith("http") ? "_blank" : undefined}
-      rel={href.startsWith("http") ? "noopener noreferrer" : undefined}
-      onClick={onClick}
-      className="flex items-center justify-center gap-1.5 text-sm text-white/70 transition-colors duration-200 hover:text-white sm:justify-start"
-    >
-      <Icon className="h-3.5 w-3.5 shrink-0" />
-      <span className="truncate">{children}</span>
-    </a>
-  );
-}
+// (The site footer used to be defined here as a local `Footer` component
+// — moved to components/SiteFooter.tsx, 2026-09-05, "footer should
+// remain the same across the application" — see that file's own doc
+// comment. Rendered below via <SiteFooter />.)

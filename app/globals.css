@@ -122,6 +122,16 @@
    color-scheme is correct for both anymore, so each dark page opts in
    itself (style={{ colorScheme: "dark" }} on its root <main>) instead of
    this file forcing it everywhere. */
+/* 2026-09-05 — SiteHeader/SiteFooter's shared "Get Instant Quote"
+   /#calculator link relies on this for a smooth same-page scroll on the
+   homepage itself (not just the plain instant jump a bare hash link
+   gets by default); it's also exactly what the old homepage-only
+   scrollToCalculator() JS handler did, now unneeded since the link is
+   real and works from every page, not just "/". */
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   background-color: #fafaf9;
   color: #0f172a;

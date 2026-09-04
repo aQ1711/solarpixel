@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { AccessGate } from "@/components/internal/AccessGate";
 import { internalFetch, type ApiJson } from "@/lib/internal/access";
+import { BrandMark } from "@/components/BrandMark";
 
 // ============================================================================
 // Types
@@ -87,7 +88,14 @@ function MakerSurveyApp({ onUnauthorized }: { onUnauthorized: () => void }) {
     <main style={{ colorScheme: "dark" }} className="min-h-dvh bg-[var(--color-bg)] px-4 py-6 sm:px-6">
       <div className="mx-auto max-w-md">
         <header className="mb-5">
-          <p className="text-xs font-medium text-[var(--color-neon)]">Solar Pixel · Maker</p>
+          {/* Real Solar Pixel brand mark (2026-09-04, "update logo/icon
+              everywhere") — this internal tool never had one at all,
+              just the plain text eyebrow below. Same component the
+              storefront/legal pages/admin sidebar all use now. */}
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <BrandMark className="h-4 w-4 shrink-0" />
+            <p className="text-xs font-medium text-[var(--color-neon)]">Solar Pixel · Maker</p>
+          </div>
           <h1 className="mt-0.5 text-xl font-bold text-[var(--color-ink)]">Site Survey</h1>
           <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
             Load a quote, take exact measurements on-site, submit for Checker approval.
