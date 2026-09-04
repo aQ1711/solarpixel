@@ -50,7 +50,7 @@ export default function PrivacyPolicyPage() {
 
       <h2>WhatsApp Communication</h2>
       <p>
-        Quotes, follow-ups, and scheduling are primarily handled over WhatsApp. When you click a &quot;Message Us
+        Quotes, follow ups, and scheduling are primarily handled over WhatsApp. When you click a &quot;Message Us
         on WhatsApp&quot; button, you&apos;re taken to WhatsApp with a prefilled message, and that conversation is
         then subject to WhatsApp&apos;s own privacy practices as well as ours.
       </p>

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { MessageCircle } from "lucide-react";
 import { getDb } from "@/lib/db/client";
@@ -49,7 +50,7 @@ const formatPKR = (n: number) => pkr.format(n);
 
 const SERVICE_TYPE_LABEL: Record<string, string> = {
   HYBRID_BATTERY: "Hybrid + Battery Backup",
-  ONGRID_ZERO_EXPORT: "On-Grid",
+  ONGRID_ZERO_EXPORT: "On Grid",
 };
 
 const SECTOR_LABEL: Record<string, string> = {
@@ -83,6 +84,36 @@ interface BreakdownSnapshot {
 }
 
 const WHATSAPP_BUSINESS_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_BUSINESS_NUMBER || "923000000000";
+
+/**
+ * Page-specific title (2026-09-04, "should be professional... don't
+ * mention Lahore") — without this, this page silently inherited the
+ * root layout's homepage SEO title ("Solar Installation Lahore | Solar
+ * Pixel", correct for that page's actual job: Google search results,
+ * wrong for a document a customer opens/prints from a WhatsApp link).
+ * Renders through the same root "%s | Solar Pixel" template every other
+ * page here already uses (About/Privacy/Terms) — kept to quote number +
+ * date only, deliberately no customer name: this route is public and
+ * unauthenticated (see this file's own top doc comment on why PII is
+ * never shown here), so nothing personally identifying belongs in a
+ * <title> tag either, which can end up in browser history/tab previews.
+ */
+export async function generateMetadata({ params }: { params: Promise<{ quoteId: string }> }): Promise<Metadata> {
+  const { quoteId } = await params;
+  const prisma = await getDb();
+  const quote = await prisma.quote.findUnique({
+    where: { id: quoteId },
+    select: { quoteNumber: true, createdAt: true },
+  });
+  if (!quote) {
+    return { title: "Quotation Not Found" };
+  }
+  const dateLabel = quote.createdAt.toLocaleDateString("en-PK", { day: "numeric", month: "long", year: "numeric" });
+  return {
+    title: `Quotation ${quote.quoteNumber} - ${dateLabel}`,
+    description: `Official Solar Pixel quotation ${quote.quoteNumber}.`,
+  };
+}
 
 export default async function QuotePage({ params }: { params: Promise<{ quoteId: string }> }) {
   const { quoteId } = await params;
@@ -122,7 +153,7 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
     { label: "Cables, Protection & Safety Equipment", valuePKR: breakdown.cablingAndProtectionPKR },
     { label: "Installation & Commissioning", valuePKR: breakdown.installationPKR },
     ...(breakdown.siteWorksPKR ? [{ label: "Site Works", valuePKR: breakdown.siteWorksPKR }] : []),
-    ...(breakdown.panelWashingPKR ? [{ label: "Panel Washing (One-Time Visit)", valuePKR: breakdown.panelWashingPKR }] : []),
+    ...(breakdown.panelWashingPKR ? [{ label: "Panel Washing (One Time Visit)", valuePKR: breakdown.panelWashingPKR }] : []),
   ];
 
   const waMessage = `Assalam o Alaikum! I'm reviewing my Solar Pixel quote (Reference ID: #${quoteId}) and would like to discuss it further.`;
@@ -141,21 +172,70 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
           <PrintButton />
         </div>
 
-        <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-xl shadow-stone-200/50 sm:p-8 print:rounded-none print:border-0 print:p-0 print:shadow-none">
-          <div className="flex items-start justify-between gap-4 border-b border-stone-100 pb-6">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-brand-navy">Official Quotation</p>
-              <h1 className="mt-1 text-2xl font-bold text-stone-900">{quote.quoteNumber}</h1>
-              <p className="mt-1 text-sm text-stone-500">
-                {SECTOR_LABEL[quote.sector] ?? quote.sector} · {SERVICE_TYPE_LABEL[quote.serviceType] ?? quote.serviceType}
-              </p>
+        <div className="relative overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-xl shadow-stone-200/50 print:overflow-visible print:rounded-none print:border-0 print:shadow-none">
+          {/* Background watermark (2026-09-04, "should have Solar pixel
+              badging logo or watermark") — mirrors ResultSummary's own
+              watermark (app/HomePageContent.tsx) so a customer following
+              the WhatsApp "Official PDF Quotation" link to THIS page sees
+              the same professional treatment. Deliberately NOT
+              print:hidden — this is the actual "PDF" (PrintButton /
+              window.print()), so the watermark must survive onto the
+              saved/printed document, unlike the hero's decorative glow
+              blob which is print:hidden. Own gradientId per BrandMark's
+              own doc comment — this page already renders a second
+              BrandMark in the screen-only chrome bar above. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-1/3 -z-10 h-[380px] w-[380px] -translate-x-1/2 -translate-y-1/2 opacity-[0.04]"
+          >
+            <BrandMark className="h-full w-full" gradientId="quotePageWatermark" />
+          </div>
+          {/* Hero (2026-09-04, "need a better design for the quotation")
+              — same dark-gradient treatment as the on-site ResultSummary
+              this page mirrors, so a customer following the WhatsApp
+              "Official PDF Quotation" link sees a consistent, premium
+              document rather than a plainer stand-in. print color-adjust
+              forced on for the same reason as ResultSummary's own hero:
+              most browsers strip background colors when printing by
+              default, and this page's own PrintButton IS the "PDF" —
+              without it the header would print as blank white space. */}
+          <div
+            className="relative overflow-hidden rounded-t-3xl p-6 text-white sm:p-8 print:rounded-none print:border-b print:border-stone-300 print:p-6 print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]"
+            style={{ background: "linear-gradient(155deg, #0F172A 0%, #0B1220 60%, #0B3B30 150%)" }}
+          >
+            <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-emerald-400/15 blur-[90px] print:hidden" />
+
+            {/* Real logo in the hero itself, not just the screen-only
+                chrome bar above (see the watermark comment on this same
+                page) — matches ResultSummary's own hero treatment. */}
+            <div className="relative flex items-center gap-2.5">
+              <BrandMark className="h-9 w-9 shrink-0" gradientId="quotePageHeroMark" />
+              <div className="min-w-0">
+                <p className="text-sm font-bold leading-tight">Solar Pixel</p>
+                <p className="text-[10px] leading-tight text-white/50">(Pvt) Ltd.</p>
+              </div>
             </div>
-            <p className="shrink-0 text-right text-xs text-stone-400">
-              {quote.createdAt.toLocaleDateString("en-PK", { day: "numeric", month: "long", year: "numeric" })}
+
+            <div className="relative mt-4 flex flex-wrap items-center justify-between gap-2">
+              <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                Official Quotation
+              </span>
+              <span className="font-mono text-[10.5px] text-white/60">
+                {quote.createdAt.toLocaleDateString("en-PK", { day: "numeric", month: "long", year: "numeric" })}
+              </span>
+            </div>
+            <h1 className="relative mt-3 text-2xl font-extrabold tracking-tight sm:text-3xl">{quote.quoteNumber}</h1>
+            <p className="relative mt-1 text-xs text-white/50 sm:text-sm">
+              {SECTOR_LABEL[quote.sector] ?? quote.sector} · {SERVICE_TYPE_LABEL[quote.serviceType] ?? quote.serviceType}
             </p>
+            <div className="relative mt-5">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-white/50">Total Turnkey Price</p>
+              <p className="mt-0.5 font-mono text-3xl font-bold leading-none text-emerald-400 sm:text-4xl">{formatPKR(totalPKR)}</p>
+            </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <div className="p-6 sm:p-8">
+          <div className="grid grid-cols-2 gap-4">
             <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
               <p className="text-xs text-stone-500">System Size</p>
               <p className="mt-0.5 text-lg font-bold text-stone-900">{systemKw} kW</p>
@@ -165,10 +245,6 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
               <p className="mt-0.5 text-lg font-bold text-stone-900">
                 {equipment.panel.count} × {equipment.panel.label}
               </p>
-            </div>
-            <div className="col-span-2 rounded-2xl border border-orange-200 bg-orange-50 p-4 sm:col-span-1">
-              <p className="text-xs text-orange-700">Total Turnkey Price</p>
-              <p className="mt-0.5 text-lg font-bold text-orange-900">{formatPKR(totalPKR)}</p>
             </div>
           </div>
 
@@ -208,6 +284,7 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
             This is an instant estimate. The exact price is confirmed after an on-site engineering survey (Rs 5,000 fee
             applies). No WAPDA net-metering paperwork required.
           </p>
+          </div>
         </div>
 
         <a

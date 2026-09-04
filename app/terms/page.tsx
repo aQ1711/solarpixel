@@ -70,7 +70,7 @@ export default function TermsPage() {
 
       <h2>6. No Net Metering / WAPDA Paperwork</h2>
       <p>
-        Our systems are designed and installed without requiring WAPDA net-metering interconnection paperwork. This
+        Our systems are designed and installed without requiring WAPDA net metering interconnection paperwork. This
         does not affect the equipment warranty terms described in Section 3.
       </p>
 

@@ -358,6 +358,17 @@ body {
   padding-top: env(safe-area-inset-top);
 }
 
+/* Safe-area padding for the fixed mobile "Get Quotation" bar (2026-09-04)
+   — real bug: `fixed bottom-0` sits flush against the physical bottom
+   edge, which on notched/gesture-nav phones is the home-indicator area.
+   Without this, the bar's own p-4 padding wasn't enough clearance and
+   its bottom got visually obscured/cut off by the OS gesture bar.
+   max(...,1rem) keeps the existing p-4 breathing room on devices where
+   env() resolves to 0. */
+.safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+}
+
 /* Hero background texture — a faint dot grid (graph-paper feel) behind
    the headline/calculator, low-opacity so it never competes with
    content or fails contrast for anything drawn on top of it. */

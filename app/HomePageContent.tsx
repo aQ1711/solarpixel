@@ -19,7 +19,9 @@ import {
   ChevronLeft,
   ChevronDown,
   Download,
-  Sparkles,
+  Wand2,
+  Activity,
+  Building2,
   Upload,
   FileText,
   X,
@@ -33,6 +35,9 @@ import {
   Globe,
   Calculator,
   Info,
+  TrendingDown,
+  Clock,
+  CalendarCheck,
 } from "lucide-react";
 
 // ============================================================================
@@ -60,6 +65,10 @@ const PHASE_LABEL: Record<InverterPhase, string> = {
   SINGLE_PHASE: "Single Phase",
   THREE_PHASE: "Three Phase",
 };
+// RoofType/ROOF_TYPE_LABEL removed (2026-09-04) — the mobile "Refine
+// your details" field they backed was replaced by a real Mounting
+// Structure dropdown (equipmentOptions.MOUNTING_STRUCTURE, structureCode)
+// per explicit feedback; see that field's own doc comment.
 // Provenance of the bill amount — mirrors Prisma's BillSource enum.
 type BillSource = "MANUAL" | "UPLOADED_PDF" | "UPLOADED_IMAGE";
 type UploadState = "idle" | "uploading" | "success" | "error";
@@ -418,8 +427,8 @@ const EV_CHARGER_EXTRA_CABLE_RATE_PKR_PER_METER = 500;
 // default-active sector, matching DEFAULT_SECTOR below.
 const SECTOR_CARDS: { value: Sector; label: string; description: string }[] = [
   { value: "RESIDENTIAL", label: "Residential", description: "For homes. Hybrid battery backup, 24/7 power security." },
-  { value: "COMMERCIAL", label: "Commercial", description: "For offices & retail. Flexible Hybrid or On-Grid." },
-  { value: "INDUSTRIAL", label: "Industrial", description: "For factories & heavy load. High capacity On-Grid." },
+  { value: "COMMERCIAL", label: "Commercial", description: "For offices & retail. Flexible Hybrid or On Grid." },
+  { value: "INDUSTRIAL", label: "Industrial", description: "For factories & heavy load. High capacity On Grid." },
 ];
 const DEFAULT_SECTOR: Sector = "RESIDENTIAL";
 const SECTOR_LABEL: Record<Sector, string> = {
@@ -427,10 +436,38 @@ const SECTOR_LABEL: Record<Sector, string> = {
   COMMERCIAL: "Commercial",
   INDUSTRIAL: "Industrial",
 };
+// Mobile-only compact segmented control (2026-08-29, explicit
+// instruction) — short micro-copy distinct from SECTOR_CARDS' own
+// longer descriptions above (desktop keeps those unchanged); this is
+// its own map rather than editing SECTOR_CARDS so desktop copy never
+// drifts as a side effect of a mobile-only change.
+const SECTOR_MICROCOPY: Record<Sector, string> = {
+  RESIDENTIAL: "Homes",
+  COMMERCIAL: "Offices, Plazas & Retail",
+  INDUSTRIAL: "Factories & Heavy Load",
+};
+// Tapping "Commercial" on the mobile segmented control prefills the
+// bill amount (only if still empty — never overwrites a real typed
+// value) so a commercial visitor sees a realistic instant estimate
+// immediately instead of a blank/zero state.
+const COMMERCIAL_DEFAULT_BILL_PKR = 100_000;
+// Mobile Home tab's hero estimator card (2026-09-03, LOCKED spec §2) —
+// DISPLAY-ONLY starting position for the slider/big-Rs-figure while
+// billAmountInput is still empty (fresh page load, Residential is
+// DEFAULT_SECTOR). Deliberately NOT written into billAmountInput itself
+// (unlike Commercial's fill-on-tap default above) — that state is
+// shared with desktop's own text input, and this session's standing
+// "mobile only" scope means desktop's existing empty-start behavior
+// must stay untouched. The tradeoff: the "You need/You save" tiles show
+// a placeholder until the customer's first real drag, rather than a
+// fully-computed number on the very first frame like the design
+// reference shows — the alternative (defaulting billAmountInput itself)
+// would also change desktop's first-load state, which wasn't asked for.
+const RESIDENTIAL_HERO_DEFAULT_BILL_PKR = 45_000;
 
 const SERVICE_TYPE_LABEL: Record<ServiceType, string> = {
   HYBRID_BATTERY: "Hybrid + Battery Backup",
-  ONGRID_ZERO_EXPORT: "On-Grid",
+  ONGRID_ZERO_EXPORT: "On Grid",
 };
 const SERVICE_TYPE_ICON: Record<ServiceType, typeof BatteryCharging> = {
   HYBRID_BATTERY: BatteryCharging,
@@ -438,7 +475,7 @@ const SERVICE_TYPE_ICON: Record<ServiceType, typeof BatteryCharging> = {
 };
 const SERVICE_TYPE_DESCRIPTION: Record<ServiceType, string> = {
   HYBRID_BATTERY: "Get a turnkey solar + battery solution for 24/7 power security, even during an outage.",
-  ONGRID_ZERO_EXPORT: "Lower upfront cost, no battery hardware. Zero WAPDA net-metering paperwork either way.",
+  ONGRID_ZERO_EXPORT: "Lower upfront cost, no battery hardware. Zero WAPDA net metering paperwork either way.",
 };
 
 // Market-reality constraint (2026, revised): Industrial is locked to
@@ -454,8 +491,8 @@ const LOCKED_SERVICE_TYPE_BY_SECTOR: Partial<Record<Sector, ServiceType>> = {
 
 // Auto Sector & System Routing (2026-08-29, explicit instruction): a bill
 // at/above this crosses into industrial-scale consumption, so it auto-
-// switches Property Type to Industrial the moment it's crossed (see
-// applyBillThresholdRouting below). System Type needs no separate
+// switches Property Type to Industrial the moment it's crossed (see the
+// debounced routing effect near chooseSector below). System Type needs no separate
 // handling — LOCKED_SERVICE_TYPE_BY_SECTOR above already forces On-Grid
 // the instant sector becomes "INDUSTRIAL", for free.
 const INDUSTRIAL_SECTOR_THRESHOLD_PKR = 250_000;
@@ -472,7 +509,7 @@ const MAX_INVERTER_UNITS = 20;
 const PANEL_COUNT_ABSOLUTE_MINIMUM = 1;
 
 const RESIDENTIAL_ONGRID_WARNING =
-  "On-Grid inverters shut down during power outages. For 24/7 uninterrupted power, a Hybrid System is strongly recommended.";
+  "On Grid inverters shut down during power outages. For 24/7 uninterrupted power, a Hybrid System is strongly recommended.";
 
 // Not collected in the form — sensible sector defaults for what share of
 // consumption falls in daylight hours, since the sizing math needs it.
@@ -700,7 +737,7 @@ const MarketWatchTicker = memo(function MarketWatchTicker() {
   if (visibility.showHybridInverters && hybridInverterItems?.length)
     rows.push({ key: "hybrid", items: hybridInverterItems, tag: "HYBRID", direction: "right" });
   if (visibility.showOnGridInverters && ongridInverterItems?.length)
-    rows.push({ key: "ongrid", items: ongridInverterItems, tag: "ON-GRID", direction: "left" });
+    rows.push({ key: "ongrid", items: ongridInverterItems, tag: "ON GRID", direction: "left" });
   if (visibility.showBatteries && batteryItems?.length) rows.push({ key: "batteries", items: batteryItems, tag: "BATTERIES", direction: "right" });
 
   // Every enabled row turned out empty (or every row is admin-hidden),
@@ -727,13 +764,25 @@ const MarketWatchTicker = memo(function MarketWatchTicker() {
   // `.animate-fade-up` utility, same one used elsewhere on this page)
   // rather than trying to preserve a now-actively-harmful fixed box.
   return (
-    <div aria-hidden className="safe-top-thin flex w-full flex-col overflow-hidden bg-zinc-950 font-mono text-xs">
+    // Liquid glass (2026-09-04 feedback) — this bar is sticky at the top
+    // of the page, on top of scrolled content, same "real overlap"
+    // reasoning as the mobile floating bottom bar below.
+    // bg-zinc-950/90 (was /70) — 2026-09-04 feedback: the lighter
+    // translucency let the page's own dot-grid/orange glow bleed through
+    // too strongly behind the moving price text, reading as muddy/hard
+    // to read. Still glass (backdrop-blur-xl + hairline border), just
+    // opaque enough that the ticker's own content stays legible.
+    <div aria-hidden className="safe-top-thin flex w-full flex-col overflow-hidden border-b border-white/10 bg-zinc-950/90 font-mono text-xs backdrop-blur-xl">
       {stillLoading ? (
         <div className="flex items-center justify-center gap-2 py-3">
           <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-400" />
           <span className="text-xs uppercase tracking-widest text-white/70">Syncing live market prices...</span>
         </div>
       ) : (
+        // Separate tagged rows per category (Panels/Hybrid/On-Grid/
+        // Batteries) — shared by mobile and desktop, same as before the
+        // single-row "MARKET WATCH" mobile variant (2026-09-04 feedback:
+        // revert to this, the per-category breakdown is the useful part).
         rows.map((row, i) => (
           <TickerRow
             key={row.key}
@@ -759,45 +808,78 @@ const MarketWatchTicker = memo(function MarketWatchTicker() {
  *  keeps the row from ever being allowed to affect document width/wrap
  *  even if a future change nests this component somewhere the outer
  *  div's overflow-hidden doesn't reach. */
-/** How many seconds of scroll time each ticker item "deserves" — tuned
- *  against the original panel row (32s for 3 real panels ≈ 10.67s/item),
- *  which read at a "normal" pace. A FIXED duration regardless of item
- *  count (the old bug) made any row that grew past its original item
- *  count scroll proportionally faster for the same distance — this is
- *  what made the inverter row feel fast once it grew from ~5-6 items to
- *  12. Computing duration = items.length * this constant keeps every
- *  row's perceived speed the same no matter how many SKUs the catalog
- *  ends up with. */
-const TICKER_SECONDS_PER_ITEM = 32 / 3;
-const TICKER_MIN_SECONDS = 16;
+/** Constant scroll SPEED, not a fixed duration per item (2026-09-04
+ *  feedback: "speed needs to be normal, it's fast and unreadable,
+ *  implement same as that of nasdaq"). Two earlier attempts
+ *  (items.length × 32/3s, then × 5s, then × 2s) all guessed at a
+ *  duration and kept missing — because "duration = item count ×
+ *  constant" can never actually promise a real reading pace in the
+ *  first place: a row of long inverter names and a row of short panel
+ *  names hit the "same" duration at very different real px/s. A real
+ *  ticker tape (NASDAQ tower, Bloomberg/CNBC strips) moves at one
+ *  constant pixels-per-second rate regardless of what's on it — that's
+ *  what actually reads as "normal," not a duration tuned by trial and
+ *  error. Measured directly off the rendered track's own scrollWidth,
+ *  not estimated from how many items there are. */
+const TICKER_PIXELS_PER_SECOND = 55;
+const TICKER_MIN_SECONDS = 6;
 
 function TickerRow({
   items,
   direction,
   tag,
+  tagClassName,
   className,
 }: {
   items: TickerItem[];
   direction: "left" | "right";
-  /** Short pinned label (e.g. "HYBRID" / "ON-GRID") at the row's left
+  /** Short pinned label (e.g. "HYBRID" / "ON GRID") at the row's left
    *  edge, static and non-scrolling — the visual differentiator between
    *  the two inverter rows the ticker items themselves don't otherwise
    *  carry (their label text is just the product name). */
   tag?: string;
+  /** Override the tag pill's own color — desktop's neutral zinc chip by
+   *  default, the mobile combined row uses this for Main.html's solid
+   *  orange "MARKET WATCH" badge instead. */
+  tagClassName?: string;
   className?: string;
 }) {
   const doubled = [...items, ...items];
-  const durationSeconds = Math.max(TICKER_MIN_SECONDS, Math.round(items.length * TICKER_SECONDS_PER_ITEM));
+  const trackRef = useRef<HTMLDivElement>(null);
+  // Starting guess before the real width is measured (first paint) —
+  // TICKER_MIN_SECONDS is a reasonable, harmless placeholder either way;
+  // this is overwritten within one effect pass, before the animation has
+  // meaningfully progressed.
+  const [durationSeconds, setDurationSeconds] = useState(TICKER_MIN_SECONDS);
+
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    // scrollWidth spans BOTH doubled copies; one real copy (the
+    // seamless repeat unit the -50% translate is built around — see
+    // the doc comment on the trailing-spacer technique just below) is
+    // exactly half of that.
+    const oneCopyWidthPx = track.scrollWidth / 2;
+    setDurationSeconds(Math.max(TICKER_MIN_SECONDS, oneCopyWidthPx / TICKER_PIXELS_PER_SECOND));
+  }, [items]);
+
   return (
-    // pl-4 lives here, on the non-animated overflow-hidden wrapper, NOT
-    // on the translating row below — it used to be on the row itself,
-    // which made row.scrollWidth asymmetric (16px of padding before the
-    // first copy, none after the second) and broke the "translate by
-    // exactly -50%" seamless-loop assumption. That was only HALF the bug
-    // though (see below).
-    <div className={`flex w-full items-center overflow-hidden whitespace-nowrap pl-4 ${className ?? ""}`}>
+    // Label overlays the strip (2026-09-04 feedback, corrected mid-turn:
+    // "not below — it should flow under the label") — one line again,
+    // but the tag is now a solid floating badge (`absolute`, its own
+    // z-index) sitting ON TOP of the scrolling track, which runs the
+    // full width behind it. Items visibly emerge from under the badge's
+    // right edge as they scroll — a real layered look, not just "starts
+    // after the label" spacing. The badge's background must stay fully
+    // opaque (no liquid-glass translucency here) or the scrolling text
+    // would show through it instead of disappearing behind it.
+    <div className={`relative w-full overflow-hidden py-1.5 ${className ?? ""}`}>
       {tag ? (
-        <span className="mr-3 shrink-0 rounded-sm bg-zinc-800 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-400">
+        <span
+          className={`absolute left-4 top-1/2 z-10 -translate-y-1/2 rounded-sm px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
+            tagClassName ?? "bg-orange-600 text-white"
+          }`}
+        >
           {tag}
         </span>
       ) : null}
@@ -813,9 +895,14 @@ function TickerRow({
           gap-10 is gone) — including the last item of each copy — so each
           copy is a fully self-contained, gap-free repeat unit and
           `scrollWidth / 2` is exactly one copy's width. Reported live as
-          "lag when the ticker finishes." */}
+          "lag when the ticker finishes."
+          Full width now (no pl-4 reserving space for the tag — the tag
+          floats on top instead), so the very first item genuinely starts
+          underneath the badge, exactly like the rest of the loop does at
+          the seam. */}
       <div
-        className={`flex shrink-0 items-center whitespace-nowrap py-1.5 ${
+        ref={trackRef}
+        className={`flex shrink-0 items-center whitespace-nowrap ${
           direction === "left" ? "animate-marquee-left" : "animate-marquee-right"
         }`}
         style={{ animationDuration: `${durationSeconds}s` }}
@@ -869,22 +956,31 @@ const Header = memo(function Header() {
               wording/iconography that implies one is misleading. Same
               fix applied to the footer's matching link and the floating
               mobile WhatsApp button's aria-label below. */}
+          {/* Mobile header — a static location pill instead of the
+              Contact Us/Get Instant Quote CTAs below (calculator is
+              right underneath the hero, so a header CTA is redundant on
+              a screen this short). "Punjab · Pakistan" (2026-09-04
+              feedback), not "LESCO · Lahore" — LESCO only serves Lahore;
+              this business quotes across Punjab, not one DISCO's area.
+              Desktop keeps both real CTAs, unchanged. */}
+          <span className="flex min-h-9 items-center rounded-full border border-[#E8E1D8] bg-white px-3.5 font-mono text-[11px] font-semibold text-[#5A6472] lg:hidden">
+            Punjab · Pakistan
+          </span>
           <a
             href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(GENERAL_INQUIRY_WA_MESSAGE)}`}
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => trackWhatsAppClick("header")}
-            className="hidden min-h-9 items-center rounded-full border border-stone-200 px-3.5 text-xs font-medium text-stone-600 transition-colors duration-200 hover:border-stone-300 hover:text-stone-900 sm:flex"
+            className="hidden min-h-9 items-center rounded-full border border-stone-200 px-3.5 text-xs font-medium text-stone-600 transition-colors duration-200 hover:border-stone-300 hover:text-stone-900 lg:flex"
           >
             Contact Us
           </a>
           <button
             type="button"
             onClick={scrollToCalculator}
-            className="flex min-h-9 items-center gap-1.5 rounded-full bg-stone-900 px-3.5 text-xs font-semibold text-white transition-colors duration-200 hover:bg-stone-800 sm:px-4"
+            className="hidden min-h-9 items-center gap-1.5 rounded-full bg-stone-900 px-4 text-xs font-semibold text-white transition-colors duration-200 hover:bg-stone-800 lg:flex"
           >
-            <span className="sm:hidden">Get Quote</span>
-            <span className="hidden sm:inline">Get Instant Quote</span>
+            Get Instant Quote
             <ArrowRight className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -938,10 +1034,21 @@ function Hero() {
           next element on the page, exactly where the bill input READS
           as "step one" for the only flow that has one. */}
       <div className="relative mx-auto max-w-2xl text-center print:hidden">
+        {/* Eyebrow + slider-flavored subhead (2026-09-04, Main.html
+            baseline) — mobile only, since it specifically sets up the
+            "slide in your bill" dark hero card right below, which only
+            exists on mobile. Desktop's existing copy (no slider there)
+            is untouched. */}
+        <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.15em] text-[#AE4E1E] lg:hidden">
+          Instant solar quotes · Punjab
+        </p>
         <h1 className="text-balance text-[1.85rem] font-bold leading-[1.15] tracking-tight text-stone-900 sm:text-5xl sm:leading-[1.1]">
           Solar. <span className="text-orange-700">Priced Instantly.</span>
         </h1>
-        <p className="mx-auto mt-1.5 max-w-xs text-balance text-xs text-stone-400 sm:mt-2 sm:max-w-sm sm:text-sm">
+        <p className="mx-auto mt-1.5 max-w-xs text-balance text-xs text-stone-400 lg:hidden">
+          Slide in your monthly bill and see the exact system and price. No sales calls to get a number.
+        </p>
+        <p className="mx-auto mt-1.5 hidden max-w-sm text-balance text-sm text-stone-400 lg:block">
           Live engineering. Zero hidden fees.
         </p>
       </div>
@@ -1274,6 +1381,36 @@ function CalculatorCard() {
   // On-Grid — both are genuinely interactive/customer choice now, only
   // Industrial stays hard-locked. See LOCKED_SERVICE_TYPE_BY_SECTOR.
   const [residentialServiceType, setResidentialServiceType] = useState<ServiceType>("HYBRID_BATTERY");
+  // Auto-routing feedback (2026-09-04, explicit feedback pass) — see
+  // industrialAutoRoutedRef and the debounced routing effect near
+  // applyBillThresholdRouting for the full explanation. A brief, non-
+  // blocking notice shown right after the bill-threshold routing effect
+  // actually flips `sector` on its own — every auto-switch gets a real,
+  // visible explanation instead of the card silently changing under the
+  // customer. Cleared automatically after a few seconds and whenever the
+  // customer manually picks a sector themselves.
+  const [autoRouteNotice, setAutoRouteNotice] = useState<string | null>(null);
+  // Distinguishes "sector === INDUSTRIAL because the customer tapped
+  // Industrial themselves" from "...because a large bill auto-routed
+  // them there." Only the second case should ever get auto-reverted by
+  // a subsequent small bill — a real explicit choice (a genuine
+  // seasonal/off-season factory bill, say) must never get silently
+  // bounced back to Residential just because the number dropped. A ref,
+  // not state: it's read only inside the debounced routing effect/
+  // chooseSector below, never rendered, so a re-render on change would
+  // be pure waste.
+  const industrialAutoRoutedRef = useRef(false);
+  /** Every explicit sector pick (segmented control, desktop Property
+   *  Type cards, the mobile Services row's "Commercial & Industrial"
+   *  button) should go through this instead of the raw setSector setter
+   *  — it's the one place that clears industrialAutoRoutedRef, so a
+   *  customer who deliberately taps a tab is never treated as if the
+   *  bill-threshold effect chose it for them. */
+  function chooseSector(value: Sector) {
+    industrialAutoRoutedRef.current = false;
+    setAutoRouteNotice(null);
+    setSector(value);
+  }
   const [commercialServiceType, setCommercialServiceType] = useState<ServiceType>("ONGRID_ZERO_EXPORT");
 
   const [billAmountInput, setBillAmountInput] = useState("");
@@ -1292,6 +1429,28 @@ function CalculatorCard() {
 
   const [fullName, setFullName] = useState("");
   const [whatsappPhone, setWhatsappPhone] = useState("");
+  // Enterprise Proposal card (2026-08-29, explicit instruction, mobile
+  // only) — Connection Type has no backend concept anywhere (not in
+  // EquipmentSelections, the pricing engine, or the schema); it's a
+  // plain capture-only field folded straight into the WhatsApp inquiry
+  // message below, never sent to /api/quote/calculate. (Sanctioned Load
+  // was the same kind of field here too — removed 2026-09-04, explicit
+  // feedback: the Enterprise card should drive off the same real
+  // Average Monthly Bill the pricing engine actually uses, matching
+  // desktop's tested Industrial flow, not a number with no calc behind
+  // it. See the card's own render for the bill field that replaced it.)
+  const [connectionType, setConnectionType] = useState<"HT" | "LT" | null>(null);
+  // "Refine your details" (2026-09-04, mobile Live Estimate panel, LOCKED
+  // spec's Quote-screen note) — capture-only, no pricing engine change,
+  // no EquipmentSelections field, just folded into the WhatsApp message
+  // ResultSummary already builds on submit. (Its Mounting Structure
+  // sibling field uses the real structureCode state instead — see that
+  // field's own doc comment.)
+  const [connectionPhase, setConnectionPhase] = useState<InverterPhase | null>(null);
+  // Contact.html baseline (2026-09-04) — same capture-only pattern again:
+  // Contact.html's "Installation area" field, folded into the WhatsApp
+  // message on submit, no pricing/backend effect.
+  const [installationArea, setInstallationArea] = useState("");
   const [status, setStatus] = useState<FormStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [result, setResult] = useState<QuoteResult | null>(null);
@@ -1318,6 +1477,20 @@ function CalculatorCard() {
     }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [reportStep, status, result, addOnResult]);
+
+  // Scroll to the top of the final quotation (2026-09-04 feedback: "on
+  // the page where we're displaying the final quotation, the view
+  // should be from the top") — ResultSummary/AddOnResultSummary replace
+  // this entire component's output the instant status flips to
+  // "success", but the page itself was still scrolled wherever the
+  // customer left it (typically deep in the form, having just submitted
+  // from the sticky Live Estimate panel), so the quotation's own header
+  // could render off-screen above the fold. Fires on every "success"
+  // transition, not just the first submit — covers the back-button/
+  // reportStep restore path above too.
+  useEffect(() => {
+    if (status === "success") window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [status]);
 
   // "Calculation Transparency" dropdown under the Recommended System
   // badge — collapsed by default, no persistence needed (just a reveal).
@@ -1377,19 +1550,26 @@ function CalculatorCard() {
     LOCKED_SERVICE_TYPE_BY_SECTOR[sector] ?? (sector === "RESIDENTIAL" ? residentialServiceType : commercialServiceType);
   const resolvedBillPKR = billAmountInput.trim() === "" ? null : Number(billAmountInput);
 
-  // Lazily fetch the equipment catalog the first time the Custom path is
-  // opened, and RE-fetch whenever sector changes while it's open — the
-  // per-item unitPricePKR each option now carries is margin-adjusted per
-  // sector (see getPublicUnitPricesPKR), so a stale catalog would show
-  // stale prices on the pills after a sector switch. Every setState call
-  // here lives inside a promise callback, not synchronously in the effect
+  // Fetch the equipment catalog once Complete Solar is active (mirrors
+  // whatever sector/masterService is already selected — no separate
+  // gate), and RE-fetch whenever sector changes — the per-item
+  // unitPricePKR each option now carries is margin-adjusted per sector
+  // (see getPublicUnitPricesPKR), so a stale catalog would show stale
+  // prices on the pills after a sector switch. Every setState call here
+  // lives inside a promise callback, not synchronously in the effect
   // body — "loading" is derived above instead.
+  //
+  // Broadened from "only once Custom is opened" (2026-09-04) — the
+  // mobile "Refine your details" panel's Mounting Structure dropdown
+  // (real admin-configured catalog, not a capture-only label list) now
+  // needs this catalog on the Recommended path too, since that panel
+  // shows regardless of customizationPath.
   //
   // Also fires for masterService === "EV_CHARGER" (2026-08-25) — that
   // flow reuses this same EquipmentOptionsByType state for its own real
   // brand+model+price picker, same catalog fetch, no second endpoint.
   useEffect(() => {
-    if (customizationPath !== "CUSTOM" && masterService !== "EV_CHARGER") return;
+    if (masterService !== "COMPLETE_SOLAR" && masterService !== "EV_CHARGER") return;
     let cancelled = false;
     fetch(`/api/equipment-options?sector=${sector}`)
       .then(async (res) => {
@@ -1406,7 +1586,7 @@ function CalculatorCard() {
     return () => {
       cancelled = true;
     };
-  }, [customizationPath, masterService, sector]);
+  }, [masterService, sector]);
 
   /** Client mirror of lib/db/admin.ts's inverterQuantityFor (2026-08-29)
    *  — the auto-computed MINIMUM number of the resolved inverter SKU
@@ -1625,14 +1805,22 @@ function CalculatorCard() {
 
 
   // ---- Live preview (dashboard right column) ----
-  // Debounced ~500ms, same pattern as Panel Washing/EV Charger's own live
-  // previews — calls the SOLAR_PREVIEW request kind (same pricing
-  // pipeline as a real submission, but never persists a Lead/Quote; see
-  // the doc comment on SolarPreviewResult and the route's `isPreview`
-  // branch). Fires on every bill/sector/service-type/equipment change so
-  // the right-column summary and the per-pill price hints both stay live.
-  // (State declarations for this now live above, next to
-  // effectiveInverterCode — see that computation's own doc comment.)
+  // Debounced ~250ms (was 500ms — 2026-09-04 feedback: "runtime
+  // calculations are slow." The real bottleneck is server-side —
+  // measured 1.5-5s per /api/quote/calculate call, traced to database
+  // round-trip time, not this debounce or the pricing logic itself; see
+  // that investigation for the fuller fix. Shortening the debounce is a
+  // quick, low-risk mitigation in the meantime: it shaves the client-side
+  // half of the wait so the UI feels more responsive while the slower
+  // server-side half gets addressed separately), same pattern as Panel
+  // Washing/EV Charger's own live previews — calls the SOLAR_PREVIEW
+  // request kind (same pricing pipeline as a real submission, but never
+  // persists a Lead/Quote; see the doc comment on SolarPreviewResult and
+  // the route's `isPreview` branch). Fires on every bill/sector/service-
+  // type/equipment change so the right-column summary and the per-pill
+  // price hints both stay live. (State declarations for this now live
+  // above, next to effectiveInverterCode — see that computation's own
+  // doc comment.)
   useEffect(() => {
     if (masterService !== "COMPLETE_SOLAR") return;
     if (resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0) return;
@@ -1670,7 +1858,7 @@ function CalculatorCard() {
       } finally {
         setLivePreviewLoading(false);
       }
-    }, 500);
+    }, 250);
     return () => clearTimeout(timeoutId);
     // equipmentSelections is a freshly-built object every render — depend
     // on its underlying primitives instead so the debounce timer isn't
@@ -1732,47 +1920,81 @@ function CalculatorCard() {
         // leaves the "Starting from" line hidden, never blocks or errors
         // the main live estimate.
       }
-    }, 500);
+    }, 250);
     return () => clearTimeout(timeoutId);
   }, [masterService, resolvedBillPKR, sector, serviceType]);
 
-  // Auto Sector & System Routing (2026-08-29, explicit instruction) —
-  // extracted to a standalone helper (not inlined in handleBillAmountChange)
-  // so any other path that can set the bill amount (today: the manual
-  // input via handleBillAmountChange; the bill-upload OCR path below once
-  // BILL_UPLOAD_ENABLED is re-flipped on) goes through the exact same
-  // routing logic — one source of truth, not two copies that can drift.
+  // Auto Sector & System Routing (2026-08-29, explicit instruction).
+  // Debounced (2026-09-04, real reported bug) — this used to run
+  // SYNCHRONOUSLY on every keystroke from handleBillAmountChange, so
+  // correcting a typo (backspacing a large number down before retyping
+  // it) could visibly bounce the sector back and forth mid-edit before
+  // the customer finished typing their real number ("bit annoying in
+  // the experience," their words). Now a standalone effect, same 250ms
+  // debounce pattern as the live-preview calls above, keyed on
+  // resolvedBillPKR — it only evaluates once typing actually settles.
   //
-  // Fires on CROSSING the threshold, not on every edit while already on
-  // one side of it — so a customer who manually picks Commercial while
-  // above Rs 2.5 Lac isn't stomped back to Industrial by an unrelated
-  // bill tweak that never actually re-crosses. oldAmount is the bill
-  // value from BEFORE this edit; newAmount is the value it's becoming.
-  function applyBillThresholdRouting(oldAmount: number | null, newAmount: number) {
-    if (!Number.isFinite(newAmount)) return;
-    const wasIndustrialRange = oldAmount !== null && oldAmount >= INDUSTRIAL_SECTOR_THRESHOLD_PKR;
-    const isIndustrialRange = newAmount >= INDUSTRIAL_SECTOR_THRESHOLD_PKR;
-    if (isIndustrialRange === wasIndustrialRange) return;
+  // Fires on CROSSING the threshold, not on every settle while already
+  // on one side of it — prevBillForRoutingRef holds the bill value the
+  // LAST evaluation actually settled on, so a customer who manually
+  // picks Commercial while above Rs 2.5 Lac isn't stomped back to
+  // Industrial by an unrelated bill tweak that never actually
+  // re-crosses.
+  const prevBillForRoutingRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (resolvedBillPKR === null) return;
+    const timeoutId = setTimeout(() => {
+      const oldAmount = prevBillForRoutingRef.current;
+      const newAmount = resolvedBillPKR;
+      prevBillForRoutingRef.current = newAmount;
+      const wasIndustrialRange = oldAmount !== null && oldAmount >= INDUSTRIAL_SECTOR_THRESHOLD_PKR;
+      const isIndustrialRange = newAmount >= INDUSTRIAL_SECTOR_THRESHOLD_PKR;
+      if (isIndustrialRange === wasIndustrialRange) return;
 
-    if (isIndustrialRange) {
-      // Crossing UP into industrial-scale consumption. System Type needs
-      // no separate call — LOCKED_SERVICE_TYPE_BY_SECTOR forces On-Grid
-      // the instant sector becomes "INDUSTRIAL" (see that map's own doc
-      // comment), and the Hybrid/Battery UI already hides itself for
-      // Industrial (Property & System's "Locked for Industrial" branch).
-      setSector("INDUSTRIAL");
-    } else if (sector === "INDUSTRIAL") {
-      // Crossing back DOWN — only acts if the customer is still on the
-      // Industrial selection THIS routing put them on; someone who
-      // explicitly chose Industrial for a genuinely small bill (a
-      // seasonal factory, off-season) is never force-switched back.
-      setSector("RESIDENTIAL");
-      setResidentialServiceType("HYBRID_BATTERY");
-    }
-  }
+      if (isIndustrialRange && sector !== "INDUSTRIAL") {
+        // Crossing UP into industrial-scale consumption — only when this
+        // actually CHANGES the sector. Guarding on `sector !== "INDUSTRIAL"`
+        // (not just "isIndustrialRange") matters: without it, a customer
+        // who explicitly chose Industrial (chooseSector, industrialAutoRoutedRef
+        // already false) and then typed a bill that happens to cross the
+        // threshold on its way to a real number would have this branch
+        // fire anyway (nothing stops it — they're still "crossing up"),
+        // stomping their explicit-choice protection back to true and
+        // reopening the exact bug chooseSector exists to prevent. System
+        // Type needs no separate call — LOCKED_SERVICE_TYPE_BY_SECTOR
+        // forces On-Grid the instant sector becomes "INDUSTRIAL" (see that
+        // map's own doc comment), and the Hybrid/Battery UI already hides
+        // itself for Industrial (Property & System's "Locked for
+        // Industrial" branch).
+        setSector("INDUSTRIAL");
+        industrialAutoRoutedRef.current = true;
+        setAutoRouteNotice("Switched to Industrial — this looks like an industrial-scale bill.");
+      } else if (!isIndustrialRange && sector === "INDUSTRIAL" && industrialAutoRoutedRef.current) {
+        // Crossing back DOWN — only acts if THIS routing (not an
+        // explicit chooseSector tap) put the customer on Industrial in
+        // the first place. Someone who deliberately chose Industrial for
+        // a genuinely small bill (a seasonal factory, off-season) is
+        // never force-switched back just because the number dropped —
+        // see chooseSector's own doc comment for the other half of this.
+        setSector("RESIDENTIAL");
+        setResidentialServiceType("HYBRID_BATTERY");
+        industrialAutoRoutedRef.current = false;
+        setAutoRouteNotice("Switched back to Residential — this bill isn't industrial-scale.");
+      }
+    }, 250);
+    return () => clearTimeout(timeoutId);
+  }, [resolvedBillPKR, sector]);
+
+  // Auto-dismiss the routing notice — a few seconds is enough to read
+  // one sentence without needing an explicit close button, and
+  // chooseSector already clears it immediately on any manual pick.
+  useEffect(() => {
+    if (!autoRouteNotice) return;
+    const timeoutId = setTimeout(() => setAutoRouteNotice(null), 5000);
+    return () => clearTimeout(timeoutId);
+  }, [autoRouteNotice]);
 
   function handleBillAmountChange(raw: string) {
-    applyBillThresholdRouting(resolvedBillPKR, Number(raw));
     setBillAmountInput(raw);
     // Editing the amount by hand after an upload means we can no longer
     // vouch for it being exactly what the document said.
@@ -1828,7 +2050,9 @@ function CalculatorCard() {
       }
 
       const details = data;
-      applyBillThresholdRouting(resolvedBillPKR, details.currentBillPKR);
+      // No manual routing call needed here (2026-09-04) — setBillAmountInput
+      // below updates resolvedBillPKR, which the debounced routing effect
+      // near chooseSector already watches; it picks this up on its own.
       setBillDetails(details);
       setBillAmountInput(String(details.currentBillPKR));
       setBillSource(details.source === "uploaded_pdf" ? "UPLOADED_PDF" : "UPLOADED_IMAGE");
@@ -1881,7 +2105,7 @@ function CalculatorCard() {
       } finally {
         setWashPreviewLoading(false);
       }
-    }, 500);
+    }, 250);
     return () => clearTimeout(timeoutId);
   }, [masterService, washPanelCount, sector, washPreview]);
 
@@ -1917,7 +2141,7 @@ function CalculatorCard() {
       } finally {
         setEvPreviewLoading(false);
       }
-    }, 500);
+    }, 250);
     return () => clearTimeout(timeoutId);
   }, [masterService, evChargerCode, evCableDistanceMeters, evPreview, selectedEvChargerOption]);
 
@@ -2083,7 +2307,13 @@ function CalculatorCard() {
 
   if (status === "success" && result) {
     return (
-      <ResultSummary result={result} onEdit={handleEditInputs} />
+      <ResultSummary
+        result={result}
+        onEdit={handleEditInputs}
+        connectionPhase={connectionPhase}
+        installationArea={installationArea}
+        customerName={fullName}
+      />
     );
   }
   if (status === "success" && addOnResult) {
@@ -2104,6 +2334,7 @@ function CalculatorCard() {
   const activeBatteryCapacityKwh = currentBatteryOption?.specValue ?? 0;
 
   return (
+    <>
     <form
       onSubmit={handleSubmit}
       // pb-24 on mobile only, and only while the floating bar can be
@@ -2116,8 +2347,16 @@ function CalculatorCard() {
       }`}
     >
       {/* Master Service — rich cards, icon + subtitle each so this never
-          reads as three empty little boxes in a lot of white space. */}
-      <fieldset ref={serviceSelectionRef}>
+          reads as three empty little boxes in a lot of white space.
+          hidden lg:block (2026-09-04, Main.html baseline): on mobile the
+          dark estimator card is now the first interactive element below
+          Hero, matching the reference exactly — this picker becomes
+          desktop-only. Desktop still needs it: it's the only place that
+          can switch to EV Charger/Panel Washing there. Mobile keeps a
+          real (if indirect) way back to it via the "More We Do" services
+          row further down the page, which drives the exact same
+          setMasterService/setSector state. */}
+      <fieldset ref={serviceSelectionRef} className="hidden lg:block">
         <legend className="mb-3 text-sm font-semibold text-slate-700">What do you need?</legend>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {MASTER_SERVICES.map(({ value, label, icon: Icon }) => {
@@ -2148,7 +2387,6 @@ function CalculatorCard() {
                     : "border border-slate-200 bg-slate-50 hover:border-orange-400 hover:shadow-md"
                 }`}
               >
-                {active && <CornerBrackets />}
                 <span
                   className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border ${
                     active ? "border-orange-300 bg-white text-orange-700" : "border-slate-200 bg-white text-slate-400"
@@ -2171,12 +2409,381 @@ function CalculatorCard() {
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px] lg:items-start">
           {/* ---- LEFT COLUMN: inputs ---- */}
           <div className="space-y-5">
+            {/* Mobile Home Tab — LOCKED SPEC (2026-09-03, design kit
+                handoff at /Users/tempuser/Downloads/solarpixel-design-kit/
+                BUILD_SPEC.md). Dark "hero" instant-estimator card
+                (Residential/Commercial) OR the Executive B2B Enterprise
+                Proposal card (Industrial) — swapped on `sector`, same
+                state/handlers the desktop cards below already use, no
+                parallel pricing path. lg:hidden — desktop keeps its
+                existing separate Energy Profile / Property & System
+                cards just below, completely untouched. */}
+            {masterService === "COMPLETE_SOLAR" && (
+              <div className="lg:hidden">
+                <div
+                  className={`rounded-[22px] p-5 ${
+                    sector === "INDUSTRIAL" ? "bg-[#0B132B]" : "bg-[#0F172A] shadow-[0_24px_50px_-26px_rgba(15,23,42,0.6)]"
+                  }`}
+                >
+                  {/* Segmented control — shared across BOTH card states
+                      (2026-09-04, real reported bug: it only lived inside
+                      the Residential/Commercial branch, so once a
+                      customer landed on Industrial — tab tap or the
+                      bill-threshold auto-routing — there was no way to
+                      see which tab was active or switch back). Rendered
+                      once, outside the ternary below, same `sector`
+                      state/click handlers either way. */}
+                  <div className="flex gap-1 rounded-xl bg-[#1E2A3C] p-1">
+                    {SECTOR_CARDS.map(({ value, label }) => {
+                      const active = sector === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            chooseSector(value);
+                            if (value === "COMMERCIAL" && billAmountInput.trim() === "") {
+                              handleBillAmountChange(String(COMMERCIAL_DEFAULT_BILL_PKR));
+                            }
+                          }}
+                          aria-pressed={active}
+                          className={`flex-1 rounded-lg py-2.5 text-center text-xs font-bold transition-colors duration-200 ${
+                            active ? "bg-white text-[#0F172A]" : "text-[#9FB0C2] hover:text-white"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Sector micro-copy (LOCKED spec §2: "Commercial starts
+                      at Rs 100,000 with micro-copy 'Offices, Plazas &
+                      Retail'") — reference art keeps the segmented
+                      control's own tabs plain-label-only, so this
+                      renders as a short caption for whichever sector is
+                      active instead of crowding the tabs. Now shared
+                      (shows for Industrial too, same reason as the
+                      segmented control above). */}
+                  <p className="mt-2 text-center text-[11px] font-medium text-[#8FA0B4]">{SECTOR_MICROCOPY[sector]}</p>
+                  {/* Auto-route notice (2026-09-04 feedback: "we should
+                      ask user or inform user" whenever the bill amount
+                      auto-switches their sector) — set by the debounced
+                      routing effect above, shared here so it's visible
+                      regardless of which branch below is currently
+                      showing. */}
+                  {autoRouteNotice && (
+                    <p className="mt-2 text-center text-[11px] font-medium text-orange-300">{autoRouteNotice}</p>
+                  )}
+                  {sector === "INDUSTRIAL" ? (
+                    <>
+                      <p className="mt-3 flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-[#D4AF37]">
+                        <Building2 className="h-3.5 w-3.5 shrink-0" />
+                        Enterprise Proposal
+                      </p>
+                      <p className="mt-1.5 text-sm text-[#9FB0C2]">
+                        A few more details help our industrial team size this accurately.
+                      </p>
+
+                      {/* Average Monthly Bill (2026-09-04 feedback: "keep
+                          the maths of web in mobile — web uses bill
+                          amount, not sanctioned load") — this card
+                          previously asked for Sanctioned Load as its
+                          primary/only numeric field, which has NO real
+                          calc behind it (capture-only, folds into the
+                          WhatsApp text, never touches livePreview/
+                          pricing) — meaning an Industrial mobile visitor
+                          had no way to actually enter the ONE number that
+                          drives the real, tested sizing engine (same
+                          resolvedBillPKR/billAmountInput desktop's
+                          Industrial "Energy Profile" card already uses,
+                          unconditionally, for every sector). Plain input,
+                          no slider/cap here on purpose — the
+                          Residential/Commercial RangeSlider is capped at
+                          Rs 250,000, a real ceiling for genuinely
+                          industrial-scale bills; matches desktop's own
+                          Industrial input, which is also a plain,
+                          uncapped field. */}
+                      <div className="mt-4">
+                        <label htmlFor="industrialBillAmount" className="mb-1.5 block text-xs font-semibold text-[#D4AF37]">
+                          Average Monthly Bill (PKR)
+                        </label>
+                        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-3 focus-within:border-[#D4AF37] focus-within:ring-2 focus-within:ring-[#D4AF37]/25">
+                          <span className="font-mono text-sm font-semibold text-[#E59166]">Rs</span>
+                          <input
+                            id="industrialBillAmount"
+                            type="text"
+                            inputMode="numeric"
+                            value={billAmountInput}
+                            onChange={(e) => handleBillAmountChange(e.target.value.replace(/[^\d]/g, ""))}
+                            placeholder="e.g. 500000"
+                            className="w-full bg-transparent font-mono text-sm font-medium text-white placeholder:text-[#5E6E82] outline-none"
+                          />
+                        </div>
+                        {/* Lac/Crore readback — same as the hero card's
+                            own field, see that one's doc comment. */}
+                        {resolvedBillPKR !== null && resolvedBillPKR > 0 && (
+                          <p className="mt-1 text-[11px] font-medium text-[#8FA0B4]">= {formatBillInWords(resolvedBillPKR)}</p>
+                        )}
+                        {/* Reassurance copy (2026-09-04 feedback: "in
+                            industrial, user is not sure about the
+                            amount" — industrial accounts often don't have
+                            an exact figure on hand the way a residential
+                            customer glancing at one bill does). Same
+                            exact field/state either way — this doesn't
+                            relax what's required, just sets the right
+                            expectation for a premium-tier customer who's
+                            estimating. */}
+                        <p className="mt-1.5 text-[11px] leading-relaxed text-[#8FA0B4]">
+                          A rough figure is fine. Our engineer confirms exact pricing on site.
+                        </p>
+                      </div>
+
+                      {/* Same real "You need/You save" tiles as
+                          Residential/Commercial — same livePreview,
+                          nothing sector-specific about the math itself. */}
+                      <div className="mt-3 grid grid-cols-2 gap-2.5">
+                        <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.06] p-3">
+                          <p className="font-mono text-[9.5px] uppercase tracking-wider text-[#8FA0B4]">You need</p>
+                          <p className="mt-0.5 font-mono text-[17px] font-semibold text-white">
+                            {livePreview ? `~${livePreview.systemKw} kW` : "—"}
+                          </p>
+                        </div>
+                        <div className="rounded-[14px] border border-emerald-400/25 bg-emerald-400/10 p-3">
+                          <p className="font-mono text-[9.5px] uppercase tracking-wider text-emerald-200/80">You save / mo</p>
+                          <p className="mt-0.5 font-mono text-[17px] font-semibold text-emerald-400">
+                            {livePreview ? `~${formatPKR(livePreview.estimatedMonthlySavingsPKR)}` : "—"}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Small-bill-on-Industrial soft prompt (2026-09-04
+                          feedback: "if user in industrial section try to
+                          generate a solution for 10kw we should stop
+                          it") — a residential/commercial-scale bill under
+                          an Enterprise Proposal banner reads as nonsense
+                          ("~10 kW industrial system"). Soft prompt only,
+                          per explicit answer — never blocks; a real
+                          seasonal/off-season factory bill can genuinely
+                          be this small, so this only suggests, exactly
+                          like the mirror-image warning on the
+                          Residential/Commercial card below. */}
+                      {resolvedBillPKR !== null && resolvedBillPKR < INDUSTRIAL_SECTOR_THRESHOLD_PKR && (
+                        <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2.5">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+                          <p className="text-xs leading-relaxed text-amber-200">
+                            That&apos;s a residential/commercial-scale bill. If this is right, we&apos;ll size a smaller
+                            industrial system — otherwise, switch tabs above.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="mt-3">
+                        <p className="mb-1.5 block text-xs font-semibold text-[#D4AF37]">Connection Type</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(["HT", "LT"] as const).map((ct) => (
+                            <button
+                              key={ct}
+                              type="button"
+                              onClick={() => setConnectionType(ct)}
+                              aria-pressed={connectionType === ct}
+                              className={`flex min-h-[48px] items-center justify-center rounded-xl border-2 text-sm font-bold transition-all duration-200 ${
+                                connectionType === ct
+                                  ? "border-[#D4AF37] bg-[#D4AF37]/10 text-[#D4AF37]"
+                                  : "border-white/10 bg-white/[0.04] text-[#9FB0C2] hover:border-white/20"
+                              }`}
+                            >
+                              {ct}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* "What a custom proposal covers" (2026-09-04,
+                          Industrial.html baseline) — real scope items an
+                          industrial site visit/engineering pass actually
+                          produces, not statistics or a specific promise.
+                          Industrial.html's own third line ("financing
+                          options") is dropped: nothing in this app
+                          confirms Solar Pixel offers financing, and this
+                          list must never promise something unconfirmed. */}
+                      <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-3.5">
+                        <p className="text-xs font-bold text-white">What a custom proposal covers</p>
+                        <ul className="mt-2 space-y-1.5">
+                          {["On site load study & shadow analysis", "Engineered single line diagram & BOQ", "O&M support & maintenance options"].map(
+                            (item) => (
+                              <li key={item} className="flex items-start gap-2 text-xs text-[#C7D0DC]">
+                                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#10B981]" />
+                                {item}
+                              </li>
+                            )
+                          )}
+                        </ul>
+                      </div>
+
+                      {(() => {
+                        const enterpriseInquiryMessage = `Hi Solar Pixel! I'm ${
+                          fullName.trim() || "an industrial customer"
+                        } interested in an Industrial solar system.${
+                          resolvedBillPKR ? ` Average Monthly Bill: ${formatPKR(resolvedBillPKR)}.` : ""
+                        }${livePreview ? ` Estimated System: ${livePreview.systemKw} kW.` : ""}${
+                          connectionType ? ` Connection Type: ${connectionType}.` : ""
+                        } Please connect me with a senior industrial engineer.`;
+                        return (
+                          <div className="mt-4 flex flex-col gap-2">
+                            <a
+                              href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(enterpriseInquiryMessage)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => trackWhatsAppClick("enterprise_proposal_inquiry")}
+                              className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-[#10B981] px-4 text-sm font-bold text-white transition-colors duration-200 hover:bg-emerald-500"
+                            >
+                              <MessageCircle className="h-4.5 w-4.5 shrink-0" />
+                              Speak with Senior Industrial Engineer
+                            </a>
+                            {/* "Call Direct Line" removed (2026-09-04
+                                feedback: "on the industrial, call direct
+                                line not available, only WhatsApp and our
+                                team will contact shortly") — that phone
+                                CTA isn't actually staffed; WhatsApp is
+                                the one real channel here. */}
+                            <p className="text-center text-xs text-[#8FA0B4]">Our team will contact you shortly.</p>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  ) : (
+                    <>
+                      <div className="mt-3 flex items-center justify-between">
+                        <label htmlFor="heroBillAmount" className="font-mono text-[10px] font-semibold uppercase tracking-widest text-[#8FA0B4]">
+                          Your Monthly Bill
+                        </label>
+                        <span className="font-mono text-[10px] text-[#5E6E82]">type or drag</span>
+                      </div>
+                      {/* Editable (2026-09-04 feedback: "user can also
+                          write their own bill amount") — was a plain
+                          <span>, slider-only. Real <input> now, same
+                          handleBillAmountChange the slider already calls
+                          (same billAmountInput state, same threshold
+                          routing, same MANUAL bill-source reset), so
+                          typing and dragging always agree — whichever one
+                          the customer touches last just wins, no separate
+                          state to fall out of sync. */}
+                      <div className="mt-1.5 flex items-baseline gap-2">
+                        <span className="font-mono text-[22px] font-semibold text-[#E59166]">Rs</span>
+                        <input
+                          id="heroBillAmount"
+                          type="text"
+                          inputMode="numeric"
+                          value={resolvedBillPKR ?? RESIDENTIAL_HERO_DEFAULT_BILL_PKR}
+                          onChange={(e) => handleBillAmountChange(e.target.value.replace(/[^\d]/g, ""))}
+                          className="w-full min-w-0 bg-transparent font-mono text-[40px] font-semibold leading-none tracking-tight text-white caret-orange-400 outline-none"
+                        />
+                      </div>
+                      {/* Lac/Crore readback (2026-09-04 feedback: "user is
+                          unable to figure out the amount it enters —
+                          need to calculate zeros") — reuses
+                          formatBillInWords, already built and proven on
+                          desktop's own bill field for exactly this
+                          (catching a fat-fingered extra zero: "25
+                          Thousand" vs "2.5 Lac" reads instantly where
+                          "25,000" vs "250,000" doesn't), just never wired
+                          up on mobile's two newer bill inputs. */}
+                      {resolvedBillPKR !== null && resolvedBillPKR > 0 && (
+                        <p className="mt-1 text-[11px] font-medium text-[#8FA0B4]">= {formatBillInWords(resolvedBillPKR)}</p>
+                      )}
+                      <div className="mt-2">
+                        <RangeSlider
+                          value={resolvedBillPKR ?? RESIDENTIAL_HERO_DEFAULT_BILL_PKR}
+                          min={5000}
+                          max={250000}
+                          step={5000}
+                          onChange={(v) => handleBillAmountChange(String(v))}
+                          ariaLabel="Average Monthly Bill"
+                        />
+                      </div>
+                      {/* Recheck prompt (2026-09-04 feedback: "switching
+                          from industry to residential with 100kw is
+                          tricky — should prompt user to recheck amount
+                          again") — billAmountInput is shared across all
+                          three sector tabs, so an Industrial-scale bill
+                          (already ≥ this app's own real
+                          INDUSTRIAL_SECTOR_THRESHOLD_PKR — the exact same
+                          number the debounced routing effect uses to route
+                          the OTHER way, into Industrial) silently carries
+                          over if the customer then taps back to
+                          Residential/Commercial, producing a nonsense
+                          "~100 kW home" result with no explanation.
+                          Derived from current state (not a one-time flag
+                          set at the moment of switching), so it shows
+                          correctly no matter how that state was reached,
+                          and clears itself the instant the amount is
+                          edited down. */}
+                      {resolvedBillPKR !== null && resolvedBillPKR >= INDUSTRIAL_SECTOR_THRESHOLD_PKR && (
+                        <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2.5">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+                          <p className="text-xs leading-relaxed text-amber-200">
+                            That&apos;s an industrial-scale bill for {SECTOR_LABEL[sector]}. Please double-check the
+                            amount, or switch to the Industrial tab above.
+                          </p>
+                        </div>
+                      )}
+                      <div className="mt-2 grid grid-cols-2 gap-2.5">
+                        <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.06] p-3">
+                          <p className="font-mono text-[9.5px] uppercase tracking-wider text-[#8FA0B4]">You need</p>
+                          <p className="mt-0.5 font-mono text-[17px] font-semibold text-white">
+                            {/* Main.html baseline (2026-09-04): a live
+                                figure the instant a bill is set, never a
+                                bare "—" — "~10 kW" is Main.html's own
+                                reference value for its 45,000 default,
+                                shown only until the real debounced
+                                livePreview call resolves (same default
+                                bill this card already starts from). */}
+                            {livePreview ? `~${livePreview.systemKw} kW` : "~10 kW"}
+                          </p>
+                        </div>
+                        <div className="rounded-[14px] border border-emerald-400/25 bg-emerald-400/10 p-3">
+                          <p className="font-mono text-[9.5px] uppercase tracking-wider text-emerald-200/80">You save / mo</p>
+                          <p className="mt-0.5 font-mono text-[17px] font-semibold text-emerald-400">
+                            {livePreview ? `~${formatPKR(livePreview.estimatedMonthlySavingsPKR)}` : "~Rs 43,000"}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          document.getElementById("contact-and-submit")?.scrollIntoView({ behavior: "smooth", block: "start" })
+                        }
+                        className="mt-4 flex min-h-[54px] w-full items-center justify-center gap-2 rounded-2xl bg-orange-700 text-base font-bold text-white transition-colors duration-200 hover:bg-orange-800"
+                      >
+                        Get my full quote
+                        <ArrowRight className="h-4.5 w-4.5 shrink-0" />
+                      </button>
+                      <p className="mt-2 text-center font-mono text-[10px] text-[#5E6E82]">
+                        Instant pricing up to ~50 kW · larger HT loads use the Industrial tab
+                      </p>
+                    </>
+                  )}
+                </div>
+                {/* "Build Your Own System" hero banner REMOVED (2026-09-04
+                    feedback: "build your own - two times"). It set
+                    customizationPath to CUSTOM and scrolled straight to
+                    the Equipment Configurator's PathToggle — which then
+                    immediately showed its own, identically-labeled
+                    "Build Your Own" tab, now active, right there: two
+                    "Build your own" labels back to back in the same
+                    flow. The PathToggle is the one real control (it's
+                    what actually switches Recommended/Custom); the
+                    Equipment Configurator sits right below this card
+                    already, so the shortcut wasn't earning its keep. */}
+              </div>
+            )}
+
             {/* 1. Average Monthly Bill — top, auto-calculates recommended
                 kW (via the live-preview effect above). Upload dropzone
                 folded in here too — same conceptual step as before.
                 bg-white (vs. Step 2/3's bg-stone-50) breaks up the "wall
                 of identical cards" look (Part 2) — see StepHeader. */}
-            <div ref={energyProfileRef} className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div ref={energyProfileRef} className="hidden rounded-2xl border border-slate-200 bg-white p-4 lg:block">
               <StepHeader step={1} title="Energy Profile" />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
@@ -2272,6 +2879,25 @@ function CalculatorCard() {
                 </p>
               )}
 
+              {/* Recheck prompt (2026-09-04 feedback: "switching from
+                  industry to residential with 100kw is tricky — should
+                  prompt user to recheck amount again") — same real bug
+                  and same fix as the mobile hero card's own copy of this
+                  warning: switching Property Type below only calls
+                  setSector, it never re-checks billAmountInput, so an
+                  Industrial-scale bill silently carries over and
+                  produces a nonsense "Recommended System: 100 kW" for a
+                  Residential/Commercial property. */}
+              {sector !== "INDUSTRIAL" && resolvedBillPKR !== null && resolvedBillPKR >= INDUSTRIAL_SECTOR_THRESHOLD_PKR && (
+                <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                  <p className="text-xs leading-relaxed text-amber-800">
+                    That&apos;s an industrial-scale bill for {SECTOR_LABEL[sector]}. Please double-check the amount, or
+                    select Industrial below.
+                  </p>
+                </div>
+              )}
+
               {/* "Starting from" baseline (2026-08-20) — ALWAYS the
                   cheapest possible configuration (required panels +
                   smallest in-stock hybrid inverter + no battery),
@@ -2317,7 +2943,7 @@ function CalculatorCard() {
                         <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
                           <p>
                             <span className="font-semibold text-slate-900">1. Monthly Consumption:</span> ~{Math.round(monthlyUnits)} units
-                            (based on Rs {DISPLAY_BLENDED_TARIFF_PKR_PER_UNIT}/unit blended LESCO tariff)
+                            (based on Rs {DISPLAY_BLENDED_TARIFF_PKR_PER_UNIT}/unit blended grid tariff)
                           </p>
                           <p>
                             <span className="font-semibold text-slate-900">2. Daytime Demand:</span> ~{dailyDaytimeKwh.toFixed(1)} kWh/day
@@ -2325,7 +2951,7 @@ function CalculatorCard() {
                           </p>
                           <p>
                             <span className="font-semibold text-slate-900">3. Solar Output:</span> A {livePreview.systemKw} kW system
-                            produces ~{dailySolarOutputKwh.toFixed(1)} kWh/day in Lahore, sized to cover that daytime demand.
+                            produces ~{dailySolarOutputKwh.toFixed(1)} kWh/day in your area, sized to cover that daytime demand.
                           </p>
                           {serviceType === "HYBRID_BATTERY" && (
                             <p>
@@ -2343,9 +2969,9 @@ function CalculatorCard() {
                             <p>
                               <span className="font-semibold text-slate-900">5. Budget Strategy:</span>{" "}
                               {targetBudgetTier === "UNDER_1M" &&
-                                "Smallest in-stock hybrid inverter that fits your system, no battery, for the lowest upfront cost."}
+                                "Smallest in stock hybrid inverter that fits your system, no battery, for the lowest upfront cost."}
                               {targetBudgetTier === "1M_TO_1_5M" &&
-                                "Smallest in-stock hybrid inverter that fits your system, plus our cheapest in-stock battery."}
+                                "Smallest in stock hybrid inverter that fits your system, plus our cheapest in stock battery."}
                               {targetBudgetTier === "1_5M_PLUS" &&
                                 `Oversized ${formatTrim(livePreview.equipment.inverter.specValue ?? livePreview.systemKw)}kW inverter selected to leave room for future panels without requiring an upgrade, plus battery.`}
                             </p>
@@ -2414,18 +3040,26 @@ function CalculatorCard() {
                 clipping bug being fixed. Sizing off the container's own
                 width instead is the correct fix (Tailwind v4 native
                 container queries, no plugin needed). */}
-            <div className="@container rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            {/* Desktop only (2026-09-03) — mobile's Property Type pick
+                now lives in the dark hero card above (LOCKED spec §1),
+                and System Type isn't shown on mobile Home at all
+                (BUILD_SPEC.md: "Home is strictly load calculation +
+                entry-path selection"; System Type refinement moves to
+                the Quote screen in a later pass). Same `sector`/
+                `serviceType` state either way — nothing here changes
+                what actually prices, only where it's picked. */}
+            <div className="hidden @container rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:block">
               <StepHeader step={2} title="Property & System" />
               <fieldset>
                 <legend className="mb-2 text-sm font-semibold text-slate-700">Property Type</legend>
-                <div className="grid grid-cols-1 gap-4 @xl:grid-cols-3">
+                <div className="grid grid-cols-3 gap-4">
                   {SECTOR_CARDS.map(({ value, label, description }) => {
                     const active = sector === value;
                     return (
                       <button
                         key={value}
                         type="button"
-                        onClick={() => setSector(value)}
+                        onClick={() => chooseSector(value)}
                         aria-pressed={active}
                         className={`relative flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-2xl p-2.5 text-left transition-all duration-200 ${
                           active
@@ -2433,7 +3067,6 @@ function CalculatorCard() {
                             : "border border-slate-200 bg-white text-slate-700 hover:border-orange-400 hover:shadow-md"
                         }`}
                       >
-                        {active && <CornerBrackets />}
                         <span
                           className={`flex h-14 w-16 shrink-0 items-center justify-center rounded-xl border sm:h-16 sm:w-20 ${
                             active ? "border-orange-300 bg-white text-orange-700" : "border-slate-200 bg-white text-slate-400"
@@ -2482,7 +3115,6 @@ function CalculatorCard() {
                                 : "border border-slate-200 bg-white text-slate-700 hover:border-orange-400 hover:shadow-md"
                             }`}
                           >
-                            {active && <CornerBrackets />}
                             <span
                               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
                                 active ? "bg-orange-700 text-white" : "border border-slate-200 bg-white text-orange-600"
@@ -2530,7 +3162,7 @@ function CalculatorCard() {
                 <div className="mt-3">
                   <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-orange-950">
                     <PanelsTopLeft className="h-3.5 w-3.5 text-orange-600" />
-                    Custom Equipment Builder
+                    Build Your Own System
                   </p>
 
                   {equipmentOptionsLoading && (
@@ -2546,7 +3178,12 @@ function CalculatorCard() {
                   )}
 
                   {equipmentOptions && (
-                    <div className="space-y-3">
+                    <>
+                    {/* Desktop: the existing, fuller accordion (Default &
+                        Swap rows for every slot, brand + wattage/model
+                        variants, Cabling/Protection/Mounting/Site Works,
+                        add-on services) — completely unchanged. */}
+                    <div className="hidden space-y-3 lg:block">
                       {/* 1. Solar Panels — Default & Swap, plus the Panel
                           Quantity Adjuster (2026-08-20). Max comes from
                           the live backend response (the currently
@@ -3097,7 +3734,7 @@ function CalculatorCard() {
                       <div>
                         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Services</p>
                         <ServiceToggleCard
-                          title="One-Time Panel Washing Visit"
+                          title="One Time Panel Washing Visit"
                           icon={WaterDropIcon}
                           description="A single professional cleaning visit after installation, not a recurring plan."
                           active={includePanelWashing}
@@ -3106,6 +3743,290 @@ function CalculatorCard() {
                         />
                       </div>
                     </div>
+
+                    {/* Mobile: Build.html's simpler 3-card layout
+                        (2026-09-04, design kit handoff — explicit
+                        instruction to fully re-theme mobile to this
+                        layout, accepting the loss of the wattage/model
+                        variant step and the Cabling/Protection/Mounting/
+                        Site Works rows on mobile only; all of that stays
+                        exactly as-is on desktop above). Real catalog
+                        brands/prices/state throughout — no invented
+                        SKUs, no new pricing path. Panels/Inverter reuse
+                        the exact same handlers as the desktop accordion
+                        (setPanelCode, handleInverterCodeChange,
+                        panelQtyOverride); the Inverter "current pick" row
+                        is a real <select> bound to effectiveInverterCode
+                        (never a newly-invented default) rather than a
+                        second bespoke picker UI. */}
+                    <div className="space-y-3 lg:hidden">
+                      {/* Panels */}
+                      <div className="rounded-[18px] border border-slate-200 bg-white p-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-extrabold text-slate-900">Panels</span>
+                          <span className="font-mono text-xs font-semibold text-emerald-700">
+                            {livePreview ? formatPKR(livePreview.breakdown.panelsPKR) : "—"}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {panelBrands.map((brand) => {
+                            const defaultSku = defaultPanelSkuForBrand(brand);
+                            const active = currentPanelBrand === brand;
+                            return (
+                              <button
+                                key={brand}
+                                type="button"
+                                onClick={() => defaultSku && setPanelCode(defaultSku.code)}
+                                aria-pressed={active}
+                                className={`rounded-full px-3.5 py-2 text-xs font-semibold transition-colors duration-200 ${
+                                  active
+                                    ? "bg-orange-600 text-white"
+                                    : "border border-slate-200 bg-white text-slate-900 hover:border-orange-300"
+                                }`}
+                              >
+                                {brand}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {livePreview &&
+                          (() => {
+                            const panelFloor = Math.min(PANEL_COUNT_ABSOLUTE_MINIMUM, livePreview.equipment.panel.maxCount ?? Infinity);
+                            const panelQty =
+                              panelQtyOverride !== null
+                                ? Math.min(Math.max(panelQtyOverride, panelFloor), livePreview.equipment.panel.maxCount ?? Infinity)
+                                : livePreview.equipment.panel.count;
+                            const panelMax = livePreview.equipment.panel.maxCount ?? Infinity;
+                            return (
+                              // gap-2 (was 2.5) + items-start (2026-09-04
+                              // feedback: "padding not good, white spacing
+                              // issues") — the stepper pill was self-end
+                              // (right-aligned) while stacked under the
+                              // left-aligned spec text, leaving an
+                              // awkward diagonal gap of empty space
+                              // between them. self-start keeps it flush
+                              // under the text instead; still slides
+                              // inline to the right on a wide-enough
+                              // container (@xs:justify-between).
+                              <div className="mt-3 flex flex-col gap-2 @xs:flex-row @xs:items-center @xs:justify-between">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-slate-900">
+                                    {currentPanelOption?.specValue ? `${currentPanelOption.specValue} W` : currentPanelOption?.label}
+                                    {currentPanelOption?.specValue ? " · " : ""}
+                                    {currentPanelOption?.brand ?? ""}
+                                  </p>
+                                  <p className="text-xs text-slate-500">
+                                    {currentPanelOption?.unitPricePKR ? `Rs ${Math.round(currentPanelOption.unitPricePKR)} / watt` : ""}
+                                  </p>
+                                </div>
+                                {/* Compact stepper (Build.html's own pill
+                                    shape) instead of the desktop
+                                    accordion's full QuantityStepper — that
+                                    component's own label+bordered-card
+                                    shell was too wide to sit beside the
+                                    spec text on a 390px card without
+                                    squeezing it to nothing. */}
+                                <div className="flex shrink-0 items-center gap-3.5 self-start rounded-xl bg-[#F5F1EB] px-2 py-1.5 @xs:self-auto">
+                                  <button
+                                    type="button"
+                                    onClick={() => setPanelQtyOverride(Math.max(panelFloor, panelQty - 1))}
+                                    disabled={panelQty <= panelFloor}
+                                    aria-label="Decrease panels"
+                                    className="flex h-[34px] w-[34px] items-center justify-center rounded-[9px] border border-slate-200 bg-white text-base font-bold text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    −
+                                  </button>
+                                  <span className="min-w-[22px] text-center font-mono text-base font-semibold text-slate-900">
+                                    {panelQty}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPanelQtyOverride(Math.min(panelMax, panelQty + 1))}
+                                    disabled={panelQty >= panelMax}
+                                    aria-label="Increase panels"
+                                    className="flex h-[34px] w-[34px] items-center justify-center rounded-[9px] bg-[#0F172A] text-base font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                      </div>
+
+                      {/* Inverter */}
+                      <div className="rounded-[18px] border border-slate-200 bg-white p-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-extrabold text-slate-900">Inverter</span>
+                          <span className="font-mono text-xs font-semibold text-emerald-700">
+                            {livePreview ? formatPKR(livePreview.breakdown.inverterPKR) : "—"}
+                          </span>
+                        </div>
+                        {sector === "INDUSTRIAL" ? (
+                          <p className="mt-3 text-xs font-medium text-slate-500">
+                            {SERVICE_TYPE_LABEL[serviceType]} · locked for {SECTOR_LABEL[sector]}
+                          </p>
+                        ) : (
+                          <div className="mt-3 flex gap-2">
+                            {(["HYBRID_BATTERY", "ONGRID_ZERO_EXPORT"] as ServiceType[]).map((st) => {
+                              const active = serviceType === st;
+                              const onSelect = sector === "RESIDENTIAL" ? setResidentialServiceType : setCommercialServiceType;
+                              return (
+                                <button
+                                  key={st}
+                                  type="button"
+                                  onClick={() => onSelect(st)}
+                                  aria-pressed={active}
+                                  className={`rounded-full px-3.5 py-2 text-xs font-semibold transition-colors duration-200 ${
+                                    active
+                                      ? "bg-orange-600 text-white"
+                                      : "border border-slate-200 bg-white text-slate-900 hover:border-orange-300"
+                                  }`}
+                                >
+                                  {st === "HYBRID_BATTERY" ? "Hybrid" : "On grid"}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {/* Current pick — a real <select> bound to the same
+                            effectiveInverterCode the desktop accordion
+                            uses, never a newly-invented default. */}
+                        <div className="relative mt-3">
+                          <select
+                            value={effectiveInverterCode ?? ""}
+                            onChange={(e) => handleInverterCodeChange(e.target.value)}
+                            className="w-full appearance-none rounded-xl border border-slate-200 bg-[#F5F1EB] px-3.5 py-3.5 text-sm font-semibold text-slate-900 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
+                          >
+                            {inverterOptionsForServiceType.map((o) => (
+                              <option key={o.code} value={o.code}>
+                                {o.isOtherOption ? "Other / Specific Requirement" : `${o.specValue ?? ""}${o.specValue ? "kW · " : ""}${o.label}`}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        </div>
+                      </div>
+
+                      {/* Battery */}
+                      {serviceType === "HYBRID_BATTERY" && (
+                        <div className="rounded-[18px] border border-slate-200 bg-white p-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-extrabold text-slate-900">Battery</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (effectiveBatteryCode === NONE_CODE) {
+                                  const fallbackBrand = currentBatteryBrand ?? batteryBrands[0];
+                                  const sku = fallbackBrand ? defaultBatterySkuForBrand(fallbackBrand) : null;
+                                  if (sku) setBatteryCode(sku.code);
+                                } else {
+                                  setBatteryCode(NONE_CODE);
+                                }
+                              }}
+                              aria-pressed={effectiveBatteryCode !== NONE_CODE}
+                              aria-label="Include a battery"
+                              className={`relative h-[27px] w-[46px] shrink-0 rounded-full transition-colors duration-200 ${
+                                effectiveBatteryCode !== NONE_CODE ? "bg-orange-600" : "bg-slate-200"
+                              }`}
+                            >
+                              <span
+                                className={`absolute top-[3px] h-[21px] w-[21px] rounded-full bg-white transition-all duration-200 ${
+                                  effectiveBatteryCode !== NONE_CODE ? "right-[3px]" : "left-[3px]"
+                                }`}
+                              />
+                            </button>
+                          </div>
+                          {effectiveBatteryCode !== NONE_CODE && (
+                            <>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {batteryBrands.map((brand) => {
+                                  const defaultSku = defaultBatterySkuForBrand(brand);
+                                  const active = currentBatteryBrand === brand;
+                                  return (
+                                    <button
+                                      key={brand}
+                                      type="button"
+                                      onClick={() => defaultSku && setBatteryCode(defaultSku.code)}
+                                      aria-pressed={active}
+                                      className={`rounded-full px-3.5 py-2 text-xs font-semibold transition-colors duration-200 ${
+                                        active
+                                          ? "bg-orange-600 text-white"
+                                          : "border border-slate-200 bg-white text-slate-900 hover:border-orange-300"
+                                      }`}
+                                    >
+                                      {brand}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {currentBatteryBrand && batterySkusForBrand(currentBatteryBrand).length > 1 && (
+                                <div className="mt-2.5 flex flex-wrap gap-2">
+                                  {batterySkusForBrand(currentBatteryBrand).map((o) => (
+                                    <button
+                                      key={o.code}
+                                      type="button"
+                                      onClick={() => setBatteryCode(o.code)}
+                                      aria-pressed={effectiveBatteryCode === o.code}
+                                      className={`rounded-full px-3.5 py-2 text-xs font-semibold transition-colors duration-200 ${
+                                        effectiveBatteryCode === o.code
+                                          ? "bg-orange-600 text-white"
+                                          : "border border-slate-200 bg-white text-slate-900 hover:border-orange-300"
+                                      }`}
+                                    >
+                                      {o.specValue !== null ? `${formatTrim(o.specValue)} kWh` : o.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                              {currentBatteryOption && (
+                                <p className="mt-3 text-xs text-slate-500">{currentBatteryOption.label}</p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Total + CTA — Build.html's sticky total bar,
+                          rendered inline (not fixed) since Complete
+                          Solar's mobile floating bottom bar already
+                          covers that "always-visible running total" job
+                          elsewhere on the page; a second fixed bar would
+                          duplicate it. Real full installed total
+                          (livePreview.totalClientPricePKR), not just
+                          panels+inverter+battery — showing only those
+                          three here would understate the actual price
+                          the customer is quoted. */}
+                      {/* flex-col, not a side-by-side row (2026-09-04
+                          feedback: "review build button overlapping
+                          text, can't read what's underneath") — the
+                          label ("5.5 kW system · total") could wrap to 2
+                          lines on a narrow card while the button stayed
+                          vertically centered beside it, so the button
+                          visually sat on top of the price. Stacking
+                          removes any way for that to happen: the price
+                          block and the button never share a row, full
+                          width each. */}
+                      <div className="rounded-[18px] bg-[#0F172A] p-4">
+                        <p className="font-mono text-[10px] uppercase tracking-wider text-[#8FA0B4]">
+                          {livePreview ? `${formatTrim(livePreview.systemKw, 1)} kW system · total` : "System total"}
+                        </p>
+                        <p className="mt-0.5 font-mono text-xl font-semibold text-white">
+                          {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "—"}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            document.getElementById("contact-and-submit")?.scrollIntoView({ behavior: "smooth", block: "start" })
+                          }
+                          className="mt-3 flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-orange-600 text-sm font-bold text-white transition-colors duration-200 hover:bg-orange-700"
+                        >
+                          Review build
+                          <ArrowRight className="h-4 w-4 shrink-0" />
+                        </button>
+                      </div>
+                    </div>
+                    </>
                   )}
 
                   {hasCustomSelection && (
@@ -3129,7 +4050,12 @@ function CalculatorCard() {
           <div id="contact-and-submit" className="lg:sticky lg:top-32 lg:z-30 lg:self-start">
             <div className="rounded-2xl border border-orange-200 bg-white p-5 shadow-lg shadow-orange-100/60">
               <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
-                <Sparkles className="h-3.5 w-3.5" /> Live Estimate
+                {/* Activity (2026-08-29) — was Sparkles, same icon
+                    "Solar Pixel Recommended" used, which read as
+                    repetitive/generic. Activity's pulse/heartbeat shape
+                    reads as "this number is live," matching what this
+                    panel actually is. */}
+                <Activity className="h-3.5 w-3.5" /> Live Estimate
               </p>
 
               {livePreview ? (
@@ -3181,6 +4107,110 @@ function CalculatorCard() {
                       </p>
                     </div>
                   </div>
+
+                  {/* "What's included" (2026-09-04, LOCKED spec's Quote
+                      screen, mobile only) — ONLY real, already-priced
+                      items: the actual resolved panel/inverter/battery
+                      (not fabricated), plus one line that maps directly
+                      to structurePKR/cablingAndProtectionPKR/
+                      installationPKR (all real breakdown lines this
+                      quote already includes). Deliberately does NOT
+                      list Quote.png's "Online monitoring & app setup" —
+                      nothing in this codebase confirms that's an actual
+                      deliverable, and this list must never promise a
+                      feature that isn't actually provided/priced. */}
+                  <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3.5 lg:hidden">
+                    <p className="text-xs font-semibold text-slate-700">What&apos;s included</p>
+                    <ul className="mt-1.5 space-y-1">
+                      {[
+                        `${livePreview.equipment.panel.count} × ${livePreview.equipment.panel.label}`,
+                        livePreview.equipment.inverter.label,
+                        ...(livePreview.equipment.battery ? [livePreview.equipment.battery.label] : []),
+                        "Structure, wiring & installation",
+                      ].map((item) => (
+                        <li key={item} className="flex items-start gap-1.5 text-xs text-slate-600">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* "Refine your details" (2026-09-04, LOCKED spec's
+                      Quote screen — explicitly deferred here from Home
+                      tab: "Roof/phase refinement belongs later, on the
+                      Quote screen"). Connection stays capture-only, same
+                      pattern as Sanctioned Load/Connection Type on the
+                      Enterprise card above (no pricing effect, folded
+                      into the WhatsApp message on submit — see
+                      ResultSummary's waMessage); connectionPhase reuses
+                      the real InverterPhase type/labels already in this
+                      file.
+                      Mounting Structure (2026-09-04 feedback: "shouldn't
+                      be roof type — it should be structure, populate
+                      from the admin side") replaces the old roofType
+                      capture-only field — real admin-configured catalog
+                      (equipmentOptions.MOUNTING_STRUCTURE, structureCode/
+                      setStructureCode), the SAME state the desktop
+                      accordion's own Mounting Structure row drives, so
+                      this is a real, live-priced pick (updates
+                      livePreview.breakdown.structurePKR immediately),
+                      not just a label folded into the message text. */}
+                  <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3.5 lg:hidden">
+                    <p className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                      Refine your details
+                      <span className="font-normal text-slate-400">updates your quote</span>
+                    </p>
+                    <p className="mt-2 mb-1 text-[11px] font-medium text-slate-600">Connection</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(["THREE_PHASE", "SINGLE_PHASE"] as const).map((phase) => (
+                        <button
+                          key={phase}
+                          type="button"
+                          onClick={() => setConnectionPhase(phase)}
+                          aria-pressed={connectionPhase === phase}
+                          className={`flex min-h-[44px] items-center justify-center rounded-lg border-2 text-xs font-bold transition-all duration-200 ${
+                            connectionPhase === phase
+                              ? "border-orange-700 bg-orange-50 text-orange-900"
+                              : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                          }`}
+                        >
+                          {PHASE_LABEL[phase]}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-2.5 mb-1 block text-[11px] font-medium text-slate-600">Mounting Structure</p>
+                    {/* Pill buttons, not a native <select> (2026-09-04
+                        feedback: "structure dropdown should be
+                        aesthetically pleasing, not like the typical
+                        one") — same chip style Connection above and the
+                        brand/battery pickers elsewhere on this card
+                        already use, instead of a plain OS-styled
+                        dropdown. Real catalog options/state either way
+                        (equipmentOptions.MOUNTING_STRUCTURE,
+                        structureCode) — this is a visual swap only. */}
+                    {equipmentOptions?.MOUNTING_STRUCTURE?.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {equipmentOptions.MOUNTING_STRUCTURE.map((o) => (
+                          <button
+                            key={o.code}
+                            type="button"
+                            onClick={() => setStructureCode(o.code)}
+                            aria-pressed={effectiveStructureCode === o.code}
+                            className={`rounded-full px-3.5 py-2 text-xs font-semibold transition-colors duration-200 ${
+                              effectiveStructureCode === o.code
+                                ? "bg-orange-600 text-white"
+                                : "border border-slate-200 bg-white text-slate-900 hover:border-orange-300"
+                            }`}
+                          >
+                            {o.isOtherOption ? "Other / Specific Requirement" : o.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400">Loading structures…</p>
+                    )}
+                  </div>
                 </>
               ) : (
                 <p className="mt-2 text-sm leading-relaxed text-slate-500">
@@ -3220,6 +4250,37 @@ function CalculatorCard() {
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
                   />
                 </div>
+                {/* Installation area (2026-09-04, Contact.html baseline,
+                    mobile only) — capture-only, same pattern as every
+                    other "Refine your details" field: folded into the
+                    WhatsApp message (installationAreaNote), no pricing/
+                    backend effect. */}
+                <div className="lg:hidden">
+                  <label htmlFor="installationArea" className="mb-1 block text-xs font-medium text-slate-600">
+                    Installation Area
+                  </label>
+                  <input
+                    id="installationArea"
+                    type="text"
+                    value={installationArea}
+                    onChange={(e) => setInstallationArea(e.target.value)}
+                    placeholder="e.g. Your neighborhood, city"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
+                  />
+                </div>
+              </div>
+
+              {/* Reassurance banner (2026-09-04, Contact.html baseline,
+                  mobile only) — Contact.html's own wording is a fixed
+                  "go live in 48 hours" claim, already declined earlier
+                  this session (install time varies by job); generic
+                  wording instead, same reassurance without the specific
+                  time claim. */}
+              <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-3.5 lg:hidden">
+                <Zap className="h-5 w-5 shrink-0 text-orange-600" />
+                <p className="text-xs leading-relaxed text-slate-600">
+                  Approved sites <span className="font-semibold text-slate-900">go live fast</span>. No hidden fees, ever.
+                </p>
               </div>
 
               {errorMessage && (
@@ -3253,54 +4314,6 @@ function CalculatorCard() {
           </div>
         </div>
       ) : null}
-
-      {/* Mobile-Only Floating Bottom Bar (Part 3) — lg:hidden since the
-          desktop layout already has the live total permanently visible in
-          the sticky right column; on mobile that column is pushed far
-          below the fold by the single-column stack, so this repeats the
-          number where a thumb can actually act on it. Only for Complete
-          Solar (this is the only flow with a real "Quotation" / turnkey price
-          to show — EV Charger/System Upgrades use different terminology
-          and already read fine without a second summary bar).
-
-          Reverted back to this simple bar from the "Live Meter" 3-screen
-          mobile redesign (2026-08-29, explicit instruction — the redesign
-          had real UX issues; the full WIP is kept at
-          wip-archive/HomePageContent.mobile-live-meter-wip-2026-08-29.tsx
-          for future development). Every functional/pricing fix built on
-          top of that redesign in the same session (inverter "clubbing",
-          manual quantity override, bill-threshold sector auto-routing,
-          Target Budget's Industrial lock) is unaffected by this revert —
-          none of it lived in the mobile-only JSX being removed here. */}
-      {masterService === "COMPLETE_SOLAR" && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between bg-slate-950 p-4 text-white shadow-2xl lg:hidden print:hidden">
-          <div className="min-w-0">
-            {/* Same "real configured capacity, not the frozen bill-derived
-                figure" fix as the Live Estimate panel's System stat. */}
-            <p className="text-[10px] text-slate-400">
-              Est. Total
-              {livePreview
-                ? ` · ${formatTrim(
-                    livePreview.equipment.panel.specValue
-                      ? (livePreview.equipment.panel.count * livePreview.equipment.panel.specValue) / 1000
-                      : livePreview.systemKw,
-                    1
-                  )} kW System`
-                : ""}
-            </p>
-            <p className="truncate text-base font-bold">
-              {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "Enter your bill above"}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => document.getElementById("contact-and-submit")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-teal px-4 py-2.5 text-sm font-semibold text-brand-teal-ink transition-all duration-200 hover:brightness-95"
-          >
-            Get Quotation <ArrowRight className="h-4 w-4" />
-          </button>
-        </div>
-      )}
 
       {masterService !== "COMPLETE_SOLAR" && (
         // ============ EV Charger / System Upgrades — same 2-column split
@@ -3417,7 +4430,9 @@ function CalculatorCard() {
           <div className="lg:sticky lg:top-32 lg:z-30 lg:self-start">
             <div className="rounded-2xl border border-orange-200 bg-white p-5 shadow-lg shadow-orange-100/60">
               <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
-                <Sparkles className="h-3.5 w-3.5" /> {masterService === "EV_CHARGER" ? "Live Total" : "Estimate"}
+                {/* Activity, not Sparkles — see the matching Solar
+                    dashboard "Live Estimate" panel's own comment. */}
+                <Activity className="h-3.5 w-3.5" /> {masterService === "EV_CHARGER" ? "Live Total" : "Estimate"}
               </p>
 
               {masterService === "SYSTEM_UPGRADES" &&
@@ -3429,7 +4444,7 @@ function CalculatorCard() {
                     </p>
                     <p className="text-xs text-slate-500">
                       {washPreview.isMinimumFeeApplied
-                        ? "Minimum call-out fee"
+                        ? "Minimum call out fee"
                         : `${washPreview.panelCount} panels × ${formatPKR(washPreview.costPerPanelPKR)}`}
                     </p>
                   </>
@@ -3535,6 +4550,167 @@ function CalculatorCard() {
 
       <PrintableReport billDetails={billDetails} billSource={billSource} />
     </form>
+
+    {/* Mobile-Only Floating Bottom Bar (Part 3) — lg:hidden since the
+        desktop layout already has the live total permanently visible in
+        the sticky right column; on mobile that column is pushed far
+        below the fold by the single-column stack, so this repeats the
+        number where a thumb can actually act on it. Only for Complete
+        Solar (this is the only flow with a real "Quotation" / turnkey price
+        to show — EV Charger/System Upgrades use different terminology
+        and already read fine without a second summary bar).
+
+        Moved OUTSIDE <form> (2026-09-04) — real bug found while adding
+        the liquid-glass treatment below: the <form> above has its own
+        backdrop-blur-xl (for its own frosted-card look), and CSS
+        backdrop-filter/filter/transform on an ancestor creates a NEW
+        containing block for `position: fixed` descendants — so this
+        bar's "fixed bottom-0" was pinning to the FORM's bottom edge,
+        not the viewport's, and drifted off-screen (negative rect.top,
+        confirmed via getBoundingClientRect) the moment you scrolled
+        past the form. Sibling of the form now, so it's fixed to the
+        real viewport like it's supposed to be. Pre-existing bug, not
+        introduced by anything else in this change. */}
+    {masterService === "COMPLETE_SOLAR" && (
+      // Liquid glass (2026-09-04 feedback: "all overlapping should be
+      // in a liquid glass style") — this bar sits fixed on top of
+      // scrolled page content, so it's a real overlap, not just a
+      // section boundary. Translucent dark fill + backdrop-blur + a
+      // hairline top border reads as "floating glass" instead of a
+      // solid opaque slab; kept dark (not light glass) since the white
+      // total/button text needs the dark backing for contrast.
+      <div className="safe-bottom fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between border-t border-white/10 bg-slate-950/70 px-4 pt-4 text-white shadow-2xl backdrop-blur-xl lg:hidden print:hidden">
+        <div className="min-w-0">
+          {/* Same "real configured capacity, not the frozen bill-derived
+              figure" fix as the Live Estimate panel's System stat. */}
+          <p className="text-[10px] text-slate-400">
+            Est. Total
+            {livePreview
+              ? ` · ${formatTrim(
+                  livePreview.equipment.panel.specValue
+                    ? (livePreview.equipment.panel.count * livePreview.equipment.panel.specValue) / 1000
+                    : livePreview.systemKw,
+                  1
+                )} kW System`
+              : ""}
+          </p>
+          <p className="truncate text-base font-bold">
+            {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "Enter your bill above"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => document.getElementById("contact-and-submit")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-teal px-4 py-2.5 text-sm font-semibold text-brand-teal-ink transition-all duration-200 hover:brightness-95"
+        >
+          Get Quotation <ArrowRight className="h-4 w-4" />
+        </button>
+      </div>
+    )}
+
+    {/* Mobile-only marketing sections below the calculator (2026-09-04,
+        design kit handoff, following Main.html's page structure — not
+        just the estimator card). Proof Band ("1,200+ systems live" etc.)
+        and the Testimonial are deliberately NOT included yet:
+        BUILD_SPEC.md itself flags both as placeholder/sample values, and
+        this app never ships fabricated stats or a made-up customer
+        quote — waiting on the user to supply real figures/a real,
+        permissioned testimonial. "48-hour install" also isn't used as a
+        fixed claim (explicit answer: install time varies by job) —
+        "Fast Installation"/"Go live in days" instead of a specific
+        number. print:hidden matches every other decorative section on
+        this page (see the header's own print:hidden). */}
+    <div className="mx-auto mt-6 max-w-2xl print:hidden">
+      {/* Trust pills, Brand strip, and How It Works sections all removed
+          (2026-09-04 feedback: "too much text on the main page" /
+          "repitition of the information" — Trust Pills' own claims were
+          already covered elsewhere on this same short page: "no hidden
+          fees" in the reassurance banner and footer band, battery-ready
+          is obvious from the product itself. Explicit "no need of this
+          information" for Brand Strip/How It Works. Real catalog brands
+          are still visible in the Market Watch ticker above. */}
+
+      {/* Services row — real master-service picks, reusing the exact
+          same setMasterService/setSector state the "What do you need?"
+          fieldset above already uses. Scroll targets (2026-09-04): that
+          fieldset is now desktop-only (hidden lg:block, see its own doc
+          comment above), so `serviceSelectionRef` renders at zero size
+          on mobile and is useless as a mobile scroll target. EV
+          Charger/Panel Washing keep their own refs (unaffected — those
+          input sections were never lg:hidden). Complete Solar's mobile
+          content has no single ref of its own (it's the dark hero card
+          vs. the Enterprise card, swapped on `sector`), so that one
+          scrolls back to the top of #calculator instead — exactly where
+          the dark card now lives as the first element below Hero. */}
+      <div className="mt-6 lg:hidden">
+        <p className="font-mono text-[10.5px] font-semibold uppercase tracking-widest text-orange-700">More We Do</p>
+        <div className="mt-3 grid grid-cols-3 gap-2.5">
+          <button
+            type="button"
+            onClick={() => {
+              setMasterService("EV_CHARGER");
+              requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(evChargerRef)));
+            }}
+            className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-center transition-colors duration-200 hover:border-orange-300"
+          >
+            <EVChargerIcon className="h-6 w-6 text-orange-600" />
+            <span className="text-[11px] font-semibold leading-tight text-slate-900">EV Charger</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMasterService("SYSTEM_UPGRADES");
+              requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(panelWashingRef)));
+            }}
+            className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-center transition-colors duration-200 hover:border-orange-300"
+          >
+            <WaterDropIcon className="h-6 w-6 text-orange-600" />
+            <span className="text-[11px] font-semibold leading-tight text-slate-900">Washing & Service</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMasterService("COMPLETE_SOLAR");
+              chooseSector("COMMERCIAL");
+              requestAnimationFrame(() => requestAnimationFrame(scrollToCalculator));
+            }}
+            className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-center transition-colors duration-200 hover:border-orange-300"
+          >
+            <SectorIllustration sector="COMMERCIAL" className="h-6 w-8" />
+            <span className="text-[11px] font-semibold leading-tight text-slate-900">Commercial & Industrial</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Footer CTA band — sits above the real site footer, distinct
+          from the sticky Mobile-Only Floating Bottom Bar (that one's
+          persistent/quick-access while scrolling; this is the one-time
+          closing CTA at the end of the page, matching Main.html). */}
+      <div className="mt-7 rounded-3xl bg-[#0F172A] p-6 lg:hidden">
+        <p className="text-xl font-extrabold tracking-tight text-white">Ready to cut your bill?</p>
+        <div className="mt-3.5 flex gap-2.5">
+          <button
+            type="button"
+            onClick={() => document.getElementById("contact-and-submit")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            className="flex min-h-[50px] flex-1 items-center justify-center gap-2 rounded-2xl bg-orange-700 text-sm font-bold text-white transition-colors duration-200 hover:bg-orange-800"
+          >
+            Get instant quote
+          </button>
+          <a
+            href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(GENERAL_INQUIRY_WA_MESSAGE)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => trackWhatsAppClick("footer_cta_band")}
+            className="flex min-h-[50px] w-[50px] shrink-0 items-center justify-center rounded-2xl bg-white transition-colors duration-200 hover:bg-slate-100"
+            aria-label="Chat on WhatsApp"
+          >
+            <MessageCircle className="h-5 w-5 text-emerald-600" />
+          </a>
+        </div>
+        <p className="mt-3 font-mono text-[11px] text-[#8FA0B4]">+92 328 2155550 · solarpixel.pk</p>
+      </div>
+    </div>
+    </>
   );
 }
 
@@ -3547,31 +4723,58 @@ function CalculatorCard() {
  *  slate-grey text, which read as a disabled/secondary label rather
  *  than a real second option worth clicking. Fixed two ways: the Custom
  *  side now keeps its own violet color identity even while inactive
- *  (not "grey until picked"), plus a small pulsing dot + one-line
- *  caption call out what it actually does — visible exactly when
- *  Recommended is active, i.e. exactly when a customer might not
- *  realize there's an alternative. */
+ *  (not "grey until picked"), plus a small pulsing dot.
+ *
+ *  Simplified + made more prominent for mobile first-time users
+ *  (2026-08-29, explicit instruction): "Custom Equipment Builder" as a
+ *  toggle/CTA label reads as developer jargon to someone who just wants
+ *  to "pick their own brands" — renamed to "Build Your Own" everywhere
+ *  it's a short label. Buttons are full-width and stacked below the
+ *  dashboard's own @container breakpoint (this section lives in the
+ *  narrower left column, so a real viewport breakpoint would trigger
+ *  side-by-side while the column itself is still phone-narrow — same
+ *  reasoning as the Property Type/System Type cards above), 52px
+ *  minimum touch height, bold 2px border + tinted background + a
+ *  checkmark on whichever side is active — not just a text-color swap,
+ *  which is exactly what made the old toggle easy to miss.
+ *
+ *  A first pass at this also added a large tappable "entry card" below
+ *  the toggle repeating the same "Build Your Own" offer — immediately
+ *  flagged (2026-08-29) as pure repetition: the same headline/subtext
+ *  twice, and two elements doing the literal same onChange("CUSTOM").
+ *  Reverted to one short caption instead — the toggle itself is already
+ *  the prominent, unmissable element; the caption just makes sure
+ *  "Recommended" doesn't read as the only option. */
 function PathToggle({ path, onChange }: { path: CustomizationPath; onChange: (path: CustomizationPath) => void }) {
   return (
     <div>
-      <div className="grid grid-cols-2 gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-1.5">
+      <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
         <button
           type="button"
           onClick={() => onChange("RECOMMENDED")}
           aria-pressed={path === "RECOMMENDED"}
-          className={`flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-[11px] font-semibold leading-tight transition-colors duration-200 sm:text-xs ${
-            path === "RECOMMENDED" ? "bg-white text-orange-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+          className={`flex min-h-[52px] items-center justify-center gap-2 rounded-xl border-2 px-3 py-3 text-sm font-bold leading-tight transition-all duration-200 ${
+            path === "RECOMMENDED"
+              ? "border-orange-700 bg-orange-50 text-orange-900"
+              : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700"
           }`}
         >
-          <Sparkles className="h-3.5 w-3.5 shrink-0" />
+          {/* Wand2 (2026-08-29) — was Sparkles, the same icon "Live
+              Estimate" used elsewhere on the page; a magic-wand reads
+              more specifically as "picked for you," distinct from the
+              live-updating-number meaning Activity now carries there. */}
+          <Wand2 className="h-4.5 w-4.5 shrink-0" />
           Solar Pixel Recommended
+          {path === "RECOMMENDED" && <CheckCircle2 className="h-4.5 w-4.5 shrink-0 text-orange-700" />}
         </button>
         <button
           type="button"
           onClick={() => onChange("CUSTOM")}
           aria-pressed={path === "CUSTOM"}
-          className={`relative flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-[11px] font-bold leading-tight transition-colors duration-200 sm:text-xs ${
-            path === "CUSTOM" ? "bg-white text-violet-700 shadow-sm" : "bg-violet-50 text-violet-700 hover:bg-violet-100"
+          className={`relative flex min-h-[52px] items-center justify-center gap-2 rounded-xl border-2 px-3 py-3 text-sm font-bold leading-tight transition-all duration-200 ${
+            path === "CUSTOM"
+              ? "border-violet-700 bg-violet-50 text-violet-900"
+              : "border-violet-200 bg-violet-50/60 text-violet-700 hover:border-violet-300 hover:bg-violet-100"
           }`}
         >
           {path !== "CUSTOM" && (
@@ -3580,14 +4783,14 @@ function PathToggle({ path, onChange }: { path: CustomizationPath; onChange: (pa
               <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-violet-500" />
             </span>
           )}
-          <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" />
-          Custom Equipment Builder
+          <SlidersHorizontal className="h-4.5 w-4.5 shrink-0" />
+          Build Your Own
+          {path === "CUSTOM" && <CheckCircle2 className="h-4.5 w-4.5 shrink-0 text-violet-700" />}
         </button>
       </div>
       {path === "RECOMMENDED" && (
-        <p className="mt-1.5 text-center text-[11px] text-violet-600">
-          Want to pick the exact brands yourself? Tap <span className="font-semibold">Custom Equipment Builder</span>{" "}
-          above.
+        <p className="mt-2 text-center text-xs text-violet-600">
+          Want to select your own inverter, panels, or batteries? Tap <span className="font-semibold">Build Your Own</span> above.
         </p>
       )}
     </div>
@@ -3877,6 +5080,40 @@ function SpecCard({
   );
 }
 
+/** Plain native `<input type="range">` wrapper — resurrected (2026-09-03)
+ *  from wip-archive/HomePageContent.mobile-live-meter-wip-2026-08-29.tsx
+ *  for the mobile Home tab's bill slider (LOCKED spec §2). Standalone/
+ *  pure, no dependency on any of the deleted mobile-shell state, so
+ *  reintroducing it doesn't reopen the mobile-redesign revert. */
+function RangeSlider({
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  ariaLabel,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <input
+      type="range"
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      aria-label={ariaLabel}
+      className="h-11 w-full cursor-pointer accent-orange-500"
+    />
+  );
+}
+
 /** A +/- quantity picker — the Site Works row's alternative to
  *  SwapOptionCard's brand-select pattern (Part "Site Works," 2026-08-20):
  *  these 3 items aren't a brand pick, just a customer-adjustable count
@@ -4163,24 +5400,49 @@ function buildCostBreakdownRows(source: {
       ? { label: "Site Works (Civil, Earthing & Lightning Arrestor)", valuePKR: source.breakdown.siteWorksPKR }
       : { label: "Site Works (Civil, Earthing & Lightning Arrestor)", valuePKR: 0, displayOverride: "Not Included" },
     ...(panelWashing
-      ? [{ label: "Panel Washing (One-Time Visit)", valuePKR: source.breakdown.panelWashingPKR }]
+      ? [{ label: "Panel Washing (One Time Visit)", valuePKR: source.breakdown.panelWashingPKR }]
       : []),
   ];
 }
 
-function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => void }) {
+function ResultSummary({
+  result,
+  onEdit,
+  connectionPhase,
+  installationArea,
+  customerName,
+}: {
+  result: QuoteResult;
+  onEdit: () => void;
+  /** "Refine your details" (2026-09-04, mobile Live Estimate panel) —
+   *  capture-only, no pricing effect (see that field's own doc comment
+   *  in CalculatorCard). Optional/undefined for the EV Charger/Panel
+   *  Washing add-on flows, which don't collect these at all. Its
+   *  Mounting Structure sibling field needs no equivalent here — it's a
+   *  real priced pick already reflected in result.totalClientPricePKR,
+   *  not a capture-only note. */
+  connectionPhase?: InverterPhase | null;
+  /** Contact.html baseline (2026-09-04) — same capture-only pattern,
+   *  same optional/undefined-for-add-on-flows caveat. */
+  installationArea?: string;
+  /** The customer's own name, already typed into the contact form just
+   *  above this result — only used to build a professional document
+   *  title/PDF filename below, see that effect's own doc comment. */
+  customerName: string;
+}) {
   const { panel, inverter, battery } = result.equipment;
   const { civilBlockQty, earthingBoreQty, lightningArrestorQty } = result.siteWorks;
   const { panelWashing } = result;
-  // "Panel Washing - One-Time Visit (...)" — exact PDF wording per spec:
+  // "Panel Washing One Time Visit (...)" — exact PDF wording per spec:
   // the parenthetical is either the real tier breakdown ("50 Panels @ Rs
   // 150/panel") or, when the minimum visit fee floor was the binding
-  // price, "(Minimum Call-Out Fee)" instead — never both, never a
-  // fabricated per-panel rate for a floored price.
+  // price, "(Minimum Call Out Fee)" instead — never both, never a
+  // fabricated per-panel rate for a floored price. No dashes (2026-09-04
+  // feedback: replace "-" with a space everywhere in the app).
   const panelWashingDescription = panelWashing
     ? panelWashing.isMinimumFeeApplied
-      ? "Panel Washing - One-Time Visit (Minimum Call-Out Fee)"
-      : `Panel Washing - One-Time Visit (${panelWashing.panelCount} Panels @ ${formatPKR(panelWashing.ratePerPanel)}/panel)`
+      ? "Panel Washing One Time Visit (Minimum Call Out Fee)"
+      : `Panel Washing One Time Visit (${panelWashing.panelCount} Panels @ ${formatPKR(panelWashing.ratePerPanel)}/panel)`
     : null;
 
   // Part 1: dynamic panel count. panelCount is `panel.count` (2026-08-20)
@@ -4208,7 +5470,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
   // through the BOQ table.
   const isNetMeteredSystem: boolean = false;
   const netMeteringRowDescription = isNetMeteredSystem
-    ? "Net Metering Facility (LESCO File Prep, NEPRA License & Green Meter)"
+    ? "Net Metering Facility (DISCO File Prep, NEPRA License & Green Meter)"
     : "Smart Power Controller & System Configuration";
 
   const boqRows: BoqRow[] = [
@@ -4237,6 +5499,15 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
   const customNote = result.hasCustomRequirements
     ? "\n\nNote: includes custom/specific equipment requests. Please confirm final pricing for those items."
     : "";
+  // "Refine your details" (2026-09-04) — capture-only, folded straight
+  // into the message text same as customNote above; no pricing effect,
+  // see connectionPhase's own doc comment.
+  const refineDetailsNote =
+    connectionPhase
+      ? `\n- Connection: ${PHASE_LABEL[connectionPhase]}`
+      : "";
+  // Contact.html baseline — folded in the same way, only when actually filled.
+  const installationAreaNote = installationArea?.trim() ? `\n- Installation Area: ${installationArea.trim()}` : "";
   // Public, unauthenticated quote view (app/quote/[quoteId]/page.tsx) —
   // NOT a literal generated PDF file, see that route's doc comment for
   // why (a real PDF-generation + storage pipeline is a materially
@@ -4247,10 +5518,74 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
   // component only ever actually renders client-side in practice, but
   // the fallback keeps the string well-formed either way.
   const pdfUrl = typeof window !== "undefined" ? `${window.location.origin}/quote/${result.quoteId}` : `/quote/${result.quoteId}`;
-  const waMessage = `Assalam o Alaikum! I generated a custom quote on your site:\n- System: ${result.systemKw}kW (${panelCount} panels)\n- Total Price: ${formatPKR(result.totalClientPricePKR)}\n- Reference ID: #${result.quoteId}\n\n📄 Official PDF Quotation: ${pdfUrl}\n\nI would like to schedule a site survey.${customNote}`;
+  const waMessage = `Assalam o Alaikum! I generated a custom quote on your site:\n- System: ${result.systemKw}kW (${panelCount} panels)\n- Total Price: ${formatPKR(result.totalClientPricePKR)}\n- Reference ID: #${result.quoteId}${refineDetailsNote}${installationAreaNote}\n\n📄 Official PDF Quotation: ${pdfUrl}\n\nI would like to schedule a site survey.${customNote}`;
   const waHref = `https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(waMessage)}`;
 
   const today = new Date().toLocaleDateString("en-PK", { day: "numeric", month: "long", year: "numeric" });
+
+  // Document title (2026-09-04, "download file top line is saying Live
+  // Solar Calculator... it's a quotation, don't mention Lahore, should
+  // be professional") — this page is client-rendered at the SAME URL as
+  // the homepage (?step=report), so without this it silently inherits
+  // the homepage's own SEO <title> ("Solar Installation Lahore | Solar
+  // Pixel", root layout's own metadata — correct for that page's actual
+  // job, Google search results, but wrong for a document a customer
+  // prints). This is also exactly what both the browser's native print
+  // header AND the "Save as PDF" default filename are built from — so
+  // fixing it here fixes the print header text and gives a real,
+  // professional suggested filename for free, both from one change.
+  //
+  // Two simpler approaches were tried and empirically failed before
+  // this one — both confirmed live, not theoretical:
+  //  1. A plain `document.title = "..."` useEffect: kept getting reset
+  //     back to the SEO title within a second of being set.
+  //  2. A real `<title>` JSX element (React 19 hoists these to <head>):
+  //     it DID mount, but Next kept RE-INSERTING A FRESH SECOND <title>
+  //     node alongside it rather than replacing/deduplicating — and
+  //     `document.title` (the print header/PDF-filename source, and the
+  //     DOM spec's own defined behavior) always reads the FIRST <title>
+  //     in the document, so whichever node Next inserted first kept
+  //     winning regardless of what mine said.
+  // What actually works: don't fight over WHICH single node wins —
+  // watch the whole <head> for any <title>-shaped change (a text edit
+  // OR a brand new node being inserted, both observed live) and, on
+  // every such change, collapse back down to exactly one <title> with
+  // the right text. Self-heals within a paint of whatever Next's own
+  // metadata rendering does, instead of depending on winning a specific
+  // race against it.
+  useEffect(() => {
+    const desired = `Solar Pixel Quotation - ${customerName.trim() || "Customer"} - ${today}`;
+    const previousText = document.querySelector("title")?.textContent ?? document.title;
+
+    const enforce = () => {
+      const titles = document.querySelectorAll("title");
+      if (titles.length === 0) {
+        const el = document.createElement("title");
+        el.textContent = desired;
+        document.head.appendChild(el);
+        return;
+      }
+      // Keep only the first — drop any extra <title> nodes Next's own
+      // metadata rendering re-inserts alongside ours.
+      titles.forEach((el, i) => {
+        if (i > 0) el.remove();
+      });
+      if (titles[0].textContent !== desired) titles[0].textContent = desired;
+    };
+
+    enforce();
+    const observer = new MutationObserver(enforce);
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+
+    return () => {
+      observer.disconnect();
+      const titles = document.querySelectorAll("title");
+      titles.forEach((el, i) => {
+        if (i > 0) el.remove();
+      });
+      if (titles[0]) titles[0].textContent = previousText;
+    };
+  }, [customerName, today]);
 
   // Detailed Cost Breakdown — see buildCostBreakdownRows's own doc
   // comment above for the grouping/omission rules. The rows always sum
@@ -4260,7 +5595,23 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
   const costBreakdownRows = buildCostBreakdownRows(result);
 
   return (
-    <div className="animate-fade-up mx-auto my-8 w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-2xl shadow-slate-200/60 print:my-0 print:max-w-none print:rounded-none print:shadow-none">
+    <div className="animate-fade-up relative mx-auto my-8 w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-2xl shadow-slate-200/60 print:my-0 print:max-w-none print:rounded-none print:border-0 print:shadow-none">
+      {/* Background watermark (2026-09-04) — a large, very faint version
+          of the real mark sitting quietly behind the whole document
+          (screen AND print, deliberately NOT print:hidden — the point is
+          it should survive onto the printed/saved PDF too, unlike the
+          hero's decorative glow blobs which are). Kept extremely low
+          opacity so it never fights with reading the BOQ/Cost Breakdown
+          numbers — an official-document cue, not a loud "PROOF" stamp.
+          Own gradientId (see BrandMark's own doc comment on why: two
+          BrandMark instances on one page would otherwise share one SVG
+          <defs> id and break one instance's fill). */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-1/3 -z-10 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.04]"
+      >
+        <BrandMark className="h-full w-full" gradientId="resultWatermark" />
+      </div>
       {/* Screen-only chrome — edit affordance + upload-source badge. */}
       <div className="flex items-center justify-between gap-3 px-6 pt-5 print:hidden">
         <button
@@ -4277,36 +5628,101 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
         )}
       </div>
 
-      {/* ---- Document Header ---- */}
-      <div className="border-b border-slate-200 px-6 pb-6 pt-4 sm:px-8">
-        <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] text-slate-500">
-          <span className="font-semibold tracking-wide text-brand-navy">Powered by SP - Solar Pixel (Pvt) Ltd.</span>
-          <span>
-            Quote #{result.quoteId.slice(0, 10).toUpperCase()} · {today}
-          </span>
+      {/* ---- Hero (2026-09-04, "need a better design for the quotation")
+          — was a plain white header block (small navy title, a single
+          bold "Estimated Turnkey Cost" line). Replaced with the same
+          dark-gradient "hero" treatment already established elsewhere
+          in this redesign (BuildSummary.html's own configuration-summary
+          card), so the quotation opens with real visual weight instead
+          of reading like a plain memo. print:[color-adjust:exact] +
+          -webkit-print-color-adjust — WITHOUT these, most browsers strip
+          background colors by default when printing (to save ink),
+          which would leave this a WHITE box with WHITE text and no
+          visible content at all. Forced on deliberately, since this
+          literally IS the PDF (window.print()) — a quotation that
+          vanishes on paper would be a real regression, not just a
+          missed nicety. */}
+      <div
+        className="relative mx-4 mt-3 overflow-hidden rounded-2xl p-6 text-white sm:mx-6 sm:p-8 print:mx-0 print:mt-0 print:flex print:flex-row print:items-center print:justify-between print:gap-10 print:rounded-none print:border-b print:border-slate-300 print:px-10 print:py-8 print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]"
+        style={{ background: "linear-gradient(155deg, #0F172A 0%, #0B1220 60%, #0B3B30 150%)" }}
+      >
+        <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-emerald-400/15 blur-[90px] print:hidden" />
+        <div aria-hidden className="pointer-events-none absolute -bottom-24 -left-10 h-56 w-56 rounded-full bg-orange-400/10 blur-[90px] print:hidden" />
+
+        {/* 2026-09-04 print-layout fix: the outer document goes edge to
+            edge on paper (print:max-w-none on the card, since a Letter
+            page is much wider than this mobile-card design's own
+            content), which left this stacked, left-aligned block with a
+            huge dead black area to its right — the exact "free space on
+            the black header" the user flagged from a real printed
+            screenshot. On screen (a narrow card) the stacked layout is
+            still correct and untouched; print:flex splits it into a real
+            two-column header instead (identity+title left, quote
+            reference+total right) — the same convention real invoices
+            use to fill a full-width header, not a novelty. The two
+            "#id · date" spans below are a deliberate print/screen pair
+            (one hidden each way), not a duplicate bug — screen keeps it
+            beside the eyebrow label where it always was; print moves it
+            to sit with the total on the right column instead. */}
+        <div className="print:max-w-[58%]">
+          {/* Real logo (2026-09-04, "should be professional and
+              international leading") — BrandMark was already imported for
+              the screen-only chrome bar elsewhere on this page, but never
+              actually rendered ON the document itself; this hero's own
+              "Powered by SP - Solar Pixel (Pvt) Ltd." was text-only, no
+              graphic. A real logo mark is the actual baseline for "looks
+              like an official document," not a nicety. */}
+          <div className="relative flex items-center gap-2.5">
+            <BrandMark className="h-9 w-9 shrink-0" gradientId="resultHeroMark" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold leading-tight">Solar Pixel</p>
+              <p className="text-[10px] leading-tight text-white/50">(Pvt) Ltd.</p>
+            </div>
+          </div>
+
+          <div className="relative mt-4 flex flex-wrap items-center justify-between gap-2 print:mt-6 print:justify-start">
+            <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.14em] text-emerald-300">Official Quotation</span>
+            <span className="font-mono text-[10.5px] text-white/60 print:hidden">
+              #{result.quoteId.slice(0, 10).toUpperCase()} · {today}
+            </span>
+          </div>
+
+          <h1 className="relative mt-3 text-[1.7rem] font-extrabold leading-tight tracking-tight sm:text-4xl print:mt-3">
+            {result.systemKw} kW{" "}
+            <span className="text-orange-400">{result.serviceType === "HYBRID_BATTERY" ? "Hybrid" : "On Grid"}</span> System
+          </h1>
         </div>
-        <h1 className="mt-3 text-2xl font-bold text-slate-900 sm:text-3xl">
-          {result.systemKw} KW <span className="text-brand-navy">Sales Quotation</span>
-        </h1>
-        <p className="mt-1 text-lg font-semibold text-emerald-600">
-          Estimated Turnkey Cost: {formatPKR(result.totalClientPricePKR)}
-        </p>
+
+        <div className="relative mt-5 print:mt-0 print:shrink-0 print:text-right">
+          <p className="hidden font-mono text-[10.5px] text-white/60 print:mb-3 print:block">
+            #{result.quoteId.slice(0, 10).toUpperCase()} · {today}
+          </p>
+          <p className="font-mono text-[10px] uppercase tracking-wider text-white/50">Estimated Turnkey Cost</p>
+          <p className="mt-0.5 font-mono text-[2rem] font-bold leading-none text-emerald-400 sm:text-4xl print:text-5xl">
+            {formatPKR(result.totalClientPricePKR)}
+          </p>
+        </div>
       </div>
 
-      {/* ---- Quick facts ---- */}
-      <div className="grid grid-cols-3 gap-px bg-slate-200">
-        <div className="bg-slate-50 px-3 py-3 text-center sm:px-4">
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">Monthly Savings</p>
+      {/* ---- Quick facts — light stat cards sitting just under the hero,
+          same 3-figure set as before, restyled with icons + more room to
+          breathe instead of a cramped 3-up strip. ---- */}
+      <div className="mx-4 mt-4 grid grid-cols-3 gap-2.5 sm:mx-6 print:mx-0 print:mt-0 print:gap-0 print:divide-x print:divide-slate-200 print:rounded-none print:border-b print:border-slate-300">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center print:rounded-none print:border-0 print:bg-white print:py-2.5">
+          <TrendingDown className="mx-auto h-3.5 w-3.5 text-emerald-600 print:hidden" />
+          <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-500 print:mt-0">Monthly Savings</p>
           <p className="mt-0.5 text-sm font-bold text-emerald-600">{formatPKR(result.estimatedMonthlySavingsPKR)}</p>
         </div>
-        <div className="bg-slate-50 px-3 py-3 text-center sm:px-4">
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">Payback</p>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center print:rounded-none print:border-0 print:bg-white print:py-2.5">
+          <Clock className="mx-auto h-3.5 w-3.5 text-slate-400 print:hidden" />
+          <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-500 print:mt-0">Payback</p>
           <p className="mt-0.5 text-sm font-bold text-slate-900">
             {result.paybackYears !== null ? `${result.paybackYears} yrs` : "—"}
           </p>
         </div>
-        <div className="bg-slate-50 px-3 py-3 text-center sm:px-4">
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">Live In</p>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center print:rounded-none print:border-0 print:bg-white print:py-2.5">
+          <CalendarCheck className="mx-auto h-3.5 w-3.5 text-slate-400 print:hidden" />
+          <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-500 print:mt-0">Live In</p>
           <p className="mt-0.5 text-sm font-bold text-slate-900">{result.daysToDeploy} Days</p>
         </div>
       </div>
@@ -4321,7 +5737,7 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
                 Note: Your system size is limited to {result.systemKw}kW based on your selected Inverter capacity (
                 {formatTrim(inverter.specValue! * inverter.quantity)}kW
                 {inverter.quantity > 1 ? ` = ${formatTrim(inverter.specValue!)}kW × ${inverter.quantity}` : ""}).
-                Pick a higher-capacity model in Custom Equipment Builder to size up.
+                Pick a higher-capacity model under Build Your Own to size up.
               </p>
             </div>
           )}
@@ -4337,19 +5753,24 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
         </div>
       )}
 
-      {/* ---- BOQ Table ---- */}
-      <div className="px-6 pt-5 sm:px-8">
-        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <Receipt className="h-3.5 w-3.5 text-brand-navy" /> Itemized Quotation
+      {/* ---- BOQ Table — same data/rows as before, restyled header (a
+          dark gradient strip matching the hero instead of a flat navy
+          fill) and softer, more generous row padding. ---- */}
+      <div className="px-6 pt-6 sm:px-8">
+        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
+          <Receipt className="h-3.5 w-3.5" /> Itemized Quotation
         </p>
-        <div className="mt-2.5 overflow-hidden rounded-xl border border-slate-200">
+        <div className="mt-2.5 overflow-hidden rounded-xl border border-slate-200 shadow-sm shadow-slate-100">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
-              <tr className="bg-brand-navy text-white">
-                <th className="px-3 py-2.5 font-semibold">Sr No.</th>
-                <th className="px-3 py-2.5 font-semibold">Product Description</th>
-                <th className="px-3 py-2.5 font-semibold">UOM</th>
-                <th className="px-3 py-2.5 text-right font-semibold">Product Qty</th>
+              <tr
+                className="text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]"
+                style={{ background: "linear-gradient(90deg, #0F172A, #0B3B30)" }}
+              >
+                <th className="px-3 py-3 font-semibold">Sr No.</th>
+                <th className="px-3 py-3 font-semibold">Product Description</th>
+                <th className="px-3 py-3 font-semibold">UOM</th>
+                <th className="px-3 py-3 text-right font-semibold">Product Qty</th>
               </tr>
             </thead>
             <tbody>
@@ -4366,23 +5787,26 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
         </div>
 
         {/* ---- Detailed Cost Breakdown — one row per priced category ---- */}
-        <p className="mb-1.5 mt-4 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <Receipt className="h-3.5 w-3.5 text-brand-navy" /> Cost Breakdown
+        <p className="mb-1.5 mt-5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
+          <Receipt className="h-3.5 w-3.5" /> Cost Breakdown
         </p>
-        <div className="overflow-hidden rounded-xl border border-slate-200">
+        <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm shadow-slate-100">
           <table className="w-full border-collapse text-left text-xs">
             <tbody>
               {costBreakdownRows.map((row, i) => (
                 <tr key={row.label} className={`border-b border-slate-100 ${i % 2 === 0 ? "bg-white" : "bg-slate-50"}`}>
-                  <td className="px-3 py-2 text-slate-500">{row.label}</td>
-                  <td className="px-3 py-2 text-right font-medium text-slate-700">
+                  <td className="px-3 py-2.5 text-slate-500">{row.label}</td>
+                  <td className="px-3 py-2.5 text-right font-medium text-slate-700">
                     {row.displayOverride ?? formatPKR(row.valuePKR)}
                   </td>
                 </tr>
               ))}
-              <tr className="bg-emerald-50">
-                <td className="px-3 py-2.5 font-semibold text-emerald-800">Total Turnkey Cost</td>
-                <td className="px-3 py-2.5 text-right text-sm font-bold text-emerald-700">
+              <tr
+                className="text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]"
+                style={{ background: "linear-gradient(90deg, #0F172A, #0B3B30)" }}
+              >
+                <td className="px-3 py-3 font-semibold">Total Turnkey Cost</td>
+                <td className="px-3 py-3 text-right text-sm font-bold text-emerald-300">
                   {formatPKR(result.totalClientPricePKR)}
                 </td>
               </tr>
@@ -4391,14 +5815,14 @@ function ResultSummary({ result, onEdit }: { result: QuoteResult; onEdit: () => 
         </div>
       </div>
 
-      {/* ---- Footer ---- */}
+      {/* ---- Footer — the repeated "Total Price" card that used to sit
+          here is gone (2026-09-04): the hero above already leads with
+          that exact number in real visual weight, so restating it again
+          right below the cost breakdown (which itself ends on the same
+          total) was three copies of one figure on one document — pure
+          repetition, not reinforcement. ---- */}
       <div className="mt-6 border-t border-slate-200 bg-slate-50 px-6 py-6 sm:px-8">
-        <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3.5">
-          <span className="text-sm font-semibold text-slate-700">Total Price</span>
-          <span className="text-xl font-bold text-emerald-600">{formatPKR(result.totalClientPricePKR)}</span>
-        </div>
-
-        <p className="mt-4 text-center text-[11px] leading-relaxed text-slate-500">
+        <p className="text-center text-[11px] leading-relaxed text-slate-500">
           Email: solarpixelpk@gmail.com · Mobile: +92 328 2155550 · Site:{" "}
           <a
             href="https://www.solarpixel.pk"
@@ -4483,10 +5907,10 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
           <Stat label="Panel Count" value={`${result.panelCount} panels`} />
           <Stat
             label="Cleaning Rate"
-            value={result.isMinimumFeeApplied ? "Minimum call-out fee" : `${formatPKR(result.costPerPanelPKR)}/panel`}
+            value={result.isMinimumFeeApplied ? "Minimum call out fee" : `${formatPKR(result.costPerPanelPKR)}/panel`}
           />
           <div className="col-span-2 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-4">
-            <p className="text-xs text-stone-500">Total (One-Time Visit)</p>
+            <p className="text-xs text-stone-500">Total (One Time Visit)</p>
             <p className="mt-1 text-2xl font-bold text-emerald-600">{formatPKR(result.oneTimePricePKR)}</p>
           </div>
         </div>
@@ -4616,23 +6040,6 @@ function PrintRow({ label, value }: { label: string; value: string }) {
 // has a specified pricing model or data shape (unlike the solar
 // calculator), so submitting just opens a prefilled WhatsApp chat, same
 // as before this redesign — no Lead/Quote row gets created.
-
-/** Small L-shaped marks framing each corner of a relatively-positioned
- *  parent — a "viewfinder"/registration-mark accent used on the active
- *  Property Type / System Type / Master Service cards. Purely decorative.
- *  (Formerly also used by the "Why Solar Pixel" features grid, removed
- *  2026-08-20 — this component itself stays, still in active use.) */
-function CornerBrackets() {
-  const base = "pointer-events-none absolute h-3 w-3 border-orange-300";
-  return (
-    <span aria-hidden className="contents">
-      <span className={`${base} left-0 top-0 rounded-tl-md border-l-2 border-t-2`} />
-      <span className={`${base} right-0 top-0 rounded-tr-md border-r-2 border-t-2`} />
-      <span className={`${base} bottom-0 left-0 rounded-bl-md border-b-2 border-l-2`} />
-      <span className={`${base} bottom-0 right-0 rounded-br-md border-b-2 border-r-2`} />
-    </span>
-  );
-}
 
 // ============================================================================
 // Footer

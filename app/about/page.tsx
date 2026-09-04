@@ -4,7 +4,7 @@ import { LegalPageShell } from "@/components/legal/LegalPageShell";
 export const metadata: Metadata = {
   title: "About Us",
   description:
-    "Solar Pixel is a Lahore-based solar installer built on radical transparency and open engineering, with real brand pricing, an itemized quotation for every system, and no hidden fees.",
+    "Solar Pixel is a Lahore based solar installer built on radical transparency and open engineering, with real brand pricing, an itemized quotation for every system, and no hidden fees.",
   alternates: { canonical: "/about" },
 };
 
@@ -12,7 +12,7 @@ export default function AboutPage() {
   return (
     <LegalPageShell title="About Solar Pixel">
       <p>
-        Solar Pixel installs Hybrid (Battery) and On-Grid solar systems for homes and businesses across Lahore
+        Solar Pixel installs Hybrid (Battery) and On Grid solar systems for homes and businesses across Lahore
         and Punjab. We size and price every system from real, live market data, not a rough estimate, and we
         aim to have a new system live in as little as 48 hours.
       </p>
@@ -31,7 +31,7 @@ export default function AboutPage() {
         Every system starts with an instant, honest estimate based on the information you give us. Before any
         contract is signed, one of our field engineers visits your site to measure the exact roof, wiring, and
         load conditions, and that measured Bill of Quantities is what your final price is actually built from.
-        It is not the pre-survey guess. We tell you upfront when a site visit is required and what it costs; see
+        It is not the pre survey guess. We tell you upfront when a site visit is required and what it costs; see
         our <a href="/terms">Terms of Service</a> for the current site survey fee.
       </p>
 
@@ -45,7 +45,7 @@ export default function AboutPage() {
       <h2>Talk to Us</h2>
       <p>
         Have a question before you get a quote? Reach us on WhatsApp or email, see the footer below, or use the
-        calculator to get an instant, no-obligation estimate.
+        calculator to get an instant, no obligation estimate.
       </p>
     </LegalPageShell>
   );

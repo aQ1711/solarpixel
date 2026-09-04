@@ -54,13 +54,13 @@ export const metadata: Metadata = {
     template: "%s | Solar Pixel",
   },
   description:
-    "Solar Pixel installs Hybrid (Battery) and On-Grid solar systems for homes and businesses across Lahore and Punjab. Get an instant, real-pricing solar calculator quote and go live in 48 hours, with no WAPDA net metering paperwork.",
+    "Solar Pixel installs Hybrid (Battery) and On Grid solar systems for homes and businesses across Lahore and Punjab. Get an instant, real pricing solar calculator quote and go live in 48 hours, with no WAPDA net metering paperwork.",
   keywords: [
     "Solar Installation Lahore",
     "Solar Calculator Pakistan",
     "Solar Panel Prices Lahore",
     "Solar Company Lahore",
-    "On-Grid Solar Lahore",
+    "On Grid Solar Lahore",
     "Hybrid Solar with Battery Lahore",
     "LESCO Solar Installation",
     "Solar Panel Installation Punjab",
@@ -147,7 +147,7 @@ const localBusinessJsonLd = {
     },
     {
       "@type": "Offer",
-      itemOffered: { "@type": "Service", name: "On-Grid Solar Installation" },
+      itemOffered: { "@type": "Service", name: "On Grid Solar Installation" },
     },
     {
       "@type": "Offer",
