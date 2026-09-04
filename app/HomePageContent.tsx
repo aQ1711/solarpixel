@@ -64,6 +64,15 @@ const PHASE_LABEL: Record<InverterPhase, string> = {
   SINGLE_PHASE: "Single Phase",
   THREE_PHASE: "Three Phase",
 };
+// Industrial Detailed Load Calculator (2026-09-05) — shared between the
+// Shift Pattern picker buttons and the WhatsApp handoff message below,
+// so the two never drift apart on wording.
+type ShiftPattern = "SINGLE_SHIFT" | "TWO_SHIFT" | "CONTINUOUS";
+const SHIFT_PATTERN_LABEL: Record<ShiftPattern, string> = {
+  SINGLE_SHIFT: "Single Shift",
+  TWO_SHIFT: "Two Shift",
+  CONTINUOUS: "24/7",
+};
 // RoofType/ROOF_TYPE_LABEL removed (2026-09-04) — the mobile "Refine
 // your details" field they backed was replaced by a real Mounting
 // Structure dropdown (equipmentOptions.MOUNTING_STRUCTURE, structureCode)
@@ -550,9 +559,9 @@ const pkr = new Intl.NumberFormat("en-PK", {
 });
 const formatPKR = (n: number) => pkr.format(n);
 function formatDate(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "N/A";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "N/A";
   return d.toLocaleDateString("en-PK", { day: "numeric", month: "short", year: "numeric" });
 }
 
@@ -1380,6 +1389,26 @@ function CalculatorCard() {
   // desktop's tested Industrial flow, not a number with no calc behind
   // it. See the card's own render for the bill field that replaced it.)
   const [connectionType, setConnectionType] = useState<"HT" | "LT" | null>(null);
+  // Detailed Load Calculator (2026-09-05, explicit ask + approved workflow:
+  // "many [industrial users] are using generators, they know sanction
+  // loads, over all load and all... give industrial users to calculate
+  // their actual requirement... extensive details"). Deliberately
+  // capture-only, same as connectionType above and for the same reason
+  // that field's own doc comment gives — Average Monthly Bill above stays
+  // the ONE real input driving livePreview/pricing; these enrich the
+  // report and the WhatsApp handoff to the engineer, they do not resize
+  // or reprice anything. Collapsed behind showDetailedLoadCalc so it
+  // never gets in the way of the fast bill-only path most visitors still
+  // want.
+  const [showDetailedLoadCalc, setShowDetailedLoadCalc] = useState(false);
+  const [sanctionedLoadKwInput, setSanctionedLoadKwInput] = useState("");
+  const [connectedLoadKwInput, setConnectedLoadKwInput] = useState("");
+  const [peakDemandKwInput, setPeakDemandKwInput] = useState("");
+  const [shiftPattern, setShiftPattern] = useState<ShiftPattern | null>(null);
+  const [generatorFuelType, setGeneratorFuelType] = useState<"DIESEL" | "GAS" | null>(null);
+  const [generatorCapacityKwInput, setGeneratorCapacityKwInput] = useState("");
+  const [generatorLitersPerHourInput, setGeneratorLitersPerHourInput] = useState("");
+  const [generatorFuelCostPerLiterInput, setGeneratorFuelCostPerLiterInput] = useState("");
   // "Refine your details" (2026-09-04, mobile Live Estimate panel, LOCKED
   // spec's Quote-screen note) — capture-only, no pricing engine change,
   // no EquipmentSelections field, just folded into the WhatsApp message
@@ -1489,6 +1518,25 @@ function CalculatorCard() {
   const serviceType: ServiceType =
     LOCKED_SERVICE_TYPE_BY_SECTOR[sector] ?? (sector === "RESIDENTIAL" ? residentialServiceType : commercialServiceType);
   const resolvedBillPKR = billAmountInput.trim() === "" ? null : Number(billAmountInput);
+
+  // Detailed Load Calculator's generator cost figure (2026-09-05) — real
+  // arithmetic from the customer's own inputs (fuel cost/liter × their
+  // stated consumption rate, divided by their generator's rated
+  // capacity), never a fabricated "typical diesel generator" industry
+  // constant. Assumes the generator runs near its rated capacity while
+  // producing that consumption rate — stated plainly in the UI copy next
+  // to the figure, not hidden. null (not 0) until all three real inputs
+  // are present and valid, so the UI never shows a number built from a
+  // blank field.
+  const generatorCostPerUnitPKR = (() => {
+    const litersPerHour = Number(generatorLitersPerHourInput);
+    const costPerLiter = Number(generatorFuelCostPerLiterInput);
+    const capacityKw = Number(generatorCapacityKwInput);
+    if (!Number.isFinite(litersPerHour) || litersPerHour <= 0) return null;
+    if (!Number.isFinite(costPerLiter) || costPerLiter <= 0) return null;
+    if (!Number.isFinite(capacityKw) || capacityKw <= 0) return null;
+    return (litersPerHour * costPerLiter) / capacityKw;
+  })();
 
   // Fetch the equipment catalog once Complete Solar is active (mirrors
   // whatever sector/masterService is already selected — no separate
@@ -1908,7 +1956,7 @@ function CalculatorCard() {
         // Industrial" branch).
         setSector("INDUSTRIAL");
         industrialAutoRoutedRef.current = true;
-        setAutoRouteNotice("Switched to Industrial — this looks like an industrial-scale bill.");
+        setAutoRouteNotice("Switched to Industrial. This looks like an industrial scale bill.");
       } else if (!isIndustrialRange && sector === "INDUSTRIAL" && industrialAutoRoutedRef.current) {
         // Crossing back DOWN — only acts if THIS routing (not an
         // explicit chooseSector tap) put the customer on Industrial in
@@ -1919,7 +1967,7 @@ function CalculatorCard() {
         setSector("RESIDENTIAL");
         setResidentialServiceType("HYBRID_BATTERY");
         industrialAutoRoutedRef.current = false;
-        setAutoRouteNotice("Switched back to Residential — this bill isn't industrial-scale.");
+        setAutoRouteNotice("Switched back to Residential. This bill isn't industrial scale.");
       }
     }, 250);
     return () => clearTimeout(timeoutId);
@@ -2178,7 +2226,7 @@ function CalculatorCard() {
           return;
         }
         const priced = data;
-        const priceLine = `${formatPKR(priced.oneTimePricePKR)} one-time (${priced.panelCount} panels)`;
+        const priceLine = `${formatPKR(priced.oneTimePricePKR)} one time (${priced.panelCount} panels)`;
         const message = `Hi Solar Pixel! I'm ${fullName} and I'd like to request: ${serviceLabel}. Quote: ${priceLine}.${detailsLine}`;
         trackWhatsAppClick("panel_washing_inquiry");
         window.open(`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
@@ -2485,13 +2533,13 @@ function CalculatorCard() {
                         <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.06] p-3">
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-[#8FA0B4]">You need</p>
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-white">
-                            {livePreview ? `~${livePreview.systemKw} kW` : "—"}
+                            {livePreview ? `~${livePreview.systemKw} kW` : "N/A"}
                           </p>
                         </div>
                         <div className="rounded-[14px] border border-emerald-400/25 bg-emerald-400/10 p-3">
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-emerald-200/80">You save / mo</p>
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-emerald-400">
-                            {livePreview ? `~${formatPKR(livePreview.estimatedMonthlySavingsPKR)}` : "—"}
+                            {livePreview ? `~${formatPKR(livePreview.estimatedMonthlySavingsPKR)}` : "N/A"}
                           </p>
                         </div>
                       </div>
@@ -2511,8 +2559,8 @@ function CalculatorCard() {
                         <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2.5">
                           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
                           <p className="text-xs leading-relaxed text-amber-200">
-                            That&apos;s a residential/commercial-scale bill. If this is right, we&apos;ll size a smaller
-                            industrial system — otherwise, switch tabs above.
+                            That&apos;s a residential/commercial scale bill. If this is right, we&apos;ll size a smaller
+                            industrial system. Otherwise, switch tabs above.
                           </p>
                         </div>
                       )}
@@ -2538,6 +2586,180 @@ function CalculatorCard() {
                         </div>
                       </div>
 
+                      {/* Detailed Load Calculator (2026-09-05, approved
+                          workflow — "many [industrial users] are using
+                          generators, they know sanction loads, over all
+                          load and all... give industrial users to
+                          calculate their actual requirement... extensive
+                          details"). Collapsed by default, opt-in — an
+                          upgrade path for the segment of industrial
+                          visitors who already know these numbers, not a
+                          requirement to get a quote. See
+                          showDetailedLoadCalc's own doc comment above for
+                          scope: capture-only, never changes the real
+                          bill-driven sizing above.
+                          Restyled (2026-09-05 feedback: "should be
+                          prominent and with better visuals") — was a
+                          plain thin-bordered text row that read as a
+                          minor footnote toggle, easy to miss against the
+                          rest of the card. Now a real gold-accented CTA
+                          card (matching the Enterprise Proposal card's
+                          own #D4AF37 gold identity) with an icon badge
+                          and a benefit subtitle visible even collapsed,
+                          so the value is obvious before someone taps it. */}
+                      <button
+                        type="button"
+                        onClick={() => setShowDetailedLoadCalc((v) => !v)}
+                        aria-expanded={showDetailedLoadCalc}
+                        className={`mt-3 flex w-full items-center gap-3 rounded-2xl border-2 p-3.5 text-left transition-all duration-200 ${
+                          showDetailedLoadCalc
+                            ? "border-[#D4AF37] bg-[#D4AF37]/10"
+                            : "border-[#D4AF37]/40 bg-gradient-to-r from-[#D4AF37]/15 to-[#D4AF37]/5 hover:border-[#D4AF37]/60"
+                        }`}
+                      >
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#D4AF37]/15">
+                          <Gauge className="h-5 w-5 text-[#D4AF37]" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-bold text-[#D4AF37]">Get a Detailed Load Calculation</span>
+                          <span className="mt-0.5 block text-[11px] leading-snug text-[#9FB0C2]">
+                            Sanctioned load, shift pattern &amp; generator cost, for a sharper, engineer ready quote
+                          </span>
+                        </span>
+                        <ChevronDown
+                          className={`h-4 w-4 shrink-0 text-[#D4AF37] transition-transform duration-200 ${showDetailedLoadCalc ? "rotate-180" : ""}`}
+                        />
+                        </button>
+
+                        {showDetailedLoadCalc && (
+                          <div className="mt-2.5 space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-3.5">
+                            <p className="text-[11px] leading-relaxed text-[#8FA0B4]">
+                              Optional. Helps our engineer size this more precisely and prepare before your call — it
+                              does not change your estimate above.
+                            </p>
+
+                            <div>
+                              <p className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#D4AF37]">
+                                Load Basics
+                              </p>
+                              <div className="grid grid-cols-3 gap-2">
+                                <DarkNumberField
+                                  label="Sanctioned Load (kW)"
+                                  value={sanctionedLoadKwInput}
+                                  onChange={setSanctionedLoadKwInput}
+                                  placeholder="e.g. 500"
+                                />
+                                <DarkNumberField
+                                  label="Connected Load (kW)"
+                                  value={connectedLoadKwInput}
+                                  onChange={setConnectedLoadKwInput}
+                                  placeholder="Optional"
+                                />
+                                <DarkNumberField
+                                  label="Peak Demand (kW)"
+                                  value={peakDemandKwInput}
+                                  onChange={setPeakDemandKwInput}
+                                  placeholder="Optional"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#D4AF37]">
+                                Shift Pattern
+                              </p>
+                              <div className="grid grid-cols-3 gap-2">
+                                {(Object.keys(SHIFT_PATTERN_LABEL) as ShiftPattern[]).map((value) => (
+                                  <button
+                                    key={value}
+                                    type="button"
+                                    onClick={() => setShiftPattern(value)}
+                                    aria-pressed={shiftPattern === value}
+                                    className={`flex min-h-10 items-center justify-center rounded-lg border text-[11px] font-semibold transition-colors duration-200 ${
+                                      shiftPattern === value
+                                        ? "border-[#D4AF37] bg-[#D4AF37]/10 text-[#D4AF37]"
+                                        : "border-white/10 bg-white/[0.04] text-[#9FB0C2] hover:border-white/20"
+                                    }`}
+                                  >
+                                    {SHIFT_PATTERN_LABEL[value]}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#D4AF37]">
+                                Generator Backup
+                              </p>
+                              <div className="grid grid-cols-2 gap-2">
+                                {(["DIESEL", "GAS"] as const).map((fuel) => (
+                                  <button
+                                    key={fuel}
+                                    type="button"
+                                    onClick={() => setGeneratorFuelType(fuel)}
+                                    aria-pressed={generatorFuelType === fuel}
+                                    className={`flex min-h-10 items-center justify-center rounded-lg border text-[11px] font-semibold transition-colors duration-200 ${
+                                      generatorFuelType === fuel
+                                        ? "border-[#D4AF37] bg-[#D4AF37]/10 text-[#D4AF37]"
+                                        : "border-white/10 bg-white/[0.04] text-[#9FB0C2] hover:border-white/20"
+                                    }`}
+                                  >
+                                    {fuel === "DIESEL" ? "Diesel" : "Gas"}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="mt-2 grid grid-cols-3 gap-2">
+                                <DarkNumberField
+                                  label="Capacity (kW)"
+                                  value={generatorCapacityKwInput}
+                                  onChange={setGeneratorCapacityKwInput}
+                                  placeholder="e.g. 250"
+                                />
+                                <DarkNumberField
+                                  label="Fuel Use (L/hr)"
+                                  value={generatorLitersPerHourInput}
+                                  onChange={setGeneratorLitersPerHourInput}
+                                  placeholder="e.g. 45"
+                                />
+                                <DarkNumberField
+                                  label="Fuel Cost/L"
+                                  value={generatorFuelCostPerLiterInput}
+                                  onChange={setGeneratorFuelCostPerLiterInput}
+                                  placeholder="e.g. 285"
+                                />
+                              </div>
+
+                              {/* The one number this whole section is
+                                  really for — see generatorCostPerUnitPKR's
+                                  own doc comment above (real arithmetic
+                                  from the customer's own inputs, never a
+                                  fabricated "typical generator" constant).
+                                  "Solar's marginal cost is near zero" is a
+                                  true, well-established statement about
+                                  solar economics (no fuel cost once
+                                  installed), not a number this app
+                                  computes — kept as a plain claim, not
+                                  dressed up as a matching calculated
+                                  figure. */}
+                              {generatorCostPerUnitPKR !== null && (
+                                <div className="mt-2.5 rounded-lg border border-emerald-400/25 bg-emerald-400/10 p-3">
+                                  <p className="font-mono text-[9.5px] uppercase tracking-wider text-emerald-200/80">
+                                    Your Generator&apos;s Real Cost
+                                  </p>
+                                  <p className="mt-0.5 font-mono text-lg font-bold text-emerald-400">
+                                    Rs {generatorCostPerUnitPKR.toFixed(1)}{" "}
+                                    <span className="text-xs font-normal text-emerald-200/70">/ unit</span>
+                                  </p>
+                                  <p className="mt-1 text-[10px] leading-relaxed text-[#8FA0B4]">
+                                    Based on your inputs, assuming the generator runs near its rated capacity.
+                                    Solar&apos;s marginal cost per unit is near zero once installed.
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
                       {/* "What a custom proposal covers" (2026-09-04,
                           Industrial.html baseline) — real scope items an
                           industrial site visit/engineering pass actually
@@ -2561,13 +2783,37 @@ function CalculatorCard() {
                       </div>
 
                       {(() => {
+                        // Detailed Load Calculator (2026-09-05) — folded
+                        // into the engineer handoff exactly like
+                        // refineDetailsNote/installationAreaNote already
+                        // do for ResultSummary's own waMessage (see that
+                        // pattern further down this file): one line per
+                        // field the customer actually filled in, nothing
+                        // fabricated for the ones left blank.
+                        const detailedLoadLines = [
+                          sanctionedLoadKwInput.trim() ? `Sanctioned Load: ${sanctionedLoadKwInput.trim()} kW` : null,
+                          connectedLoadKwInput.trim() ? `Connected Load: ${connectedLoadKwInput.trim()} kW` : null,
+                          peakDemandKwInput.trim() ? `Peak Demand: ${peakDemandKwInput.trim()} kW` : null,
+                          shiftPattern ? `Shift Pattern: ${SHIFT_PATTERN_LABEL[shiftPattern]}` : null,
+                          generatorFuelType
+                            ? `Generator: ${generatorFuelType === "DIESEL" ? "Diesel" : "Gas"}${
+                                generatorCapacityKwInput.trim() ? `, ${generatorCapacityKwInput.trim()}kW` : ""
+                              }`
+                            : null,
+                          generatorCostPerUnitPKR !== null
+                            ? `Generator Cost: ~Rs ${generatorCostPerUnitPKR.toFixed(1)}/unit`
+                            : null,
+                        ].filter((line): line is string => line !== null);
+                        const detailedLoadNote =
+                          detailedLoadLines.length > 0 ? ` Detailed Load Info: ${detailedLoadLines.join(", ")}.` : "";
+
                         const enterpriseInquiryMessage = `Hi Solar Pixel! I'm ${
                           fullName.trim() || "an industrial customer"
                         } interested in an Industrial solar system.${
                           resolvedBillPKR ? ` Average Monthly Bill: ${formatPKR(resolvedBillPKR)}.` : ""
                         }${livePreview ? ` Estimated System: ${livePreview.systemKw} kW.` : ""}${
                           connectionType ? ` Connection Type: ${connectionType}.` : ""
-                        } Please connect me with a senior industrial engineer.`;
+                        }${detailedLoadNote} Please connect me with a senior industrial engineer.`;
                         return (
                           <div className="mt-4 flex flex-col gap-2">
                             <a
@@ -2662,7 +2908,7 @@ function CalculatorCard() {
                         <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2.5">
                           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
                           <p className="text-xs leading-relaxed text-amber-200">
-                            That&apos;s an industrial-scale bill for {SECTOR_LABEL[sector]}. Please double-check the
+                            That&apos;s an industrial scale bill for {SECTOR_LABEL[sector]}. Please double check the
                             amount, or switch to the Industrial tab above.
                           </p>
                         </div>
@@ -2673,7 +2919,7 @@ function CalculatorCard() {
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-white">
                             {/* Main.html baseline (2026-09-04): a live
                                 figure the instant a bill is set, never a
-                                bare "—" — "~10 kW" is Main.html's own
+                                bare "N/A" — "~10 kW" is Main.html's own
                                 reference value for its 45,000 default,
                                 shown only until the real debounced
                                 livePreview call resolves (same default
@@ -2832,7 +3078,7 @@ function CalculatorCard() {
                 <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
                   <p className="text-xs leading-relaxed text-amber-800">
-                    That&apos;s an industrial-scale bill for {SECTOR_LABEL[sector]}. Please double-check the amount, or
+                    That&apos;s an industrial scale bill for {SECTOR_LABEL[sector]}. Please double check the amount, or
                     select Industrial below.
                   </p>
                 </div>
@@ -3140,7 +3386,7 @@ function CalculatorCard() {
                         icon={SolarPanelIcon}
                         currentLabel={
                           currentPanelOption
-                            ? `${currentPanelOption.label} × ${livePreview?.equipment.panel.count ?? "—"}`
+                            ? `${currentPanelOption.label} × ${livePreview?.equipment.panel.count ?? "N/A"}`
                             : "Select a panel"
                         }
                         currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.panelsPKR) : null}
@@ -3403,7 +3649,7 @@ function CalculatorCard() {
                                   Total inverter capacity:{" "}
                                   <span className="font-semibold text-slate-700">{formatTrim(totalCapacityKw)} kW</span>
                                   {isFullyManual
-                                    ? " — set any quantity independent of your bill's calculated system size."
+                                    ? ". Set any quantity independent of your bill's calculated system size."
                                     : " Add extra units now to leave headroom for a planned future expansion, without a later hardware swap."}
                                 </p>
                               </div>
@@ -3653,7 +3899,7 @@ function CalculatorCard() {
                               <p className="text-sm font-semibold text-slate-900">Civil Blocks</p>
                               <p className="text-[11px] text-slate-500">Auto-calculated: {formatTrim(1.5)}× your panel count</p>
                             </div>
-                            <span className="text-sm font-bold text-slate-900">{livePreview?.siteWorks.civilBlockQty ?? "—"}</span>
+                            <span className="text-sm font-bold text-slate-900">{livePreview?.siteWorks.civilBlockQty ?? "N/A"}</span>
                           </div>
                           <QuantityStepper label="Earthing & Boring" value={earthingBoreQty} onChange={setEarthingBoreQty} />
                           <QuantityStepper
@@ -3705,7 +3951,7 @@ function CalculatorCard() {
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-extrabold text-slate-900">Panels</span>
                           <span className="font-mono text-xs font-semibold text-emerald-700">
-                            {livePreview ? formatPKR(livePreview.breakdown.panelsPKR) : "—"}
+                            {livePreview ? formatPKR(livePreview.breakdown.panelsPKR) : "N/A"}
                           </span>
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -3748,6 +3994,7 @@ function CalculatorCard() {
                               // under the text instead; still slides
                               // inline to the right on a wide-enough
                               // container (@xs:justify-between).
+                              <>
                               <div className="mt-3 flex flex-col gap-2 @xs:flex-row @xs:items-center @xs:justify-between">
                                 <div className="min-w-0">
                                   <p className="truncate text-sm font-semibold text-slate-900">
@@ -3790,8 +4037,24 @@ function CalculatorCard() {
                                   </button>
                                 </div>
                               </div>
-                            );
-                          })()}
+                              {/* Capacity clarifier (2026-09-05 feedback:
+                                  "should notify panel size... in live
+                                  estimation") — makes the relationship
+                                  between per-panel wattage and total array
+                                  size explicit, same reasoning as the
+                                  matching note under Inverter below. */}
+                              {currentPanelOption?.specValue ? (
+                                <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                                  Total panel capacity:{" "}
+                                  <span className="font-semibold text-slate-700">
+                                    {formatTrim((currentPanelOption.specValue * panelQty) / 1000)} kW
+                                  </span>{" "}
+                                  ({currentPanelOption.specValue} W × {panelQty})
+                                </p>
+                              ) : null}
+                            </>
+                          );
+                        })()}
                       </div>
 
                       {/* Inverter */}
@@ -3799,7 +4062,7 @@ function CalculatorCard() {
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-extrabold text-slate-900">Inverter</span>
                           <span className="font-mono text-xs font-semibold text-emerald-700">
-                            {livePreview ? formatPKR(livePreview.breakdown.inverterPKR) : "—"}
+                            {livePreview ? formatPKR(livePreview.breakdown.inverterPKR) : "N/A"}
                           </span>
                         </div>
                         {sector === "INDUSTRIAL" ? (
@@ -3846,6 +4109,88 @@ function CalculatorCard() {
                           </select>
                           <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                         </div>
+                        {/* Quantity — manual inverter "clubbing"
+                            (2026-09-05, real reported bug: "if there are
+                            more than 1 inverter then count is not
+                            showing as that of panels" — this mobile card
+                            had a working stepper for Panels above but
+                            none at all for Inverter, so a Commercial/
+                            Industrial system genuinely needing multiple
+                            units (e.g. a 600kW build on 100kW inverters)
+                            had no way to see or change that count here,
+                            even though the price/total already reflected
+                            it. Same compact pill stepper as the Panel one
+                            above, same clubbing rules/state as the
+                            desktop accordion's own "Number of Units"
+                            control (see that one's doc comment, a few
+                            hundred lines up, for the Residential-floor
+                            vs Commercial/Industrial-fully-manual split —
+                            this is a mobile-visual mirror of the exact
+                            same logic, not a second implementation). */}
+                        {livePreview &&
+                          (sector !== "RESIDENTIAL" || livePreview.equipment.inverter.quantity > 1) &&
+                          (() => {
+                            const autoQuantity = clientInverterQuantityFor(
+                              livePreview.systemKw,
+                              livePreview.equipment.inverter.specValue
+                            );
+                            const isFullyManual = sector !== "RESIDENTIAL";
+                            const minQuantity = isFullyManual ? 1 : autoQuantity;
+                            const displayQuantity =
+                              inverterQuantityOverride !== null
+                                ? isFullyManual
+                                  ? Math.max(1, inverterQuantityOverride)
+                                  : Math.max(inverterQuantityOverride, autoQuantity)
+                                : livePreview.equipment.inverter.quantity;
+                            const specKw = currentInverterOption?.specValue ?? livePreview.equipment.inverter.specValue ?? 0;
+                            const totalCapacityKw = specKw * displayQuantity;
+                            return (
+                              <div className="mt-3">
+                                <div className="flex flex-col gap-2 @xs:flex-row @xs:items-center @xs:justify-between">
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-slate-900">Number of Units</p>
+                                    <p className="text-xs text-slate-500">
+                                      {specKw ? `${formatTrim(specKw)} kW each` : ""}
+                                      {specKw && !isFullyManual ? " · " : ""}
+                                      {!isFullyManual ? `min ${autoQuantity}` : ""}
+                                    </p>
+                                  </div>
+                                  <div className="flex shrink-0 items-center gap-3.5 self-start rounded-xl bg-[#F5F1EB] px-2 py-1.5 @xs:self-auto">
+                                    <button
+                                      type="button"
+                                      onClick={() => setInverterQuantityOverride(Math.max(minQuantity, displayQuantity - 1))}
+                                      disabled={displayQuantity <= minQuantity}
+                                      aria-label="Decrease inverter units"
+                                      className="flex h-[34px] w-[34px] items-center justify-center rounded-[9px] border border-slate-200 bg-white text-base font-bold text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      −
+                                    </button>
+                                    <span className="min-w-[22px] text-center font-mono text-base font-semibold text-slate-900">
+                                      {displayQuantity}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setInverterQuantityOverride(Math.min(MAX_INVERTER_UNITS, displayQuantity + 1))}
+                                      disabled={displayQuantity >= MAX_INVERTER_UNITS}
+                                      aria-label="Increase inverter units"
+                                      className="flex h-[34px] w-[34px] items-center justify-center rounded-[9px] bg-[#0F172A] text-base font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                </div>
+                                {totalCapacityKw > 0 && (
+                                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                                    Total inverter capacity:{" "}
+                                    <span className="font-semibold text-slate-700">{formatTrim(totalCapacityKw)} kW</span>
+                                    {isFullyManual
+                                      ? ". Set any quantity independent of your bill's calculated system size."
+                                      : " Add extra units now to leave headroom for a planned future expansion, without a later hardware swap."}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
                       </div>
 
                       {/* Battery */}
@@ -3952,7 +4297,7 @@ function CalculatorCard() {
                           {livePreview ? `${formatTrim(livePreview.systemKw, 1)} kW system · total` : "System total"}
                         </p>
                         <p className="mt-0.5 font-mono text-xl font-semibold text-white">
-                          {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "—"}
+                          {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "N/A"}
                         </p>
                         <button
                           type="button"
@@ -4043,7 +4388,7 @@ function CalculatorCard() {
                     <div>
                       <p className="text-[10px] text-slate-500">Payback</p>
                       <p className="text-sm font-bold text-slate-900">
-                        {livePreview.paybackYears !== null ? `${livePreview.paybackYears} yrs` : "—"}
+                        {livePreview.paybackYears !== null ? `${livePreview.paybackYears} yrs` : "N/A"}
                       </p>
                     </div>
                   </div>
@@ -4064,7 +4409,21 @@ function CalculatorCard() {
                     <ul className="mt-1.5 space-y-1">
                       {[
                         `${livePreview.equipment.panel.count} × ${livePreview.equipment.panel.label}`,
-                        livePreview.equipment.inverter.label,
+                        // Real bug (2026-09-05, "industrial... more than 1
+                        // inverter then count is not showing as that of
+                        // panels") — this line just showed the bare
+                        // inverter label with no `× quantity`, unlike the
+                        // panel line right above it, so a clubbed multi-
+                        // inverter system (Commercial/Industrial, see
+                        // resolveInverterQuantity in lib/db/admin.ts) read
+                        // as if it only had one unit. Same "N × label"
+                        // shape as the panel line now; battery is
+                        // deliberately left bare — a single fixed-capacity
+                        // SKU is never clubbed the way inverters are, so it
+                        // has no quantity field to show.
+                        livePreview.equipment.inverter.quantity > 1
+                          ? `${livePreview.equipment.inverter.quantity} × ${livePreview.equipment.inverter.label}`
+                          : livePreview.equipment.inverter.label,
                         ...(livePreview.equipment.battery ? [livePreview.equipment.battery.label] : []),
                         "Structure, wiring & installation",
                       ].map((item) => (
@@ -4248,7 +4607,7 @@ function CalculatorCard() {
               </button>
               <p className="mt-2.5 flex items-center justify-center gap-1.5 text-center text-[11px] text-slate-500">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                No WAPDA net-metering paperwork. Ever.
+                No WAPDA net metering paperwork. Ever.
               </p>
             </div>
           </div>
@@ -4813,6 +5172,52 @@ function equipmentUnitCostLabel(unitPricePKR: number | null, scale: number): str
   return formatPKR(Math.round(unitPricePKR * scale));
 }
 
+/** Small dark-themed labeled number field — the Industrial Enterprise
+ *  Proposal card's Detailed Load Calculator section (2026-09-05) uses
+ *  this for every one of its capture-only numeric inputs (Sanctioned/
+ *  Connected Load, Peak Demand, generator capacity/consumption/fuel
+ *  cost), same visual language as that card's existing Average Monthly
+ *  Bill field. `inputMode="decimal"` + a `.` in the allowed-character
+ *  filter (unlike the whole-Rupee bill fields elsewhere on this card,
+ *  which strip everything but digits) — fuel cost/liter and consumption
+ *  rate are genuinely fractional in practice (e.g. "4.5 L/hr", "Rs
+ *  285.50/L"), so flooring them to an integer would corrupt exactly the
+ *  numbers this feature depends on being real. */
+function DarkNumberField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      {/* min-h reserves room for 2 lines regardless of actual wrap
+          (2026-09-05 fix — "generator backup fuel cost ux issues
+          alignment"): "Fuel Cost (Rs/L)" wraps to 2 lines while
+          "Capacity (kW)"/"Fuel Use (L/hr)" beside it fit on 1, so their
+          inputs sat at different heights in the same row. Reserving the
+          same height for every label makes this robust to label length
+          generally, not just a one-off fix for this specific row. */}
+      <label className="mb-1 block min-h-[27px] text-[10.5px] font-medium leading-tight text-[#8FA0B4]">{label}</label>
+      <div className="flex items-center rounded-lg border border-white/10 bg-white/[0.06] px-2.5 py-2 focus-within:border-[#D4AF37] focus-within:ring-2 focus-within:ring-[#D4AF37]/25">
+        <input
+          type="text"
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ""))}
+          placeholder={placeholder}
+          className="w-full bg-transparent font-mono text-xs font-medium text-white placeholder:text-[#5E6E82] outline-none"
+        />
+      </div>
+    </div>
+  );
+}
+
 /** One "Default & Swap" row (Apple-style: a clean summary line + a
  *  "Change" button that expands to the full alternatives grid) — replaces
  *  the old two-step brand-then-model cascading accordion for Panels/
@@ -4874,7 +5279,7 @@ function EquipmentSwapRow({
                 nothing layout-wise). */}
             <p className="text-sm font-semibold text-slate-900">
               {currentLabel}
-              {currentPriceLabel && <span className="ml-1.5 font-bold text-orange-700">— {currentPriceLabel}</span>}
+              {currentPriceLabel && <span className="ml-1.5 font-bold text-orange-700">· {currentPriceLabel}</span>}
             </p>
           </div>
         </div>
@@ -5189,7 +5594,7 @@ function CustomRequirementNotice() {
 
 // ============================================================================
 // Bill Details panel (pre-submit) — shown right after a successful
-// upload. Nulls render as "—", never fabricated: OCR/PDF-text extraction
+// upload. Nulls render as "N/A", never fabricated: OCR/PDF-text extraction
 // is best-effort, and we'd rather admit uncertainty than guess.
 // ============================================================================
 
@@ -5200,12 +5605,12 @@ const BILL_SOURCE_LABEL: Record<Exclude<BillSource, "MANUAL">, string> = {
 
 function BillDetailsPanel({ details, source }: { details: UploadedBillDetails; source: BillSource }) {
   const rows: [string, string][] = [
-    ["Consumer", details.consumerName ?? "—"],
-    ["Consumer ID", details.consumerId ?? "—"],
-    ["Tariff Category", details.tariffCategory ?? "—"],
-    ["Billing Month", details.billingMonth ?? "—"],
-    ["Units Consumed", details.unitsConsumed !== null ? `${details.unitsConsumed} units` : "—"],
-    ["Sanctioned Load", details.sanctionedLoadKw !== null ? `${details.sanctionedLoadKw} kW` : "—"],
+    ["Consumer", details.consumerName ?? "N/A"],
+    ["Consumer ID", details.consumerId ?? "N/A"],
+    ["Tariff Category", details.tariffCategory ?? "N/A"],
+    ["Billing Month", details.billingMonth ?? "N/A"],
+    ["Units Consumed", details.unitsConsumed !== null ? `${details.unitsConsumed} units` : "N/A"],
+    ["Sanctioned Load", details.sanctionedLoadKw !== null ? `${details.sanctionedLoadKw} kW` : "N/A"],
     ["Issue Date", formatDate(details.issueDate)],
     ["Due Date", formatDate(details.dueDate)],
   ];
@@ -5219,7 +5624,7 @@ function BillDetailsPanel({ details, source }: { details: UploadedBillDetails; s
         </span>
       </div>
       <p className="mt-1 text-[10px] text-stone-500">
-        Extracted automatically. Please double-check the numbers below against your bill.
+        Extracted automatically. Please double check the numbers below against your bill.
       </p>
 
       {details.address && <p className="mt-1.5 text-[11px] text-stone-500">{details.address}</p>}
@@ -5240,7 +5645,7 @@ function BillDetailsPanel({ details, source }: { details: UploadedBillDetails; s
             Total Payable{details.arrearsPKR > 0 ? " (incl. arrears)" : ""}
           </p>
           <p className="text-sm font-bold text-stone-900">
-            {details.totalPayablePKR !== null ? formatPKR(details.totalPayablePKR) : "—"}
+            {details.totalPayablePKR !== null ? formatPKR(details.totalPayablePKR) : "N/A"}
           </p>
         </div>
         {details.payableAfterDueDatePKR !== null && (
@@ -5657,7 +6062,7 @@ function ResultSummary({
           <Clock className="mx-auto h-3.5 w-3.5 text-slate-400 print:hidden" />
           <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-500 print:mt-0">Payback</p>
           <p className="mt-0.5 text-sm font-bold text-slate-900">
-            {result.paybackYears !== null ? `${result.paybackYears} yrs` : "—"}
+            {result.paybackYears !== null ? `${result.paybackYears} yrs` : "N/A"}
           </p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center print:rounded-none print:border-0 print:bg-white print:py-2.5">
@@ -5794,7 +6199,7 @@ function ResultSummary({
         </div>
 
         <p className="mt-3 text-center text-[10px] text-slate-500 print:hidden">
-          Instant estimate. Your exact price is confirmed after an on-site engineering survey (Rs 5,000 fee applies).
+          Instant estimate. Your exact price is confirmed after an on site engineering survey (Rs 5,000 fee applies).
         </p>
       </div>
     </div>
@@ -5818,7 +6223,7 @@ function AddOnResultSummary({ result, onEdit }: { result: AddOnResult; onEdit: (
   const waMessage = isWashing
     ? `Hi Solar Pixel! Following up on my Panel Washing quote: ${result.panelCount} panels, ${formatPKR(
         result.oneTimePricePKR
-      )} one-time. Please confirm scheduling.`
+      )} one time. Please confirm scheduling.`
     : `Hi Solar Pixel! Following up on my EV Charger installation quote: ${
         result.evChargerRatingKw ? `${result.evChargerRatingKw} kW, ` : ""
       }${formatPKR(result.totalClientPricePKR)} turnkey. Please confirm scheduling.`;
@@ -5932,20 +6337,20 @@ function PrintableReport({
           <p className="mt-1 text-[10px] text-stone-500">{BILL_SOURCE_LABEL[billSource]}. Please verify against your original bill.</p>
           <table className="mt-2 w-full border-collapse text-xs">
             <tbody>
-              <PrintRow label="Consumer" value={billDetails.consumerName ?? "—"} />
-              <PrintRow label="Consumer ID" value={billDetails.consumerId ?? "—"} />
-              <PrintRow label="Address" value={billDetails.address ?? "—"} />
-              <PrintRow label="Tariff Category" value={billDetails.tariffCategory ?? "—"} />
-              <PrintRow label="Billing Month" value={billDetails.billingMonth ?? "—"} />
+              <PrintRow label="Consumer" value={billDetails.consumerName ?? "N/A"} />
+              <PrintRow label="Consumer ID" value={billDetails.consumerId ?? "N/A"} />
+              <PrintRow label="Address" value={billDetails.address ?? "N/A"} />
+              <PrintRow label="Tariff Category" value={billDetails.tariffCategory ?? "N/A"} />
+              <PrintRow label="Billing Month" value={billDetails.billingMonth ?? "N/A"} />
               <PrintRow
                 label="Units Consumed"
-                value={billDetails.unitsConsumed !== null ? `${billDetails.unitsConsumed} units` : "—"}
+                value={billDetails.unitsConsumed !== null ? `${billDetails.unitsConsumed} units` : "N/A"}
               />
               <PrintRow label="Current Bill" value={formatPKR(billDetails.currentBillPKR)} />
               {billDetails.arrearsPKR > 0 && <PrintRow label="Arrears" value={formatPKR(billDetails.arrearsPKR)} />}
               <PrintRow
                 label="Total Payable"
-                value={billDetails.totalPayablePKR !== null ? formatPKR(billDetails.totalPayablePKR) : "—"}
+                value={billDetails.totalPayablePKR !== null ? formatPKR(billDetails.totalPayablePKR) : "N/A"}
               />
               {billDetails.payableAfterDueDatePKR !== null && (
                 <PrintRow label="Payable After Due Date" value={formatPKR(billDetails.payableAfterDueDatePKR)} />
@@ -5958,7 +6363,7 @@ function PrintableReport({
       )}
 
       <p className="mt-6 text-[9px] text-stone-500">
-        This is an instant, indicative estimate. Final pricing is confirmed after an on-site engineering survey (Rs 5,000 fee applies).
+        This is an instant, indicative estimate. Final pricing is confirmed after an on site engineering survey (Rs 5,000 fee applies).
         Solar Pixel: Smart Solar systems for Residential, Commercial &amp; Industrial.
       </p>
     </div>

@@ -96,7 +96,7 @@ export function SiteFooter() {
               system that goes live fast.
             </p>
             <p className="mt-2">
-              © {new Date().getFullYear()} Solar Pixel. Estimates are indicative and confirmed after an on-site
+              © {new Date().getFullYear()} Solar Pixel. Estimates are indicative and confirmed after an on site
               engineering survey (Rs 5,000 fee applies).
             </p>
           </div>
