@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Eye, Wrench, Receipt, MessageCircle, Mail, Zap, Gauge } from "lucide-react";
+import { Eye, Wrench, Receipt, MessageCircle, Mail, Zap, Gauge, ChevronDown } from "lucide-react";
 import { LegalPageShell } from "@/components/legal/LegalPageShell";
 
 export const metadata: Metadata = {
@@ -13,6 +13,66 @@ const WHATSAPP_BUSINESS_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_BUSINESS_NUMBE
 const WA_HREF = `https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(
   "Assalam o Alaikum! I have a question before getting a quote from Solar Pixel."
 )}`;
+
+/**
+ * FAQ content (2026-09-05, "do all the seo... top in Pakistan") — real,
+ * already-established facts only, each one traceable to somewhere else
+ * in this app (Terms of Service, the live calculator's own copy, the
+ * real equipment catalog) rather than invented for SEO padding. Targets
+ * genuine high-volume searches ("solar panel price in Pakistan," "do I
+ * need net metering") with honest answers — the pricing/cost question
+ * deliberately never states a specific Rs figure, since the real answer
+ * depends on system size/brand and this app has no single verified
+ * "average price" to quote; it points to the live calculator instead of
+ * guessing a number. Rendered as native <details>/<summary> — no JS
+ * needed, fully crawlable by search engines even collapsed (confirmed
+ * Google policy: content inside closed <details> is indexed), and pairs
+ * with the FAQPage JSON-LD below for a shot at a rich-result snippet.
+ */
+const FAQS = [
+  {
+    q: "How much does a solar system cost in Pakistan?",
+    a: "It depends on your system size and the panel, inverter, and battery brand you choose. Use our live calculator to get an instant, real pricing estimate built from your own bill and equipment choice, no sales call required.",
+  },
+  {
+    q: "How long does solar installation take?",
+    a: "Once your quotation is confirmed after a site survey, we aim to have your system live in as little as 48 hours.",
+  },
+  {
+    q: "Do I need WAPDA net metering approval?",
+    a: "No. Our systems are designed and installed without requiring WAPDA net metering interconnection paperwork.",
+  },
+  {
+    q: "What does the site survey cost?",
+    a: "A flat fee of Rs 5,000, disclosed upfront before you agree to a site visit. It covers the engineer's visit, measurement, and preparation of your exact Bill of Quantities. See our Terms of Service for the full policy.",
+  },
+  {
+    q: "What warranty do I get on my solar system?",
+    a: "Panels, inverters, and batteries carry their own manufacturer's warranty. Solar Pixel separately warrants the quality of its own installation workmanship. See our Terms of Service for details.",
+  },
+  {
+    q: "Which solar panel and inverter brands does Solar Pixel install?",
+    a: "Real, in stock brands only, including Longi, Jinko, and Canadian Solar panels, and Huawei, Solis, Growatt, and Goodwe inverters. Pick your own brand and model with Build Your Own, or use our Recommended default.",
+  },
+  {
+    q: "Can I get a solar system without a battery?",
+    a: "Yes. An On Grid system (no battery) is available alongside our Hybrid + Battery option, for a lower upfront cost.",
+  },
+  {
+    q: "Which areas does Solar Pixel serve?",
+    a: "We install in Lahore and across Punjab. Our live calculator and real, current pricing data are available to anyone in Pakistan.",
+  },
+];
+
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: FAQS.map(({ q, a }) => ({
+    "@type": "Question",
+    name: q,
+    acceptedAnswer: { "@type": "Answer", text: a },
+  })),
+};
 
 /**
  * About page (2026-09-04, "market leading international level design") —
@@ -57,6 +117,10 @@ const PILLARS = [
 export default function AboutPage() {
   return (
     <LegalPageShell title="About Solar Pixel" variant="landing">
+      {/* Static, hardcoded JSON-LD — never user input. Same convention
+          as app/layout.tsx's own LocalBusiness script. */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
+
       {/* ---- Hero — same dark-gradient language as the quotation/report
           hero elsewhere in this app, so "About" reads as the same
           product, not a bolted-on static page. ---- */}
@@ -128,6 +192,29 @@ export default function AboutPage() {
               <Gauge className="h-3.5 w-3.5" />
               In development. Launching soon.
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ---- FAQ (2026-09-05, "do all the seo") — see FAQS's own doc
+          comment above for content sourcing. <details>/<summary> keeps
+          every answer in the DOM (and crawlable) even collapsed, no
+          client component needed for the open/close interaction. ---- */}
+      <div className="border-t border-stone-200 bg-stone-50 px-5 py-14 sm:py-20">
+        <div className="mx-auto max-w-2xl">
+          <h2 className="text-center text-2xl font-bold tracking-tight text-stone-900 sm:text-3xl">
+            Frequently Asked Questions
+          </h2>
+          <div className="mt-8 space-y-3">
+            {FAQS.map(({ q, a }) => (
+              <details key={q} className="group rounded-2xl border border-stone-200 bg-white px-5 py-4 open:shadow-sm">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-stone-900 marker:content-none">
+                  {q}
+                  <ChevronDown className="h-4 w-4 shrink-0 text-stone-400 transition-transform duration-200 group-open:rotate-180" />
+                </summary>
+                <p className="mt-3 text-sm leading-relaxed text-stone-600">{a}</p>
+              </details>
+            ))}
           </div>
         </div>
       </div>

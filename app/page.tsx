@@ -21,18 +21,30 @@ import HomePageContent from "./HomePageContent";
  * title; only a title set in a genuinely nested child route would get
  * it). Caught live: the template silently didn't apply in both dev and
  * a full production build before this was fixed.
+ *
+ * Broadened 2026-09-05 ("do all the seo... top in Pakistan") — was
+ * Lahore-only in the title/description. The live calculator's own
+ * pricing data (real Longi/Jinko/Huawei/Solis/Growatt rates, the Market
+ * Watch ticker) is genuinely useful to anyone in Pakistan pricing out
+ * solar, whether or not they're in Punjab — that's the honest basis for
+ * targeting the national keyword here. Confirmed with the user (via
+ * AskUserQuestion) before making this change: installation itself stays
+ * honestly scoped to Lahore/Punjab in this description and in the
+ * LocalBusiness schema (app/layout.tsx) — this page's title/keywords are
+ * broader than its service-area claims on purpose, not an accidental
+ * overclaim.
  */
 export const metadata: Metadata = {
-  title: "Live Solar Calculator & Quotations in Lahore | Solar Pixel",
+  title: "Solar Panel Price in Pakistan | Instant Calculator | Solar Pixel",
   description:
-    "Get an instant solar system quote for your home or business in Lahore. Compare real Longi, Jinko, Huawei, Solis & Growatt panel and inverter prices, size your system in seconds, and go live in 48 hours, with no WAPDA net metering paperwork.",
+    "See real, live solar panel and inverter prices in Pakistan (Longi, Jinko, Huawei, Solis, Growatt) and get an instant system size and cost estimate. Solar Pixel installs Hybrid and On Grid solar systems in Lahore and across Punjab, live in 48 hours, with no WAPDA net metering paperwork.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "Live Solar Calculator & Quotations in Lahore | Solar Pixel",
+    title: "Solar Panel Price in Pakistan | Instant Calculator | Solar Pixel",
     description:
-      "Instant solar sizing and pricing for Lahore homes and businesses. Real brand pricing, live in 48 hours, no WAPDA net metering paperwork.",
+      "Real, live solar panel and inverter pricing for Pakistan, plus an instant cost estimate. Installing in Lahore and across Punjab, live in 48 hours, no WAPDA net metering paperwork.",
     url: "/",
   },
 };

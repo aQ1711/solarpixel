@@ -25,11 +25,18 @@ import "./globals.css";
 // Local SEO task) as the real, owned domain, distinct from the
 // currently-deployed solarpixel.netlify.app URL. Every canonical/OG/
 // sitemap/robots URL in this app is built from this ONE constant so
-// they can never drift from each other. If DNS for this domain isn't
-// pointed at the live deployment yet, Google Search Console
-// verification (and real indexing) can't happen until it is — that's
-// an infrastructure step outside this codebase, not a code bug.
-export const SITE_URL = "https://www.solarpixel.pk";
+// they can never drift from each other.
+//
+// Real bug fixed 2026-09-05 ("do all the seo... top in Pakistan"): this
+// was "https://www.solarpixel.pk" — but confirmed live (`curl -I`) that
+// the WWW subdomain returns an HTTP 308 redirect TO the bare apex domain
+// (`https://solarpixel.pk`), which is what Vercel actually serves as
+// primary. Every canonical tag, sitemap URL, OG url, and this file's own
+// JSON-LD `url` field was pointing at a URL that immediately redirects
+// elsewhere instead of the final, authoritative one — exactly the kind
+// of signal a canonical tag is supposed to avoid sending. Now points at
+// the real live domain directly.
+export const SITE_URL = "https://solarpixel.pk";
 
 // Real business facts only — every field below is sourced from the
 // same constants the site's own footer already uses (see
@@ -46,7 +53,17 @@ const BUSINESS_EMAIL = "solarpixelpk@gmail.com";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Solar Installation Lahore | Solar Pixel",
+    // Broadened 2026-09-05 ("do all the seo... top in Pakistan," answered
+    // via AskUserQuestion: target Pakistan-wide SEARCH INTENT honestly,
+    // keep actual installation claims scoped to Lahore/Punjab). The real
+    // pricing data this app shows (Market Watch ticker, the live
+    // calculator) is genuinely useful to anyone in Pakistan researching
+    // solar costs, whether or not they're in Punjab — that's the honest
+    // hook for the national keyword, not an installation-coverage claim.
+    // Lahore/Punjab stays the primary keyword in the description and
+    // LocalBusiness schema below, where an actual service-area claim
+    // belongs.
+    default: "Solar Panel Price in Pakistan | Solar Pixel",
     // Every page-specific title (currently just app/page.tsx's) renders
     // as "<page title> | Solar Pixel" via this template — the exact
     // "[Primary Keyword] | [Brand Name]" structure asked for, enforced
@@ -54,10 +71,13 @@ export const metadata: Metadata = {
     template: "%s | Solar Pixel",
   },
   description:
-    "Solar Pixel installs Hybrid (Battery) and On Grid solar systems for homes and businesses across Lahore and Punjab. Get an instant, real pricing solar calculator quote and go live in 48 hours, with no WAPDA net metering paperwork.",
+    "Check real, live solar panel and inverter prices in Pakistan and get an instant system size and cost estimate. Solar Pixel installs Hybrid (Battery) and On Grid solar systems for homes and businesses in Lahore and across Punjab, live in 48 hours, with no WAPDA net metering paperwork.",
   keywords: [
-    "Solar Installation Lahore",
+    "Solar Panel Price in Pakistan",
+    "Solar System Price Pakistan",
     "Solar Calculator Pakistan",
+    "Solar Panel Prices Pakistan",
+    "Solar Installation Lahore",
     "Solar Panel Prices Lahore",
     "Solar Company Lahore",
     "On Grid Solar Lahore",
@@ -89,15 +109,15 @@ export const metadata: Metadata = {
     locale: "en_PK",
     siteName: BUSINESS_NAME,
     url: SITE_URL,
-    title: "Solar Installation Lahore | Solar Pixel",
+    title: "Solar Panel Price in Pakistan | Solar Pixel",
     description:
-      "Instant solar sizing and pricing for Lahore homes and businesses. Real brand pricing, live in 48 hours, no WAPDA net metering paperwork.",
-    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "Solar Pixel: Solar Installation Lahore" }],
+      "Real, live solar panel and inverter pricing for Pakistan, plus an instant system size and cost estimate. Installing in Lahore and across Punjab, live in 48 hours, no WAPDA net metering paperwork.",
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "Solar Pixel: Solar Panel Price in Pakistan" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Solar Installation Lahore | Solar Pixel",
-    description: "Instant solar sizing and pricing for Lahore homes and businesses. Live in 48 hours, no WAPDA net metering paperwork.",
+    title: "Solar Panel Price in Pakistan | Solar Pixel",
+    description: "Real, live solar panel and inverter pricing for Pakistan, plus an instant cost estimate. Installing in Lahore and across Punjab.",
     images: ["/opengraph-image"],
   },
 };

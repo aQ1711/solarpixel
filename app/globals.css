@@ -406,25 +406,26 @@ body {
   }
 }
 
-/* Hand-rolled prose styling for the 3 static legal/trust pages (About,
-   Privacy Policy, Terms of Service — see components/legal/
-   LegalPageShell.tsx). No @tailwindcss/typography plugin installed in
-   this project, so this is a small, deliberately narrow ruleset rather
-   than pulling in a new dependency for 3 pages of plain body copy. */
-.legal-prose h2 {
-  margin-top: 2rem;
-  margin-bottom: 0.75rem;
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--color-stone-900, #1c1917);
-}
-.legal-prose h2:first-child {
-  margin-top: 0;
-}
+/* Hand-rolled prose styling for Privacy Policy/Terms of Service (see
+   components/legal/LegalPageShell.tsx's LegalSection). No
+   @tailwindcss/typography plugin installed in this project, so this is
+   a small, deliberately narrow ruleset rather than pulling in a new
+   dependency for 2 pages of plain body copy. No h2 rule here (2026-09-05
+   redesign) — headings are now rendered inside LegalSection's own
+   numbered-badge flex row, with spacing handled by that component
+   directly, not by a bare `.legal-prose h2` selector. */
 .legal-prose p {
   margin-top: 0.75rem;
   line-height: 1.7;
   color: var(--color-stone-600, #57534e);
+}
+/* The lead paragraph (before the first numbered section) and the first
+   paragraph inside each LegalSection's own content div both sit right
+   under something that already carries its own bottom spacing (the
+   intro band, or LegalSection's mt-3) — without this they'd double up. */
+.legal-prose > p:first-child,
+.legal-prose section > div > p:first-child {
+  margin-top: 0;
 }
 .legal-prose ul {
   margin-top: 0.75rem;
