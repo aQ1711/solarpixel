@@ -161,17 +161,38 @@ function extractWatts(itemName: string): number | null {
  *  brand text contains the other (case-insensitive) — e.g. scraped
  *  "Chint Electric" matches a catalog brand of "Chint". Only ever used
  *  to PRE-SELECT a starting guess in the modal; the admin can always
- *  pick a different existing item or switch to "Create New" instead. */
+ *  pick a different existing item or switch to "Create New" instead.
+ *
+ *  2026-09-06 ("panels from admin not updating on inventory") — brand
+ *  alone isn't a real match for SOLAR_PANEL: one brand carries many
+ *  different wattages (Canadian Solar alone has 550W/570W/600W/655W/660W
+ *  listings), but the catalog only ever had ONE Canadian Solar panel
+ *  (600W) in it. Reviewing a scraped 550W listing silently pre-selected
+ *  "Update Existing" against that unrelated 600W item — confirmed live:
+ *  clicking through without noticing would have overwritten the 600W
+ *  panel's cost with the 550W listing's price, and the 550W panel would
+ *  never actually get added. For SOLAR_PANEL, the parsed wattage (same
+ *  extractWatts() used for the per-watt rate suggestion below) must also
+ *  agree with a wattage parsed from the candidate's own label — no
+ *  wattage match, no "likely match", full stop (never a same-brand
+ *  fallback guess). Every other componentType keeps the original
+ *  brand-only behavior — INVERTER/BATTERY/etc. don't currently carry
+ *  the same one-brand-many-specs ambiguity in this catalog. */
 function findLikelyMatch(snapshot: Snapshot, materials: MaterialItem[]): MaterialItem | null {
   const scrapedBrand = (snapshot.brand ?? snapshot.searchBrand).toLowerCase().trim();
   if (!scrapedBrand) return null;
   const sameType = materials.filter((m) => m.componentType === snapshot.componentType && m.brand);
-  return (
-    sameType.find((m) => {
-      const b = m.brand!.toLowerCase().trim();
-      return b.includes(scrapedBrand) || scrapedBrand.includes(b);
-    }) ?? null
-  );
+  const brandMatches = sameType.filter((m) => {
+    const b = m.brand!.toLowerCase().trim();
+    return b.includes(scrapedBrand) || scrapedBrand.includes(b);
+  });
+  if (brandMatches.length === 0) return null;
+  if (snapshot.componentType === "SOLAR_PANEL") {
+    const scrapedWatts = extractWatts(snapshot.itemName);
+    if (scrapedWatts === null) return null; // can't confirm which wattage this is — let the admin choose manually
+    return brandMatches.find((m) => extractWatts(m.label) === scrapedWatts) ?? null;
+  }
+  return brandMatches[0];
 }
 
 // ============================================================================

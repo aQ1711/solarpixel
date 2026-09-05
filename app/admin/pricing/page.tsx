@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Loader2,
   RefreshCw,
@@ -968,6 +968,27 @@ function MaterialTable({
     .filter((it) => it.componentType === "MOUNTING_STRUCTURE" && it.unitCostRs !== null && it.isActive && it.inStock)
     .reduce<MaterialItem | null>((min, it) => (min === null || it.unitCostRs! < min.unitCostRs! ? it : min), null)?.id;
 
+  // Group by brand (2026-09-06, "need group by brand in admin
+  // inventory") — a flat list got genuinely hard to scan once a brand
+  // could carry several items in the same tab (e.g. Canadian Solar's
+  // 550W and 600W panels both landing in Solar Panels after the
+  // Add-to-Inventory brand-matching fix above), and the ambiguity that
+  // bug exposed is exactly what a visual brand grouping helps an admin
+  // catch at a glance. `items` already arrives pre-sorted by the server
+  // (componentType, sortOrder, label — see listMaterialCatalog in
+  // lib/db/admin.ts), so building the groups by a single forward pass
+  // preserves that order both across groups and within each one — no
+  // separate sort needed here. Brand-less items (optional field, see
+  // createMaterialSchema) fall into a single "Other" bucket rather than
+  // silently vanishing or splintering into an "undefined" per item.
+  const groups = new Map<string, MaterialItem[]>();
+  for (const item of items) {
+    const key = item.brand?.trim() || "Other";
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(item);
+    else groups.set(key, [item]);
+  }
+
   return (
     <div className="mt-4 overflow-x-auto rounded-2xl border border-stone-200 bg-white">
       <table className="w-full min-w-[880px] border-collapse text-sm">
@@ -985,10 +1006,20 @@ function MaterialTable({
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => {
-            const Icon = COMPONENT_TYPE_ICON[item.componentType];
-            return (
-              <tr key={item.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50/60">
+          {Array.from(groups.entries()).map(([brand, brandItems]) => (
+            <Fragment key={brand}>
+              <tr className="border-b border-stone-100 bg-stone-50/80">
+                <td colSpan={9} className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-stone-500">
+                  {brand}
+                  <span className="ml-1.5 font-normal normal-case text-stone-400">
+                    · {brandItems.length} {brandItems.length === 1 ? "item" : "items"}
+                  </span>
+                </td>
+              </tr>
+              {brandItems.map((item) => {
+                const Icon = COMPONENT_TYPE_ICON[item.componentType];
+                return (
+                  <tr key={item.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50/60">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     {item.logoUrl ? (
@@ -1134,8 +1165,10 @@ function MaterialTable({
                   </div>
                 </td>
               </tr>
-            );
-          })}
+                );
+              })}
+            </Fragment>
+          ))}
         </tbody>
       </table>
     </div>

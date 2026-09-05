@@ -18,14 +18,60 @@ import * as cheerio from "cheerio";
  * "canadian solar") was individually confirmed to return real,
  * brand-matching results before this file was written — see
  * lib/scraper/marketPriceJob.ts's BRAND_QUERIES list.
+ *
+ * 2026-09-05 ("scrapping not working on live") — confirmed live that
+ * w11stop.com (behind Cloudflare) returns nothing usable for EVERY
+ * single brand query when the request originates from a cloud/
+ * datacenter IP: 0 of 14 brands matched from production (Vercel), 147
+ * real listings from localhost, same code, same day. This isn't a
+ * header/User-Agent issue (a real desktop UA was already being sent,
+ * confirmed below) — matches this project's own earlier finding on
+ * Netlify (also cloud-hosted), so this reads as IP/ASN-level Cloudflare
+ * bot-blocking, not something fixable by changing what this app sends
+ * directly.
+ *
+ * SCRAPER_API_KEY (optional — see buildFetchUrl below) was a first
+ * attempt at fixing this via scraperapi.com's residential-IP proxy, but
+ * was abandoned before shipping: their advertised "free tier" turned out
+ * to be a 7-day trial only, not a real free tier, and the user
+ * explicitly requires a completely free solution. The actual fix that
+ * shipped instead is scripts/run-market-scrape.ts — a standalone runner
+ * meant to be executed from a real residential/office connection (not
+ * Vercel), which writes straight into production's database. This
+ * SCRAPER_API_KEY support is left in place, dormant (env var unset in
+ * every environment), in case a genuinely free residential-proxy option
+ * ever turns up — it's a no-op until then, and unset (e.g. local dev or
+ * the standalone script above), this scrapes w11stop directly exactly
+ * as before.
  */
 
 const SEARCH_URL = "https://w11stop.com/index.php?route=product/search&search=";
 
 // A real desktop browser UA — w11stop is behind Cloudflare and a
 // default Node/undici UA is more likely to get treated differently.
+// Only used for the DIRECT (no-proxy) path — ScraperAPI manages its own
+// browser fingerprint on the actual request to w11stop, see
+// buildFetchUrl's own doc comment for why this app's own UA header
+// wouldn't reach the target site through that path anyway.
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY;
+
+/**
+ * Wraps `targetUrl` through scraperapi.com's proxy endpoint when
+ * SCRAPER_API_KEY is configured, so the actual outbound request to
+ * w11stop.com comes from ScraperAPI's own residential IP pool instead
+ * of this app's cloud-hosting IP — see this file's top doc comment for
+ * why that's the real fix, not a header change. Falls back to the plain
+ * direct URL when the key isn't set (e.g. local dev, or before the key
+ * is configured on Vercel), so this stays a strict addition, never a
+ * required dependency to run the scraper at all.
+ */
+function buildFetchUrl(targetUrl: string): string {
+  if (!SCRAPER_API_KEY) return targetUrl;
+  return `https://api.scraperapi.com/?api_key=${SCRAPER_API_KEY}&url=${encodeURIComponent(targetUrl)}`;
+}
 
 export interface ScrapedProduct {
   itemName: string;
@@ -85,15 +131,23 @@ function parsePkrPrice(text: string): number | null {
  *   </div>
  */
 export async function searchW11stop(query: string): Promise<ScrapedProduct[]> {
-  const url = SEARCH_URL + encodeURIComponent(query);
-  const res = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
+  const targetUrl = SEARCH_URL + encodeURIComponent(query);
+  const fetchUrl = buildFetchUrl(targetUrl);
+  const res = await fetch(fetchUrl, {
+    // Only set our own User-Agent on the DIRECT path — through
+    // ScraperAPI, this header would apply to OUR request to
+    // api.scraperapi.com, not the proxied request it makes to w11stop
+    // on our behalf (which is the whole point: that one uses
+    // ScraperAPI's own IP/fingerprint, not this app's).
+    headers: SCRAPER_API_KEY ? { Accept: "text/html" } : { "User-Agent": USER_AGENT, Accept: "text/html" },
     // A market-price scrape must always hit the live site, never a
     // cached copy of a previous run's response.
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new Error(`w11stop search failed: HTTP ${res.status} for query "${query}"`);
+    throw new Error(
+      `w11stop search failed: HTTP ${res.status} for query "${query}"${SCRAPER_API_KEY ? " (via ScraperAPI proxy)" : ""}`
+    );
   }
   const html = await res.text();
   const $ = cheerio.load(html);
