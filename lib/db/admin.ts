@@ -306,7 +306,15 @@ export function parseEquipmentSelections(json: unknown): EquipmentSelections | u
 // now share the same componentType (see EquipmentOption's doc comment in
 // schema.prisma). Must match prisma/seed.ts's seeded codes exactly, and
 // each has a corresponding RawVendorCost row with itemName = the code.
-const DEFAULT_PANEL_CODE = "LONGI_TOPCON_610W";
+// 2026-09-07 (real vendor rate sheet, "remove all panels and add these
+// only") — LONGI_TOPCON_610W and the rest of the old catalog were
+// deactivated and replaced wholesale; LONGI_HIMOX7_620W is the new
+// admin-marked isDefault panel (see scripts/update-panel-catalog-2026-09-07.ts),
+// so this fallback only ever matters if a future admin clears isDefault
+// without picking a replacement — kept in sync with reality rather than
+// left pointing at a code that no longer exists, which would silently
+// break panel pricing the moment nothing is marked default.
+const DEFAULT_PANEL_CODE = "LONGI_HIMOX7_620W";
 // Updated 2026-08-22 when the old vague HUAWEI_HYBRID/HUAWEI_ONGRID
 // placeholders (no real specValue, PER_WATT) were retired in favor of
 // real, specific, flat PER_PIECE-priced SKUs sourced from w11stop.com —
