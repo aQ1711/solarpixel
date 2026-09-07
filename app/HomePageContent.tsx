@@ -648,8 +648,16 @@ export default function HomePageContent() {
 // ============================================================================
 
 interface TickerItem {
+  /** Fallback single-field display (Hybrid/On-Grid/Battery rows) — shown
+   *  as-is when `brand` below isn't set. */
   label: string;
   value: string;
+  /** Set only for the Solar Panels row (see toPanelTickerItems) — when
+   *  present, TickerRow renders Brand / Watts / Price as three distinct
+   *  fields instead of falling back to the single combined `label`. */
+  brand?: string;
+  /** e.g. "610W" — only ever set alongside `brand`. */
+  spec?: string;
 }
 
 /** Each row shows real unit prices in whatever CostUnit they're actually
@@ -663,6 +671,27 @@ function toTickerItems(options: EquipmentOptionDTO[] | undefined): TickerItem[] 
   return (options ?? [])
     .filter((o): o is EquipmentOptionDTO & { unitPricePKR: number } => !o.isOtherOption && o.unitPricePKR !== null)
     .map((o) => ({ label: o.label, value: `Rs ${Math.round(o.unitPricePKR)}${o.unit ? UNIT_SUFFIX[o.unit] : "/W"}` }));
+}
+
+/** Solar Panels row only (2026-09-07, "market ticker labels are
+ *  incorrect for panels") — the generic toTickerItems above just showed
+ *  `o.label` verbatim (e.g. "Longi TOPCon 610W"), running brand, model,
+ *  and wattage together with no visual separation. Panels specifically
+ *  need Brand / Watts / Price as three distinct fields — `o.brand` and
+ *  `o.specValue` (the panel's real wattage, same field the pricing
+ *  engine itself uses, never re-parsed from text) are already real,
+ *  separate columns on EquipmentOptionDTO, so this builds the ticker
+ *  item directly from those instead of the combined label. Same
+ *  "never fabricate" filtering as toTickerItems. */
+function toPanelTickerItems(options: EquipmentOptionDTO[] | undefined): TickerItem[] {
+  return (options ?? [])
+    .filter((o): o is EquipmentOptionDTO & { unitPricePKR: number } => !o.isOtherOption && o.unitPricePKR !== null)
+    .map((o) => ({
+      label: o.label,
+      brand: o.brand ?? o.label,
+      spec: o.specValue ? `${o.specValue}W` : undefined,
+      value: `Rs ${Math.round(o.unitPricePKR)}${o.unit ? UNIT_SUFFIX[o.unit] : "/W"}`,
+    }));
 }
 
 /** Admin-editable Market Watch row visibility (2026-08-22) — see
@@ -707,7 +736,7 @@ const MarketWatchTicker = memo(function MarketWatchTicker() {
       .then((data) => {
         if (cancelled) return;
         const options: EquipmentOptionsByType = data.options ?? {};
-        setPanelItems(toTickerItems(options.SOLAR_PANEL));
+        setPanelItems(toPanelTickerItems(options.SOLAR_PANEL));
         // Inverters now span two genuinely different product lines (Hybrid
         // w/ battery vs. On-Grid) with real, different SKUs each — a single
         // combined row was misleading (a Hybrid price could read next to an
@@ -910,7 +939,18 @@ function TickerRow({
       >
         {doubled.map((item, i) => (
           <span key={i} className="flex items-center gap-1.5 pr-20">
-            <span className="text-zinc-500">{item.label}</span>
+            {item.brand ? (
+              // Solar Panels row (2026-09-07, "market ticker labels are
+              // incorrect for panels") — Brand / Watts / Price as three
+              // distinct fields instead of one combined label, see
+              // toPanelTickerItems' doc comment for why.
+              <>
+                <span className="font-semibold text-white">{item.brand}</span>
+                {item.spec && <span className="text-zinc-500">{item.spec}</span>}
+              </>
+            ) : (
+              <span className="text-zinc-500">{item.label}</span>
+            )}
             <span className="font-semibold text-emerald-400">
               {item.value} <span aria-hidden>▼</span>
             </span>
