@@ -4410,7 +4410,19 @@ function CalculatorCard() {
                           to the bill-derived figure only if panel spec
                           data is somehow missing. Underlying pricing
                           (cabling/installation/structure) is untouched —
-                          this is a display-only fix. */}
+                          this is a display-only fix.
+
+                          2026-09-07 update: the server itself now returns
+                          a correct, equipment-reconciled systemKw too (see
+                          SystemPricingResult.resolvedSystemKw in
+                          lib/db/admin.ts — the same bug, but for the final
+                          Report screen/persisted Quote/public quote page,
+                          which this client-side patch never covered). This
+                          local recomputation is now redundant with what
+                          livePreview.systemKw already contains, but is
+                          left in place rather than reverted — matches it
+                          exactly, one less risky change, and stays a
+                          harmless safety net if the two ever drift. */}
                       <p className="text-sm font-bold text-slate-900">
                         {formatTrim(
                           livePreview.equipment.panel.specValue

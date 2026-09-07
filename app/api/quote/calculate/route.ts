@@ -311,6 +311,11 @@ function generateQuoteNumber(): string {
 
 interface PricedTier {
   offsetPct: number;
+  /** The ACTUAL priced system size (resolvedSystemKw from
+   *  calculateSystemPricing — effectivePanelCount × the resolved
+   *  panel's wattage), not the bill-derived sizing target — see that
+   *  field's doc comment in lib/db/admin.ts for the 2026-09-07 bug this
+   *  fixes. */
   systemKw: number;
   rawKwRequired: number;
   totalClientPricePKR: number;
@@ -337,21 +342,18 @@ async function priceTier(
   selections: EquipmentSelections | undefined,
   targetBudgetTier: BudgetTier | undefined
 ): Promise<PricedTier> {
-  const { requiredDailyDaytimeUnits, rawKwRequired, systemKw } = calculateSystemSize(monthlyBillPKR, offsetPct);
-  const { totalClientPricePKR, hasCustomRequirements, breakdown, resolvedEquipment, siteWorks, panelWashing } = await calculateSystemPricing(
-    systemKw,
-    sector,
-    serviceType,
-    selections,
-    targetBudgetTier
-  );
+  const { requiredDailyDaytimeUnits, rawKwRequired, systemKw: targetSystemKw } = calculateSystemSize(monthlyBillPKR, offsetPct);
+  const { totalClientPricePKR, resolvedSystemKw, hasCustomRequirements, breakdown, resolvedEquipment, siteWorks, panelWashing } =
+    await calculateSystemPricing(targetSystemKw, sector, serviceType, selections, targetBudgetTier);
   const { estimatedMonthlySavingsPKR, paybackYears } = calculateSavingsAndPayback(
     requiredDailyDaytimeUnits,
     totalClientPricePKR
   );
   return {
     offsetPct,
-    systemKw,
+    // resolvedSystemKw, not targetSystemKw — see PricedTier.systemKw's
+    // doc comment above.
+    systemKw: resolvedSystemKw,
     rawKwRequired,
     totalClientPricePKR,
     estimatedMonthlySavingsPKR,

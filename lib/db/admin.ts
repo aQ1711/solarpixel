@@ -171,6 +171,24 @@ export interface ResolvedEquipment {
 
 export interface SystemPricingResult {
   totalClientPricePKR: number;
+  /** The ACTUAL system size this quote priced — effectivePanelCount ×
+   *  the resolved panel's own wattage, in kW. Added 2026-09-07 ("system
+   *  showing 3kW but customer selected 16 panels") — the caller's own
+   *  `systemKw` input param is only ever the bill-derived SIZING TARGET
+   *  (see calculateSystemSize in app/api/quote/calculate/route.ts); it
+   *  never reflects a Custom Builder panelQtyOverride/panelCode, since
+   *  those only affect resolution INSIDE this function. Before this
+   *  field existed, callers kept using that same bill-derived target as
+   *  "the system size" everywhere downstream (API response, the
+   *  persisted Quote.estimatedSystemSizeKw column, the Report screen
+   *  headline, the WhatsApp message, the public quote page) — correct
+   *  for the Recommended path (where effectivePanelCount IS sized off
+   *  that target), silently wrong the moment a customer picks their own
+   *  panel count/model, exactly like the itemized BOQ line already
+   *  showed correctly the whole time. This is the single source of
+   *  truth going forward; every caller should read this, not the input
+   *  `systemKw` parameter. */
+  resolvedSystemKw: number;
   /** True if the customer picked "Other / Specific Requirement" for any
    *  component — the price shown used the Recommended default as a
    *  placeholder for that slot, and the WhatsApp/BOQ flow must make clear
@@ -903,6 +921,11 @@ export async function calculateSystemPricing(
     Math.max(Math.round(selections?.panelQtyOverride ?? baselinePanelCount), Math.min(PANEL_COUNT_ABSOLUTE_MINIMUM, maxPanelCount ?? Infinity)),
     maxPanelCount ?? Infinity
   );
+  // See SystemPricingResult.resolvedSystemKw's doc comment — the actual
+  // system size this quote priced, not the bill-derived sizing target
+  // (`systemKw` param) a Custom Builder panelQtyOverride/panelCode never
+  // touches.
+  const resolvedSystemKw = round2((effectivePanelCount * panelWattage) / 1000);
   // Civil Blocks (2026-08-20) — always auto-computed from the REAL,
   // already-clamped panel count, never customer-set (see
   // EquipmentSelections.civilBlockQty's doc comment on why the field
@@ -1033,6 +1056,7 @@ export async function calculateSystemPricing(
 
   return {
     totalClientPricePKR,
+    resolvedSystemKw,
     hasCustomRequirements,
     breakdown,
     resolvedEquipment,
