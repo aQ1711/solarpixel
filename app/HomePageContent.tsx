@@ -6233,7 +6233,11 @@ function ResultSummary({
 
         <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2 print:hidden">
           <a
-            href={waHref}
+            // /thank-you (2026-09-08, Google Ads URL-based conversion
+            // tracking) — routes through a real intermediate page load
+            // instead of opening wa.me directly, then redirects on; see
+            // app/thank-you/page.tsx.
+            href={`/thank-you?waUrl=${encodeURIComponent(waHref)}`}
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => trackWhatsAppClick("quote_report_cta", result.quoteId)}
