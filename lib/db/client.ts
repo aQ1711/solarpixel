@@ -22,9 +22,21 @@ declare global {
   var __solarPixelPublicPrisma: PrismaClient | undefined;
 }
 
+// Prisma's $transaction() defaults (maxWait: 2000ms to acquire the
+// transaction, timeout: 5000ms to run it) are tuned for an always-warm
+// database — this app's DATABASE_URL is Neon's DIRECT (non-pooled)
+// endpoint, whose compute auto-suspends when idle and can take longer
+// than 2s to wake on the next connection. That was hitting real quote
+// submissions with "Transaction API error: Unable to start a
+// transaction in the given time" (2026-09-17, "getting error on
+// generating quotation") on nothing more than a cold Neon compute.
+// Applied at the client level, not per-call, so every $transaction()
+// on this client — not just quote submission — gets the same headroom.
+const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 20_000 };
+
 function createPublicClient(connectionString: string): PrismaClient {
   const adapter = new PrismaPg({ connectionString });
-  return new PrismaClient({ adapter });
+  return new PrismaClient({ adapter, transactionOptions: TRANSACTION_OPTIONS });
 }
 
 /**
@@ -74,7 +86,7 @@ export async function getDb(): Promise<PublicSafeClient> {
     const hyperdrivePublic = (env as { HYPERDRIVE_PUBLIC?: { connectionString: string } }).HYPERDRIVE_PUBLIC;
     if (hyperdrivePublic) {
       const adapter = new PrismaPg({ connectionString: hyperdrivePublic.connectionString, maxUses: 1 });
-      return new PrismaClient({ adapter }) as PublicSafeClient;
+      return new PrismaClient({ adapter, transactionOptions: TRANSACTION_OPTIONS }) as PublicSafeClient;
     }
   } catch {
     // Not running on Cloudflare (no Worker request context available) —

@@ -40,9 +40,15 @@ declare global {
   var __solarPixelAdminPrisma: PrismaClient | undefined;
 }
 
+// See lib/db/client.ts's matching TRANSACTION_OPTIONS doc comment — same
+// Neon direct-connection cold-start issue, same fix, applied here too so
+// every $transaction() on the admin client (checker approval, team
+// management, survey submission) gets the same headroom.
+const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 20_000 };
+
 function createAdminClient(connectionString: string): PrismaClient {
   const adapter = new PrismaPg({ connectionString });
-  return new PrismaClient({ adapter });
+  return new PrismaClient({ adapter, transactionOptions: TRANSACTION_OPTIONS });
 }
 
 async function getAdminPrisma(): Promise<PrismaClient> {
@@ -57,7 +63,7 @@ async function getAdminPrisma(): Promise<PrismaClient> {
     const hyperdriveAdmin = (env as { HYPERDRIVE_ADMIN?: { connectionString: string } }).HYPERDRIVE_ADMIN;
     if (hyperdriveAdmin) {
       const adapter = new PrismaPg({ connectionString: hyperdriveAdmin.connectionString, maxUses: 1 });
-      return new PrismaClient({ adapter });
+      return new PrismaClient({ adapter, transactionOptions: TRANSACTION_OPTIONS });
     }
   } catch {
     // Not running on Cloudflare (no Worker request context available) —
@@ -2328,6 +2334,14 @@ export interface CreateMaterialInput {
   createdById: string;
 }
 
+// Panels and inverters are the two categories the admin inventory groups
+// by brand (2026-09-06) — an item landing in the "Other" bucket there is
+// almost always a data-entry slip, not a real brandless product, so those
+// two componentTypes require a brand going forward. Other categories
+// (cables, breakers, mounting structure, EV chargers) genuinely do have
+// brandless/generic line items and stay optional.
+const BRAND_REQUIRED_COMPONENT_TYPES: ReadonlySet<ComponentType> = new Set(["SOLAR_PANEL", "INVERTER"]);
+
 /** Creates a new material — an EquipmentOption (public catalog) + its
  *  matching RawVendorCost (confidential cost) row, joined by `code` ===
  *  `itemName` per the established convention (see EquipmentOption's doc
@@ -2336,6 +2350,10 @@ export interface CreateMaterialInput {
  *  path, so a rare partial failure is an acceptable trade-off against
  *  the added complexity of an interactive transaction here. */
 export async function createMaterialItem(input: CreateMaterialInput): Promise<MaterialCatalogItem> {
+  if (BRAND_REQUIRED_COMPONENT_TYPES.has(input.componentType) && !input.brand?.trim()) {
+    throw new PricingConfigurationError(`A brand is required for ${input.componentType === "SOLAR_PANEL" ? "solar panels" : "inverters"}.`);
+  }
+
   const adminPrisma = await getAdminPrisma();
   const existing = await adminPrisma.equipmentOption.findUnique({
     where: { componentType_code: { componentType: input.componentType, code: input.code } },
@@ -2414,6 +2432,14 @@ export async function updateMaterialItem(id: string, input: UpdateMaterialInput)
   const option = await adminPrisma.equipmentOption.findUnique({ where: { id } });
   if (!option) {
     throw new PricingConfigurationError(`Material item ${id} not found.`);
+  }
+
+  if (
+    BRAND_REQUIRED_COMPONENT_TYPES.has(option.componentType) &&
+    input.brand !== undefined &&
+    !input.brand?.trim()
+  ) {
+    throw new PricingConfigurationError(`A brand is required for ${option.componentType === "SOLAR_PANEL" ? "solar panels" : "inverters"}.`);
   }
 
   if (input.isDefault === true) {
