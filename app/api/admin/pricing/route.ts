@@ -80,6 +80,20 @@ const createMaterialSchema = z.object({
   brochureUrl: mediaUrlSchema.optional(),
   specs: specsSchema.optional(),
   createdById: z.string().min(1, "createdById is required"),
+}).superRefine((data, ctx) => {
+  // Panels and inverters are the two categories admin inventory groups by
+  // brand — a brandless one lands in the catch-all "Other" bucket, which
+  // is almost always a data-entry slip. Enforced again in
+  // createMaterialItem (lib/db/admin.ts) for callers that bypass this
+  // route's own schema; kept here too so a bad request 400s immediately
+  // instead of round-tripping to a 409 from the DB layer.
+  if ((data.componentType === "SOLAR_PANEL" || data.componentType === "INVERTER") && !data.brand?.trim()) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["brand"],
+      message: `A brand is required for ${data.componentType === "SOLAR_PANEL" ? "solar panels" : "inverters"}.`,
+    });
+  }
 });
 
 const updateGlobalRulesSchema = z.object({

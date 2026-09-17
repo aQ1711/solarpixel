@@ -82,7 +82,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ item });
   } catch (err) {
     if (err instanceof PricingConfigurationError) {
-      return NextResponse.json({ error: err.message }, { status: 404 });
+      // "not found" is the only genuine 404 case this function throws;
+      // everything else (e.g. the panel/inverter brand requirement) is a
+      // validation failure on an otherwise-real item, so 409 — same
+      // status POST /api/admin/pricing already uses for this error type.
+      const status = err.message.includes("not found") ? 404 : 409;
+      return NextResponse.json({ error: err.message }, { status });
     }
     console.error("[PUT /api/admin/pricing/:id]", err);
     return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
