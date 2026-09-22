@@ -1285,7 +1285,15 @@ const STRUCTURE_ICON_BY_CODE: Record<string, React.ComponentType<{ className?: s
 function StepHeader({ step, title, icon: Icon }: { step: number; title: string; icon?: React.ComponentType<{ className?: string }> }) {
   return (
     <div className="mb-3 flex items-center gap-2.5">
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-orange-700 text-[11px] font-bold text-white">
+      {/* hidden on mobile (2026-09-22, "make it professional") — Steps 1
+          ("Energy Profile") and 2 ("Property & System") are both `hidden
+          lg:block` (their job is done by the dark hero card above on
+          mobile instead), so Step 3 ("Equipment Configurator") is the
+          ONLY numbered card a mobile visitor ever sees — showing a lone
+          "3" with no 1 or 2 before it reads as broken, not as a step
+          sequence. lg:flex brings it back once 1 and 2 are visible
+          alongside it and the numbering means something again. */}
+      <span className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-full bg-orange-700 text-[11px] font-bold text-white lg:flex">
         {step}
       </span>
       <p className="flex min-w-0 items-center gap-1.5 text-xs font-bold tracking-wide text-slate-800 uppercase">
@@ -3384,8 +3392,14 @@ function CalculatorCard() {
               <StepHeader step={3} title="Equipment Configurator" />
               <PathToggle path={customizationPath} onChange={setCustomizationPath} />
 
+              {/* animate-fade-up (2026-09-22, "make it professional and
+                  smooth") — this block used to hard-appear with the
+                  conditional render, no transition at all; reusing the
+                  same fade+rise entrance the ticker rows already use
+                  elsewhere in this file instead of introducing a new
+                  animation. */}
               {customizationPath === "CUSTOM" && (
-                <div className="mt-3">
+                <div className="mt-3 animate-fade-up">
                   <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-orange-950">
                     <PanelsTopLeft className="h-3.5 w-3.5 text-orange-600" />
                     Build Your Own System
@@ -3991,7 +4005,7 @@ function CalculatorCard() {
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-extrabold text-slate-900">Panels</span>
                           <span className="font-mono text-xs font-semibold text-emerald-700">
-                            {livePreview ? formatPKR(livePreview.breakdown.panelsPKR) : "N/A"}
+                            {livePreview ? formatPKR(livePreview.breakdown.panelsPKR) : "—"}
                           </span>
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -4102,7 +4116,7 @@ function CalculatorCard() {
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-extrabold text-slate-900">Inverter</span>
                           <span className="font-mono text-xs font-semibold text-emerald-700">
-                            {livePreview ? formatPKR(livePreview.breakdown.inverterPKR) : "N/A"}
+                            {livePreview ? formatPKR(livePreview.breakdown.inverterPKR) : "—"}
                           </span>
                         </div>
                         {sector === "INDUSTRIAL" ? (
@@ -4136,10 +4150,19 @@ function CalculatorCard() {
                             effectiveInverterCode the desktop accordion
                             uses, never a newly-invented default. */}
                         <div className="relative mt-3">
+                          {/* pr-10, truncate (2026-09-22, "make it
+                              professional and smooth") — px-3.5 gave the
+                              text and the absolutely-positioned chevron
+                              the SAME 14px right padding, so a long
+                              inverter label (e.g. "10kW · Solis 10kW
+                              Hybrid Inverter...") ran straight into the
+                              icon instead of stopping before it. Extra
+                              right padding clears the icon; truncate adds
+                              a clean ellipsis instead of a hard cutoff. */}
                           <select
                             value={effectiveInverterCode ?? ""}
                             onChange={(e) => handleInverterCodeChange(e.target.value)}
-                            className="w-full appearance-none rounded-xl border border-slate-200 bg-[#F5F1EB] px-3.5 py-3.5 text-sm font-semibold text-slate-900 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
+                            className="w-full appearance-none truncate rounded-xl border border-slate-200 bg-[#F5F1EB] py-3.5 pl-3.5 pr-10 text-sm font-semibold text-slate-900 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
                           >
                             {inverterOptionsForServiceType.map((o) => (
                               <option key={o.code} value={o.code}>
@@ -4336,8 +4359,15 @@ function CalculatorCard() {
                         <p className="font-mono text-[10px] uppercase tracking-wider text-[#8FA0B4]">
                           {livePreview ? `${formatTrim(livePreview.systemKw, 1)} kW system · total` : "System total"}
                         </p>
+                        {/* "—" not "N/A" (2026-09-22, "make it
+                            professional and smooth") — matches the same
+                            not-priced-yet placeholder the Live Calculator
+                            tiles elsewhere on this page already use;
+                            "N/A" read like an error on a large, bold
+                            price line rather than "enter your bill
+                            above." */}
                         <p className="mt-0.5 font-mono text-xl font-semibold text-white">
-                          {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "N/A"}
+                          {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "—"}
                         </p>
                         <button
                           type="button"
