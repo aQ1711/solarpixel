@@ -130,6 +130,34 @@
    real and works from every page, not just "/". */
 html {
   scroll-behavior: smooth;
+  /* Real iPhone report (2026-09-22, "white spaces... not completely
+     covering the mobile space of 14 pro max"): the Market Watch ticker's
+     animated track is several thousand px wide (doubled items, translated
+     via transform for the infinite-scroll loop) — see MarketWatchTicker/
+     TickerRow in app/HomePageContent.tsx. It's correctly clipped
+     VISUALLY by overflow-hidden at three nested levels (TickerRow's own
+     wrapper, MarketWatchTicker's wrapper, body below), confirmed live —
+     the ticker text does cut off cleanly, it never visibly overflows.
+     But `overflow-x: hidden` on body alone, with no explicit width
+     anywhere, is a known iOS Safari trigger: WebKit can still size the
+     LAYOUT VIEWPORT itself against that wide composited transform layer
+     (will-change/translateZ(0) promote it to its own GPU layer),
+     rendering the whole page in a narrower column than the real device
+     width with blank space beside it — exactly this bug, reproduced on a
+     real 14 Pro Max and confirmed via a width mismatch (window.innerWidth
+     vs the true visualViewport.width) in local testing too. Pinning an
+     explicit width here is the fix — NOT overflow-x: hidden on html too:
+     that was tried first and broke position:sticky sitewide (the ticker/
+     header bar stopped sticking on scroll). Adding overflow-x here as
+     well as on body gives the UA two different elements with a non-
+     visible overflow, and per the CSS overflow-propagation rule that
+     changes which element the browser treats as "the" scrolling viewport
+     — which is exactly the "ANY non-visible overflow on an ancestor
+     breaks position:sticky for descendants" trap body's own comment
+     below already warns about, just one level higher. Width alone
+     doesn't touch overflow/scroll-container-ness, so it doesn't have
+     that side effect. */
+  width: 100%;
 }
 
 body {
@@ -149,7 +177,11 @@ body {
      here at the body level instead is the standard fix: it stops the
      page from ever getting a horizontal scrollbar without constraining
      any intermediate ancestor's scroll box, so sticky descendants keep
-     sticking relative to the real page scroll. */
+     sticking relative to the real page scroll.
+     width: 100% added alongside it (2026-09-22) — see html's matching
+     comment above; overflow-x alone wasn't enough to stop the ticker's
+     wide transform layer from inflating the real iOS layout viewport. */
+  width: 100%;
   overflow-x: hidden;
 }
 
