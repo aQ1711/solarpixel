@@ -984,7 +984,21 @@ function scrollToCalculator() {
 
 function Hero() {
   return (
-    <section className="dot-grid relative px-5 pb-4 pt-3 sm:pt-5 md:pb-3 print:p-0">
+    // overflow-x-clip (2026-10-05, real Android report: "white space with
+    // scroller horizontal... button in the bottom got cut") — the glow
+    // below deliberately bleeds past this section (right-[-80px]), which
+    // made the whole page 80px wider than the phone (measured: 440px
+    // layout on a 360px screen): the page could be panned sideways onto
+    // blank space, and every `fixed inset-x-0` bar (mobile bottom bar)
+    // stretched to that wider width, pushing its right-hand button
+    // off-screen. body's overflow-x:hidden alone doesn't stop mobile
+    // browsers from widening the layout viewport for overflowing
+    // content; clipping at the source does. `clip`, NOT `hidden` — hidden
+    // turns this section into a scroll container and breaks position:
+    // sticky for the live-summary card inside it (the exact trap the
+    // globals.css body comment documents); clip crops paint without
+    // creating one.
+    <section className="dot-grid relative overflow-x-clip px-5 pb-4 pt-3 sm:pt-5 md:pb-3 print:p-0">
       {/* Ambient glow, purely decorative — two soft, low-opacity washes
           instead of one saturated blob, for a calmer first impression. */}
       <div
@@ -1411,6 +1425,15 @@ function CalculatorCard() {
   const [commercialServiceType, setCommercialServiceType] = useState<ServiceType>("ONGRID_ZERO_EXPORT");
 
   const [billAmountInput, setBillAmountInput] = useState("");
+  // Mobile hero bill (2026-10-05, "whenever the bill swiped to 0 it again
+  // take it to 45000 default bill — it's annoying"): the hero's field and
+  // slider used to be controlled by `resolvedBillPKR ?? 45000`, so the
+  // instant the customer erased the number (empty -> null) it refilled
+  // itself with 45,000 and they could never clear it to type a new
+  // amount. The 45,000 is only a first-look sample now — once the
+  // customer touches either control, what they typed (including empty
+  // or 0) is shown exactly as typed, and the sample never comes back.
+  const [heroBillTouched, setHeroBillTouched] = useState(false);
   // Target Budget tier (2026-08-20) — null = no preference, ordinary
   // admin-configured Recommended default resolves the inverter/battery.
   // Sits alongside the bill amount, not inside equipmentSelections — it's
@@ -2908,9 +2931,19 @@ function CalculatorCard() {
                           id="heroBillAmount"
                           type="text"
                           inputMode="numeric"
-                          value={resolvedBillPKR ?? RESIDENTIAL_HERO_DEFAULT_BILL_PKR}
-                          onChange={(e) => handleBillAmountChange(e.target.value.replace(/[^\d]/g, ""))}
-                          className="w-full min-w-0 bg-transparent font-mono text-[40px] font-semibold leading-none tracking-tight text-white caret-orange-400 outline-none"
+                          value={
+                            heroBillTouched || billAmountInput !== ""
+                              ? billAmountInput
+                              : String(RESIDENTIAL_HERO_DEFAULT_BILL_PKR)
+                          }
+                          onChange={(e) => {
+                            setHeroBillTouched(true);
+                            // strip non-digits and leading zeros ("045000" -> "45000"), keeping a lone "0"
+                            handleBillAmountChange(e.target.value.replace(/[^\d]/g, "").replace(/^0+(?=\d)/, ""));
+                          }}
+                          onFocus={(e) => e.target.select()}
+                          placeholder="0"
+                          className="w-full min-w-0 bg-transparent font-mono text-[40px] font-semibold leading-none tracking-tight text-white caret-orange-400 outline-none placeholder:text-[#5E6E82]"
                         />
                       </div>
                       {/* Lac/Crore readback (2026-09-04 feedback: "user is
@@ -2927,11 +2960,17 @@ function CalculatorCard() {
                       )}
                       <div className="mt-2">
                         <RangeSlider
-                          value={resolvedBillPKR ?? RESIDENTIAL_HERO_DEFAULT_BILL_PKR}
+                          // sample position only until touched; after
+                          // that an empty/0 field parks the thumb at the
+                          // far left instead of jumping back to 45,000
+                          value={resolvedBillPKR ?? (heroBillTouched ? 0 : RESIDENTIAL_HERO_DEFAULT_BILL_PKR)}
                           min={5000}
                           max={250000}
                           step={5000}
-                          onChange={(v) => handleBillAmountChange(String(v))}
+                          onChange={(v) => {
+                            setHeroBillTouched(true);
+                            handleBillAmountChange(String(v));
+                          }}
                           ariaLabel="Average Monthly Bill"
                         />
                       </div>
@@ -2972,13 +3011,25 @@ function CalculatorCard() {
                                 shown only until the real debounced
                                 livePreview call resolves (same default
                                 bill this card already starts from). */}
-                            {livePreview ? `~${livePreview.systemKw} kW` : "~10 kW"}
+                            {/* "—" once the customer has cleared the
+                                bill themselves (2026-10-05) — the last
+                                livePreview/the ~10 kW sample describes a
+                                bill that's no longer in the field. */}
+                            {heroBillTouched && (resolvedBillPKR === null || resolvedBillPKR <= 0)
+                              ? "—"
+                              : livePreview
+                                ? `~${livePreview.systemKw} kW`
+                                : "~10 kW"}
                           </p>
                         </div>
                         <div className="rounded-[14px] border border-emerald-400/25 bg-emerald-400/10 p-3">
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-emerald-200/80">You save / mo</p>
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-emerald-400">
-                            {livePreview ? `~${formatPKR(livePreview.estimatedMonthlySavingsPKR)}` : "~Rs 43,000"}
+                            {heroBillTouched && (resolvedBillPKR === null || resolvedBillPKR <= 0)
+                              ? "—"
+                              : livePreview
+                                ? `~${formatPKR(livePreview.estimatedMonthlySavingsPKR)}`
+                                : "~Rs 43,000"}
                           </p>
                         </div>
                       </div>
