@@ -1983,6 +1983,67 @@ function CalculatorCard() {
     return () => clearTimeout(timeoutId);
   }, [masterService, resolvedBillPKR, sector, serviceType]);
 
+  // Mobile hero first-look figures (2026-10-05, "i want real figures no
+  // fake or hardcode"): until the customer touches the bill field, the
+  // "You need / You save" tiles used to show a hardcoded "~10 kW /
+  // ~Rs 43,000" copied from the original Main.html mockup, which was ~3x
+  // off what the real engine returns for that same 45,000 bill. They now
+  // come from the SAME SOLAR_PREVIEW call every other figure on the page
+  // uses, run once for the sample bill. Its own state (not livePreview)
+  // on purpose: livePreview also feeds desktop's summary panel, the
+  // bottom price bar and the equipment pills, and none of those should
+  // start showing a quote before the customer has entered a bill.
+  const [heroSamplePreview, setHeroSamplePreview] = useState<SolarPreviewResult | null>(null);
+  const [heroSampleFailed, setHeroSampleFailed] = useState(false);
+
+  useEffect(() => {
+    if (masterService !== "COMPLETE_SOLAR" || sector !== "RESIDENTIAL") return;
+    if (heroBillTouched || billAmountInput !== "") return;
+
+    let cancelled = false;
+    let started = false;
+    // The card is `lg:hidden`, so a desktop visitor never sees these
+    // tiles; skip the request there, but start it if the window later
+    // drops below lg (e.g. a tablet rotating to portrait).
+    const desktopQuery = window.matchMedia("(min-width: 1024px)");
+    const load = async () => {
+      if (started) return;
+      started = true;
+      try {
+        const res = await fetch("/api/quote/calculate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requestKind: "SOLAR_PREVIEW",
+            monthlyBillPKR: RESIDENTIAL_HERO_DEFAULT_BILL_PKR,
+            sector,
+            serviceType,
+            daytimeUsagePct: DAYTIME_USAGE_PCT_BY_SECTOR[sector],
+          }),
+        });
+        const data = (await res.json()) as ApiJson<SolarPreviewResult>;
+        if (cancelled) return;
+        if (!res.ok) {
+          setHeroSampleFailed(true);
+          return;
+        }
+        setHeroSamplePreview(data);
+        setHeroSampleFailed(false);
+      } catch {
+        if (!cancelled) setHeroSampleFailed(true);
+      }
+    };
+    if (!desktopQuery.matches) void load();
+    const onViewportChange = () => {
+      if (!desktopQuery.matches) void load();
+    };
+    desktopQuery.addEventListener("change", onViewportChange);
+    return () => {
+      cancelled = true;
+      desktopQuery.removeEventListener("change", onViewportChange);
+    };
+  }, [masterService, sector, serviceType, heroBillTouched, billAmountInput]);
+
   // Auto Sector & System Routing (2026-08-29, explicit instruction).
   // Debounced (2026-09-04, real reported bug) — this used to run
   // SYNCHRONOUSLY on every keystroke from handleBillAmountChange, so
@@ -2388,6 +2449,18 @@ function CalculatorCard() {
   // every battery card is now one specific real capacity SKU with its
   // own flat price, not a rate to multiply.
   const systemWatts = (livePreview?.systemKw ?? 0) * 1000;
+  // Mobile hero tiles: which REAL result to show, never an invented one.
+  //   bill entered         -> livePreview (the real engine call for it)
+  //   untouched first look -> heroSamplePreview (real call, sample bill)
+  //   cleared/0 by user    -> nothing ("—"; a result for the old number
+  //                           would describe a bill no longer in the field)
+  const heroBillEmpty = resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0;
+  const heroTilePreview = heroBillEmpty ? (heroBillTouched ? null : heroSamplePreview) : livePreview;
+  // true = a real figure is still on its way (show a quiet placeholder);
+  // false with no preview = nothing to show ("—").
+  const heroTilesPending = heroBillEmpty
+    ? !heroBillTouched && !heroSampleFailed && heroSamplePreview === null
+    : livePreview === null && !livePreviewError;
   // The active battery's real capacity, straight off the resolved
   // catalog row — for the Battery row's "5.12kWh" display label only.
   const activeBatteryCapacityKwh = currentBatteryOption?.specValue ?? 0;
@@ -3004,32 +3077,25 @@ function CalculatorCard() {
                         <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.06] p-3">
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-[#8FA0B4]">You need</p>
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-white">
-                            {/* Main.html baseline (2026-09-04): a live
-                                figure the instant a bill is set, never a
-                                bare "N/A" — "~10 kW" is Main.html's own
-                                reference value for its 45,000 default,
-                                shown only until the real debounced
-                                livePreview call resolves (same default
-                                bill this card already starts from). */}
-                            {/* "—" once the customer has cleared the
-                                bill themselves (2026-10-05) — the last
-                                livePreview/the ~10 kW sample describes a
-                                bill that's no longer in the field. */}
-                            {heroBillTouched && (resolvedBillPKR === null || resolvedBillPKR <= 0)
-                              ? "—"
-                              : livePreview
-                                ? `~${livePreview.systemKw} kW`
-                                : "~10 kW"}
+                            {/* Always a real engine figure (see
+                                heroTilePreview's doc comment) — a quiet
+                                "…" while it loads, "—" when there's no
+                                bill to size, never a made-up number. */}
+                            {heroTilePreview
+                              ? `~${heroTilePreview.systemKw} kW`
+                              : heroTilesPending
+                                ? <span className="animate-pulse text-[#5E6E82]" aria-label="Calculating">…</span>
+                                : "—"}
                           </p>
                         </div>
                         <div className="rounded-[14px] border border-emerald-400/25 bg-emerald-400/10 p-3">
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-emerald-200/80">You save / mo</p>
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-emerald-400">
-                            {heroBillTouched && (resolvedBillPKR === null || resolvedBillPKR <= 0)
-                              ? "—"
-                              : livePreview
-                                ? `~${formatPKR(livePreview.estimatedMonthlySavingsPKR)}`
-                                : "~Rs 43,000"}
+                            {heroTilePreview
+                              ? `~${formatPKR(heroTilePreview.estimatedMonthlySavingsPKR)}`
+                              : heroTilesPending
+                                ? <span className="animate-pulse text-[#5E6E82]" aria-label="Calculating">…</span>
+                                : "—"}
                           </p>
                         </div>
                       </div>
