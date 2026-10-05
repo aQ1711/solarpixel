@@ -546,6 +546,15 @@ const MASTER_SERVICES: { value: MasterService; label: string; icon: React.Compon
   { value: "EV_CHARGER", label: "EV Charger", icon: EVChargerIcon },
   { value: "SYSTEM_UPGRADES", label: "Panel Washing & Servicing", icon: WaterDropIcon },
 ];
+// Panel Washing & Servicing is hidden from the storefront (2026-10-05,
+// explicit instruction: "hide panel washing services tab"). Only the two
+// ways INTO it are gated (the desktop service cards and the mobile "More
+// We Do" tile); its input section, pricing preview and API stay intact,
+// so flipping this back to true restores it with no other change.
+const PANEL_WASHING_SERVICE_VISIBLE = false;
+const VISIBLE_MASTER_SERVICES = MASTER_SERVICES.filter(
+  (s) => s.value !== "SYSTEM_UPGRADES" || PANEL_WASHING_SERVICE_VISIBLE,
+);
 const MASTER_SERVICE_DESCRIPTION: Record<MasterService, string> = {
   COMPLETE_SOLAR: "Get a turnkey solar + battery solution. Sized instantly from your bill.",
   EV_CHARGER: "Tell us about your vehicle and charging needs. We'll follow up on WhatsApp with options and pricing.",
@@ -2490,8 +2499,8 @@ function CalculatorCard() {
           setMasterService/setSector state. */}
       <fieldset ref={serviceSelectionRef} className="hidden lg:block">
         <legend className="mb-3 text-sm font-semibold text-slate-700">What do you need?</legend>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {MASTER_SERVICES.map(({ value, label, icon: Icon }) => {
+        <div className={`grid grid-cols-1 gap-4 ${VISIBLE_MASTER_SERVICES.length === 3 ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
+          {VISIBLE_MASTER_SERVICES.map(({ value, label, icon: Icon }) => {
             const active = masterService === value;
             return (
               <button
@@ -5142,7 +5151,7 @@ function CalculatorCard() {
           the dark card now lives as the first element below Hero. */}
       <div className="mt-6 lg:hidden">
         <p className="font-mono text-[10.5px] font-semibold uppercase tracking-widest text-orange-700">More We Do</p>
-        <div className="mt-3 grid grid-cols-3 gap-2.5">
+        <div className={`mt-3 grid gap-2.5 ${PANEL_WASHING_SERVICE_VISIBLE ? "grid-cols-3" : "grid-cols-2"}`}>
           <button
             type="button"
             onClick={() => {
@@ -5154,17 +5163,19 @@ function CalculatorCard() {
             <EVChargerIcon className="h-6 w-6 text-orange-600" />
             <span className="text-[11px] font-semibold leading-tight text-slate-900">EV Charger</span>
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMasterService("SYSTEM_UPGRADES");
-              requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(panelWashingRef)));
-            }}
-            className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-center transition-colors duration-200 hover:border-orange-300"
-          >
-            <WaterDropIcon className="h-6 w-6 text-orange-600" />
-            <span className="text-[11px] font-semibold leading-tight text-slate-900">Washing & Service</span>
-          </button>
+          {PANEL_WASHING_SERVICE_VISIBLE && (
+            <button
+              type="button"
+              onClick={() => {
+                setMasterService("SYSTEM_UPGRADES");
+                requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(panelWashingRef)));
+              }}
+              className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-center transition-colors duration-200 hover:border-orange-300"
+            >
+              <WaterDropIcon className="h-6 w-6 text-orange-600" />
+              <span className="text-[11px] font-semibold leading-tight text-slate-900">Washing & Service</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
