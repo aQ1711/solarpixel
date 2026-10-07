@@ -8,27 +8,34 @@ import {
   roundMoney,
   sumLinesPKR,
   type LinkableQuoteDTO,
+  type ProjectOptionsDTO,
   type SiteProjectDTO,
   type SiteProjectEventType,
+  type SiteProjectStatus,
 } from "@/lib/siteProjects/types";
 
 /**
  * Site Projects (2026-10-07): the labour-head work-order workflow.
  *
- *   labour head enters details + materials  -> SUBMITTED
+ *   Super Admin creates the project + assigns a labour head -> ASSIGNED
+ *   labour head enters the materials and their prices         -> SUBMITTED
  *   Super Admin reviews prices:
  *       approve (sets labour fee)           -> APPROVED
  *       send back with a note               -> REVISION_REQUESTED -> (edit) -> SUBMITTED
- *       reject                              -> REJECTED
+ *       reject / cancel                     -> REJECTED
  *   labour head starts the site             -> IN_PROGRESS
  *   labour head ends it with a report       -> COMPLETED
  *   Super Admin releases the payout         -> PAID
  *
- * Public-schema client only (getDb): everything here is data the labour
- * head entered about their own purchases, never Solar Pixel's vendor cost
- * or margin, so it never needs (and never gets) the admin client. Every
- * transition is a conditional `updateMany` on the expected current status,
- * so two simultaneous taps/clicks can't both win.
+ * The labour head never creates a project or edits its details; they only
+ * pick the project assigned to them and enter materials. Details can be
+ * corrected by the Super Admin until the project is approved.
+ *
+ * Public-schema client only (getDb): the prices here are the labour head's
+ * own proposed purchase prices, never Solar Pixel's vendor cost or margin,
+ * so it never needs (and never gets) the admin client. Every transition is a
+ * conditional `updateMany` on the expected current status, so two
+ * simultaneous taps/clicks can't both win.
  */
 
 /** Thrown for expected business-rule failures; routes map it to a response. */
@@ -43,6 +50,10 @@ export class SiteProjectError extends Error {
 
 const SUPER_ADMIN_LABEL = "Super Admin";
 
+/** Statuses before the Super Admin has approved the prices: details are
+ *  still correctable and the project can still be cancelled. */
+const PRE_APPROVAL: SiteProjectStatus[] = ["ASSIGNED", "SUBMITTED", "REVISION_REQUESTED"];
+
 // ============================================================================
 // Validation
 // ============================================================================
@@ -54,7 +65,9 @@ const materialInputSchema = z.object({
   unitPricePKR: z.coerce.number().positive("Price must be more than 0").max(100_000_000),
 });
 
-export const projectInputSchema = z.object({
+/** What the Super Admin enters when creating (or correcting) a project. */
+export const projectDetailsSchema = z.object({
+  labourHeadId: z.string().min(1, "Choose the labour head for this project"),
   quoteId: z.string().min(1).nullish(),
   clientName: z.string().trim().min(1, "Client name is required").max(120),
   siteAddress: z.string().trim().min(1, "Site address is required").max(300),
@@ -67,9 +80,14 @@ export const projectInputSchema = z.object({
   crewSize: z.coerce.number().int().min(1).max(500).nullish(),
   estimatedDays: z.coerce.number().int().min(1).max(730).nullish(),
   scopeNotes: z.string().trim().max(4000).nullish(),
+});
+export type ProjectDetailsInput = z.infer<typeof projectDetailsSchema>;
+
+/** What the labour head submits: only the materials and their prices. */
+export const materialsInputSchema = z.object({
   materials: z.array(materialInputSchema).min(1, "Add at least one material").max(100),
 });
-export type ProjectInput = z.infer<typeof projectInputSchema>;
+export type MaterialInput = z.infer<typeof materialInputSchema>;
 
 export const reviewInputSchema = z.discriminatedUnion("decision", [
   z.object({
@@ -87,7 +105,7 @@ export const reviewInputSchema = z.discriminatedUnion("decision", [
       .min(1),
   }),
   z.object({ decision: z.literal("REQUEST_REVISION"), note: z.string().trim().min(1, "Tell them what to change").max(1000) }),
-  z.object({ decision: z.literal("REJECT"), note: z.string().trim().min(1, "Give a reason for rejecting").max(1000) }),
+  z.object({ decision: z.literal("REJECT"), note: z.string().trim().min(1, "Give a reason").max(1000) }),
 ]);
 export type ReviewInput = z.infer<typeof reviewInputSchema>;
 
@@ -151,7 +169,8 @@ function toDTO(row: ProjectRow): SiteProjectDTO {
     completionNotes: row.completionNotes,
     paidAt: iso(row.paidAt),
     paymentReference: row.paymentReference,
-    submittedAt: row.submittedAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    submittedAt: iso(row.submittedAt),
     events: row.events.map((e) => ({
       id: e.id,
       type: e.type,
@@ -166,7 +185,7 @@ function generateProjectNumber(): string {
   return `SITE-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`;
 }
 
-function toMaterialCreate(input: ProjectInput["materials"]) {
+function toMaterialCreate(input: MaterialInput[]) {
   return input.map((m, i) => ({
     sortOrder: i,
     name: m.name,
@@ -176,7 +195,9 @@ function toMaterialCreate(input: ProjectInput["materials"]) {
   }));
 }
 
-function toDetailFields(input: ProjectInput) {
+/** The detail columns shared by create and edit (labour head and quote are
+ *  handled separately since they have their own rules). */
+function toDetailFields(input: ProjectDetailsInput) {
   return {
     clientName: input.clientName,
     siteAddress: input.siteAddress,
@@ -189,156 +210,11 @@ function toDetailFields(input: ProjectInput) {
   };
 }
 
-// ============================================================================
-// Labour head (Field Engineer account) side
-// ============================================================================
-
-/** The labour head is just a real, active Field Engineer account — the
- *  shared maker token can't prove which one is calling, so every labour-head
- *  function below re-checks the supplied id against the DB and scopes every
- *  read/write to it. */
-async function assertLabourHead(engineerId: string): Promise<void> {
+async function fetchProject(projectId: string): Promise<SiteProjectDTO> {
   const prisma = await getDb();
-  const engineer = await prisma.user.findFirst({
-    where: { id: engineerId, role: "FIELD_ENGINEER", isActive: true },
-    select: { id: true },
-  });
-  if (!engineer) throw new SiteProjectError("That labour head account isn't valid or is deactivated.", 403);
-}
-
-async function labourHeadName(engineerId: string): Promise<string> {
-  const prisma = await getDb();
-  const u = await prisma.user.findUnique({ where: { id: engineerId }, select: { name: true } });
-  return u?.name ?? "Labour head";
-}
-
-export async function listLinkableQuotes(): Promise<LinkableQuoteDTO[]> {
-  const prisma = await getDb();
-  const quotes = await prisma.quote.findMany({
-    where: {
-      status: { in: ["CHECKER_APPROVED", "DISPATCHED"] },
-      // One site project per customer quote (a rejected one doesn't count).
-      siteProjects: { none: { status: { not: "REJECTED" } } },
-    },
-    orderBy: { updatedAt: "desc" },
-    take: 100,
-    select: {
-      id: true,
-      quoteNumber: true,
-      estimatedSystemSizeKw: true,
-      finalSystemSizeKw: true,
-      serviceType: true,
-      lead: { select: { fullName: true, city: true, address: true } },
-    },
-  });
-  return quotes.map((q) => ({
-    id: q.id,
-    quoteNumber: q.quoteNumber,
-    clientName: q.lead.fullName,
-    city: q.lead.city,
-    address: q.lead.address,
-    systemKw: (q.finalSystemSizeKw ?? q.estimatedSystemSizeKw).toNumber(),
-    serviceType: q.serviceType,
-  }));
-}
-
-export async function listProjectsForLabourHead(engineerId: string): Promise<SiteProjectDTO[]> {
-  await assertLabourHead(engineerId);
-  const prisma = await getDb();
-  const rows = await prisma.siteProject.findMany({
-    where: { labourHeadId: engineerId },
-    include: projectInclude,
-    orderBy: { submittedAt: "desc" },
-    take: 100,
-  });
-  return rows.map(toDTO);
-}
-
-export async function createProject(engineerId: string, input: ProjectInput): Promise<SiteProjectDTO> {
-  await assertLabourHead(engineerId);
-  const prisma = await getDb();
-  const actorLabel = await labourHeadName(engineerId);
-
-  if (input.quoteId) {
-    const quote = await prisma.quote.findUnique({
-      where: { id: input.quoteId },
-      select: { status: true, siteProjects: { where: { status: { not: "REJECTED" } }, select: { id: true } } },
-    });
-    if (!quote) throw new SiteProjectError("That quote wasn't found.", 404);
-    if (quote.status !== "CHECKER_APPROVED" && quote.status !== "DISPATCHED") {
-      throw new SiteProjectError("Only an approved quote can be linked to a site project.", 409);
-    }
-    if (quote.siteProjects.length > 0) {
-      throw new SiteProjectError("That quote already has a site project.", 409);
-    }
-  }
-
-  const created = await prisma.siteProject.create({
-    data: {
-      projectNumber: generateProjectNumber(),
-      quoteId: input.quoteId ?? null,
-      labourHeadId: engineerId,
-      status: "SUBMITTED",
-      ...toDetailFields(input),
-      materials: { create: toMaterialCreate(input.materials) },
-      events: { create: { type: "SUBMITTED", actorLabel } },
-    },
-    include: projectInclude,
-  });
-  return toDTO(created);
-}
-
-/** Edit-and-resubmit after the Super Admin asked for changes. */
-export async function resubmitProject(engineerId: string, projectId: string, input: ProjectInput): Promise<SiteProjectDTO> {
-  await assertLabourHead(engineerId);
-  const prisma = await getDb();
-  const actorLabel = await labourHeadName(engineerId);
-
-  await prisma.$transaction(async (tx) => {
-    const moved = await tx.siteProject.updateMany({
-      where: { id: projectId, labourHeadId: engineerId, status: "REVISION_REQUESTED" },
-      data: { status: "SUBMITTED", reviewNote: null, reviewedAt: null, submittedAt: new Date(), ...toDetailFields(input) },
-    });
-    if (moved.count === 0) await throwNotActionable(tx, projectId, engineerId, "resubmit");
-    await tx.siteProjectMaterial.deleteMany({ where: { projectId } });
-    await tx.siteProjectMaterial.createMany({
-      data: toMaterialCreate(input.materials).map((m) => ({ ...m, projectId })),
-    });
-    await tx.siteProjectEvent.create({ data: { projectId, type: "RESUBMITTED", actorLabel } });
-  });
-  return fetchProject(projectId);
-}
-
-export async function startSite(engineerId: string, projectId: string): Promise<SiteProjectDTO> {
-  await assertLabourHead(engineerId);
-  const prisma = await getDb();
-  const actorLabel = await labourHeadName(engineerId);
-
-  await prisma.$transaction(async (tx) => {
-    const moved = await tx.siteProject.updateMany({
-      where: { id: projectId, labourHeadId: engineerId, status: "APPROVED" },
-      data: { status: "IN_PROGRESS", startedAt: new Date() },
-    });
-    if (moved.count === 0) await throwNotActionable(tx, projectId, engineerId, "start");
-    await tx.siteProjectEvent.create({ data: { projectId, type: "STARTED", actorLabel } });
-  });
-  return fetchProject(projectId);
-}
-
-export async function endSite(engineerId: string, projectId: string, completionNotes: string): Promise<SiteProjectDTO> {
-  await assertLabourHead(engineerId);
-  const prisma = await getDb();
-  const actorLabel = await labourHeadName(engineerId);
-
-  await prisma.$transaction(async (tx) => {
-    const moved = await tx.siteProject.updateMany({
-      where: { id: projectId, labourHeadId: engineerId, status: "IN_PROGRESS" },
-      data: { status: "COMPLETED", completedAt: new Date(), completionNotes },
-    });
-    if (moved.count === 0) await throwNotActionable(tx, projectId, engineerId, "end");
-    await tx.siteProjectEvent.create({ data: { projectId, type: "COMPLETED", actorLabel, note: completionNotes } });
-  });
-  return fetchProject(projectId);
+  const row = await prisma.siteProject.findUnique({ where: { id: projectId }, include: projectInclude });
+  if (!row) throw new SiteProjectError("Project not found.", 404);
+  return toDTO(row);
 }
 
 /** Why a conditional transition matched nothing: wrong owner / missing
@@ -358,25 +234,147 @@ async function throwNotActionable(
   throw new SiteProjectError(`This project can't ${verb} right now (status: ${row.status}).`, 409);
 }
 
-async function fetchProject(projectId: string): Promise<SiteProjectDTO> {
+// ============================================================================
+// Shared lookups
+// ============================================================================
+
+async function findActiveLabourHead(id: string): Promise<{ id: string; name: string } | null> {
   const prisma = await getDb();
-  const row = await prisma.siteProject.findUnique({ where: { id: projectId }, include: projectInclude });
-  if (!row) throw new SiteProjectError("Project not found.", 404);
-  return toDTO(row);
+  return prisma.user.findFirst({
+    where: { id, role: "FIELD_ENGINEER", isActive: true },
+    select: { id: true, name: true },
+  });
+}
+
+/** Quotes a site project can be linked to: approved/dispatched, and not
+ *  already tied to a live project (one site project per customer quote; a
+ *  rejected one doesn't count). `exceptProjectId` lets an edit keep its own
+ *  current link. */
+async function assertQuoteLinkable(quoteId: string, exceptProjectId?: string): Promise<void> {
+  const prisma = await getDb();
+  const quote = await prisma.quote.findUnique({
+    where: { id: quoteId },
+    select: {
+      status: true,
+      siteProjects: {
+        where: { status: { not: "REJECTED" }, ...(exceptProjectId ? { id: { not: exceptProjectId } } : {}) },
+        select: { id: true },
+      },
+    },
+  });
+  if (!quote) throw new SiteProjectError("That quote wasn't found.", 404);
+  if (quote.status !== "CHECKER_APPROVED" && quote.status !== "DISPATCHED") {
+    throw new SiteProjectError("Only an approved quote can be linked to a site project.", 409);
+  }
+  if (quote.siteProjects.length > 0) throw new SiteProjectError("That quote already has a site project.", 409);
 }
 
 // ============================================================================
 // Super Admin side
 // ============================================================================
 
+/** What the admin's New project form offers: active labour heads and the
+ *  quotes that can still be linked. */
+export async function getProjectOptions(): Promise<ProjectOptionsDTO> {
+  const prisma = await getDb();
+  const [labourHeads, quotes] = await Promise.all([
+    prisma.user.findMany({
+      where: { role: "FIELD_ENGINEER", isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.quote.findMany({
+      where: {
+        status: { in: ["CHECKER_APPROVED", "DISPATCHED"] },
+        siteProjects: { none: { status: { not: "REJECTED" } } },
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        quoteNumber: true,
+        estimatedSystemSizeKw: true,
+        finalSystemSizeKw: true,
+        serviceType: true,
+        lead: { select: { fullName: true, city: true, address: true } },
+      },
+    }),
+  ]);
+  const linkable: LinkableQuoteDTO[] = quotes.map((q) => ({
+    id: q.id,
+    quoteNumber: q.quoteNumber,
+    clientName: q.lead.fullName,
+    city: q.lead.city,
+    address: q.lead.address,
+    systemKw: (q.finalSystemSizeKw ?? q.estimatedSystemSizeKw).toNumber(),
+    serviceType: q.serviceType,
+  }));
+  return { labourHeads, quotes: linkable };
+}
+
 export async function listProjectsForAdmin(): Promise<SiteProjectDTO[]> {
   const prisma = await getDb();
   const rows = await prisma.siteProject.findMany({
     include: projectInclude,
-    orderBy: { submittedAt: "desc" },
+    orderBy: { createdAt: "desc" },
     take: 300,
   });
   return rows.map(toDTO);
+}
+
+/** Create a project and assign it to a labour head; they then only need to
+ *  enter its materials. */
+export async function createProject(input: ProjectDetailsInput): Promise<SiteProjectDTO> {
+  const prisma = await getDb();
+  const labourHead = await findActiveLabourHead(input.labourHeadId);
+  if (!labourHead) throw new SiteProjectError("That labour head isn't valid or is deactivated.");
+  if (input.quoteId) await assertQuoteLinkable(input.quoteId);
+
+  const created = await prisma.siteProject.create({
+    data: {
+      projectNumber: generateProjectNumber(),
+      quoteId: input.quoteId ?? null,
+      labourHeadId: labourHead.id,
+      status: "ASSIGNED",
+      ...toDetailFields(input),
+      events: { create: { type: "CREATED", actorLabel: SUPER_ADMIN_LABEL, note: `Assigned to ${labourHead.name}` } },
+    },
+    include: projectInclude,
+  });
+  return toDTO(created);
+}
+
+/** Correct a project's details. Allowed until the prices are approved; the
+ *  labour head and the quote link can only change while no materials have
+ *  been entered yet. */
+export async function updateProjectDetails(projectId: string, input: ProjectDetailsInput): Promise<SiteProjectDTO> {
+  const prisma = await getDb();
+
+  const current = await prisma.siteProject.findUnique({
+    where: { id: projectId },
+    select: { status: true, labourHeadId: true, quoteId: true },
+  });
+  if (!current) throw new SiteProjectError("Project not found.", 404);
+  if (!PRE_APPROVAL.includes(current.status)) {
+    throw new SiteProjectError("Details can only be edited before the prices are approved.", 409);
+  }
+
+  const newQuoteId = input.quoteId ?? null;
+  const reassigned = input.labourHeadId !== current.labourHeadId || newQuoteId !== current.quoteId;
+  if (reassigned && current.status !== "ASSIGNED") {
+    throw new SiteProjectError("The labour head and quote can't be changed once materials have been entered.", 409);
+  }
+  if (input.labourHeadId !== current.labourHeadId && !(await findActiveLabourHead(input.labourHeadId))) {
+    throw new SiteProjectError("That labour head isn't valid or is deactivated.");
+  }
+  if (newQuoteId && newQuoteId !== current.quoteId) await assertQuoteLinkable(newQuoteId, projectId);
+
+  const moved = await prisma.siteProject.updateMany({
+    where: { id: projectId, status: current.status },
+    data: { labourHeadId: input.labourHeadId, quoteId: newQuoteId, ...toDetailFields(input) },
+  });
+  if (moved.count === 0) throw new SiteProjectError("This project just changed. Reload and try again.", 409);
+  return fetchProject(projectId);
 }
 
 export async function reviewProject(projectId: string, input: ReviewInput): Promise<SiteProjectDTO> {
@@ -422,13 +420,16 @@ export async function reviewProject(projectId: string, input: ReviewInput): Prom
       return;
     }
 
+    // Asking for changes only makes sense once materials are submitted; a
+    // project can be rejected/cancelled at any point before approval.
+    const fromStatuses: SiteProjectStatus[] = input.decision === "REJECT" ? PRE_APPROVAL : ["SUBMITTED"];
     const toStatus = input.decision === "REJECT" ? "REJECTED" : "REVISION_REQUESTED";
     const eventType: SiteProjectEventType = input.decision === "REJECT" ? "REJECTED" : "REVISION_REQUESTED";
     const moved = await tx.siteProject.updateMany({
-      where: { id: projectId, status: "SUBMITTED" },
+      where: { id: projectId, status: { in: fromStatuses } },
       data: { status: toStatus, reviewedAt: new Date(), reviewNote: input.note },
     });
-    if (moved.count === 0) await throwNotActionable(tx, projectId, null, "be reviewed");
+    if (moved.count === 0) await throwNotActionable(tx, projectId, null, input.decision === "REJECT" ? "be cancelled" : "be sent back");
     await tx.siteProjectEvent.create({
       data: { projectId, type: eventType, actorLabel: SUPER_ADMIN_LABEL, note: input.note },
     });
@@ -447,6 +448,102 @@ export async function markPaid(projectId: string, paymentReference: string | nul
     await tx.siteProjectEvent.create({
       data: { projectId, type: "PAID", actorLabel: SUPER_ADMIN_LABEL, note: paymentReference || null },
     });
+  });
+  return fetchProject(projectId);
+}
+
+// ============================================================================
+// Labour head (Field Engineer account) side
+// ============================================================================
+
+/** The labour head is just a real, active Field Engineer account — the
+ *  shared maker token can't prove which one is calling, so every labour-head
+ *  function below re-checks the supplied id against the DB and scopes every
+ *  read/write to it. */
+async function assertLabourHead(engineerId: string): Promise<void> {
+  if (!(await findActiveLabourHead(engineerId))) {
+    throw new SiteProjectError("That labour head account isn't valid or is deactivated.", 403);
+  }
+}
+
+async function labourHeadName(engineerId: string): Promise<string> {
+  const prisma = await getDb();
+  const u = await prisma.user.findUnique({ where: { id: engineerId }, select: { name: true } });
+  return u?.name ?? "Labour head";
+}
+
+export async function listProjectsForLabourHead(engineerId: string): Promise<SiteProjectDTO[]> {
+  await assertLabourHead(engineerId);
+  const prisma = await getDb();
+  const rows = await prisma.siteProject.findMany({
+    where: { labourHeadId: engineerId },
+    include: projectInclude,
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+  return rows.map(toDTO);
+}
+
+/** Enter (or, after the Super Admin asked for changes, correct) the
+ *  materials and prices, and send them for approval. */
+export async function submitMaterials(engineerId: string, projectId: string, materials: MaterialInput[]): Promise<SiteProjectDTO> {
+  await assertLabourHead(engineerId);
+  const prisma = await getDb();
+  const actorLabel = await labourHeadName(engineerId);
+
+  await prisma.$transaction(async (tx) => {
+    const current = await tx.siteProject.findFirst({
+      where: { id: projectId, labourHeadId: engineerId },
+      select: { status: true },
+    });
+    if (!current) throw new SiteProjectError("Project not found.", 404);
+    if (current.status !== "ASSIGNED" && current.status !== "REVISION_REQUESTED") {
+      throw new SiteProjectError(`Materials can't be changed right now (status: ${current.status}).`, 409);
+    }
+
+    const moved = await tx.siteProject.updateMany({
+      where: { id: projectId, labourHeadId: engineerId, status: current.status },
+      data: { status: "SUBMITTED", submittedAt: new Date(), reviewNote: null, reviewedAt: null },
+    });
+    if (moved.count === 0) await throwNotActionable(tx, projectId, engineerId, "take materials");
+
+    await tx.siteProjectMaterial.deleteMany({ where: { projectId } });
+    await tx.siteProjectMaterial.createMany({ data: toMaterialCreate(materials).map((m) => ({ ...m, projectId })) });
+    await tx.siteProjectEvent.create({
+      data: { projectId, type: current.status === "ASSIGNED" ? "SUBMITTED" : "RESUBMITTED", actorLabel },
+    });
+  });
+  return fetchProject(projectId);
+}
+
+export async function startSite(engineerId: string, projectId: string): Promise<SiteProjectDTO> {
+  await assertLabourHead(engineerId);
+  const prisma = await getDb();
+  const actorLabel = await labourHeadName(engineerId);
+
+  await prisma.$transaction(async (tx) => {
+    const moved = await tx.siteProject.updateMany({
+      where: { id: projectId, labourHeadId: engineerId, status: "APPROVED" },
+      data: { status: "IN_PROGRESS", startedAt: new Date() },
+    });
+    if (moved.count === 0) await throwNotActionable(tx, projectId, engineerId, "start");
+    await tx.siteProjectEvent.create({ data: { projectId, type: "STARTED", actorLabel } });
+  });
+  return fetchProject(projectId);
+}
+
+export async function endSite(engineerId: string, projectId: string, completionNotes: string): Promise<SiteProjectDTO> {
+  await assertLabourHead(engineerId);
+  const prisma = await getDb();
+  const actorLabel = await labourHeadName(engineerId);
+
+  await prisma.$transaction(async (tx) => {
+    const moved = await tx.siteProject.updateMany({
+      where: { id: projectId, labourHeadId: engineerId, status: "IN_PROGRESS" },
+      data: { status: "COMPLETED", completedAt: new Date(), completionNotes },
+    });
+    if (moved.count === 0) await throwNotActionable(tx, projectId, engineerId, "end");
+    await tx.siteProjectEvent.create({ data: { projectId, type: "COMPLETED", actorLabel, note: completionNotes } });
   });
   return fetchProject(projectId);
 }

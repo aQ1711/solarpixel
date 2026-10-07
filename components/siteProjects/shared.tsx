@@ -17,7 +17,8 @@ export function formatDate(isoOrYmd: string): string {
 }
 
 export const EVENT_LABEL: Record<SiteProjectEventType, string> = {
-  SUBMITTED: "Submitted for approval",
+  CREATED: "Project created",
+  SUBMITTED: "Materials submitted for approval",
   REVISION_REQUESTED: "Changes requested",
   RESUBMITTED: "Resubmitted",
   APPROVED: "Approved",
@@ -30,6 +31,7 @@ export const EVENT_LABEL: Record<SiteProjectEventType, string> = {
 // Tone per status. Two palettes because the labour-head page is dark and
 // the admin page is light; both keep the label readable on its ground.
 const STATUS_TONE: Record<SiteProjectStatus, { light: string; dark: string }> = {
+  ASSIGNED: { light: "bg-indigo-100 text-indigo-800", dark: "bg-indigo-400/15 text-indigo-300" },
   SUBMITTED: { light: "bg-amber-100 text-amber-800", dark: "bg-amber-400/15 text-amber-300" },
   REVISION_REQUESTED: { light: "bg-orange-100 text-orange-800", dark: "bg-orange-400/15 text-orange-300" },
   APPROVED: { light: "bg-emerald-100 text-emerald-800", dark: "bg-emerald-400/15 text-emerald-300" },

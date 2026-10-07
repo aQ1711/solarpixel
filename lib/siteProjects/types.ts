@@ -7,6 +7,7 @@
  */
 
 export type SiteProjectStatus =
+  | "ASSIGNED"
   | "SUBMITTED"
   | "REVISION_REQUESTED"
   | "APPROVED"
@@ -16,6 +17,7 @@ export type SiteProjectStatus =
   | "REJECTED";
 
 export type SiteProjectEventType =
+  | "CREATED"
   | "SUBMITTED"
   | "REVISION_REQUESTED"
   | "RESUBMITTED"
@@ -79,13 +81,17 @@ export interface SiteProjectDTO {
   paidAt: string | null;
   paymentReference: string | null;
 
-  submittedAt: string;
+  /** When the Super Admin created and assigned the project. */
+  createdAt: string;
+  /** When the labour head last submitted materials; null while ASSIGNED. */
+  submittedAt: string | null;
   events: SiteProjectEventDTO[];
 }
 
 /** An approved/dispatched customer quote a project can optionally be linked
- *  to. Deliberately carries NO price: the labour head must never see what
- *  the customer is paying. */
+ *  to. Carries no price: the quote's price never travels with a site project
+ *  (the labour head, who sees the project, must never see what the customer
+ *  pays). */
 export interface LinkableQuoteDTO {
   id: string;
   quoteNumber: string;
@@ -96,7 +102,19 @@ export interface LinkableQuoteDTO {
   serviceType: string;
 }
 
+export interface LabourHeadOptionDTO {
+  id: string;
+  name: string;
+}
+
+/** What the admin's "New project" form needs to offer. */
+export interface ProjectOptionsDTO {
+  labourHeads: LabourHeadOptionDTO[];
+  quotes: LinkableQuoteDTO[];
+}
+
 export const SITE_PROJECT_STATUS_LABEL: Record<SiteProjectStatus, string> = {
+  ASSIGNED: "Waiting for materials",
   SUBMITTED: "Awaiting approval",
   REVISION_REQUESTED: "Changes requested",
   APPROVED: "Approved, ready to start",

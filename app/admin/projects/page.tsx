@@ -8,6 +8,8 @@ import {
   Loader2,
   MapPin,
   MessageSquareWarning,
+  Pencil,
+  Plus,
   RefreshCw,
   ShieldCheck,
   XCircle,
@@ -21,6 +23,7 @@ import {
   roundMoney,
   sumLinesPKR,
   SITE_PROJECT_STATUS_LABEL,
+  type ProjectOptionsDTO,
   type SiteProjectDTO,
   type SiteProjectStatus,
 } from "@/lib/siteProjects/types";
@@ -34,6 +37,9 @@ const MATERIAL_GRID = "sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_5rem_7.5rem
 
 type Filter = "ACTION" | "ALL" | SiteProjectStatus;
 
+/** Before the prices are approved: details are still editable. */
+const PRE_APPROVAL: SiteProjectStatus[] = ["ASSIGNED", "SUBMITTED", "REVISION_REQUESTED"];
+
 /** Statuses where the ball is in the Super Admin's court. */
 const NEEDS_ADMIN: SiteProjectStatus[] = ["SUBMITTED", "COMPLETED"];
 
@@ -46,7 +52,7 @@ const FILTER_LABEL: Record<Filter, string> = {
   IN_PROGRESS: "In progress",
   COMPLETED: "Payout due",
 };
-const FILTER_ORDER: Filter[] = ["ACTION", "ALL", "SUBMITTED", "REVISION_REQUESTED", "APPROVED", "IN_PROGRESS", "COMPLETED", "PAID", "REJECTED"];
+const FILTER_ORDER: Filter[] = ["ACTION", "ALL", "ASSIGNED", "SUBMITTED", "REVISION_REQUESTED", "APPROVED", "IN_PROGRESS", "COMPLETED", "PAID", "REJECTED"];
 
 // ============================================================================
 // Page
@@ -59,6 +65,24 @@ export default function AdminProjectsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("ACTION");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // null = the list/detail view; otherwise the create/edit form is showing.
+  const [formMode, setFormMode] = useState<null | { editing: SiteProjectDTO | null }>(null);
+  const [options, setOptions] = useState<ProjectOptionsDTO | null>(null);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+
+  async function openForm(editing: SiteProjectDTO | null) {
+    setFormMode({ editing });
+    setOptionsError(null);
+    try {
+      const res = await internalFetch("ADMIN", "/api/admin/projects/options");
+      if (res.status === 401) return onUnauthorized();
+      const data = (await res.json()) as ApiJson<Partial<ProjectOptionsDTO>>;
+      if (!res.ok) return setOptionsError(data?.error ?? "Could not load the labour heads.");
+      setOptions({ labourHeads: data.labourHeads ?? [], quotes: data.quotes ?? [] });
+    } catch {
+      setOptionsError("Network error. Please try again.");
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -115,19 +139,29 @@ export default function AdminProjectsPage() {
             </p>
             <h1 className="mt-0.5 text-xl font-bold text-stone-900">Site Projects</h1>
             <p className={`mt-1 text-sm text-stone-500 ${selected ? "hidden xl:block" : ""}`}>
-              Verify your labour heads&apos; materials and prices, accept the project, then release their payout when the
-              site ends.
+              Add a project for a labour head, who enters the materials. Verify their prices, accept it, then release
+              their payout when the site ends.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={load}
-            disabled={loading}
-            className="flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-600 shadow-sm transition hover:text-stone-900 disabled:opacity-60"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={load}
+              disabled={loading}
+              className="flex min-h-10 items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-600 shadow-sm transition hover:text-stone-900 disabled:opacity-60"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => openForm(null)}
+              className="flex min-h-10 items-center gap-1.5 rounded-xl bg-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New project
+            </button>
+          </div>
         </header>
 
         {loadError && (
@@ -138,7 +172,7 @@ export default function AdminProjectsPage() {
 
         <div
           className={`-mx-4 mb-4 gap-2 overflow-x-auto px-4 pb-1 sm:-mx-8 sm:px-8 xl:mx-0 xl:flex xl:flex-wrap xl:overflow-visible xl:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
-            selected ? "hidden" : "flex"
+            selected || formMode ? "hidden" : "flex"
           }`}
         >
           {FILTER_ORDER.map((f) => {
@@ -171,7 +205,26 @@ export default function AdminProjectsPage() {
           </div>
         )}
 
-        {projects && (
+        {formMode && (
+          <ProjectForm
+            key={formMode.editing?.id ?? "new"}
+            editing={formMode.editing}
+            options={options}
+            optionsError={optionsError}
+            onUnauthorized={onUnauthorized}
+            onCancel={() => setFormMode(null)}
+            onSaved={(p) => {
+              setProjects((prev) => [p, ...(prev ?? []).filter((x) => x.id !== p.id)]);
+              setSelectedId(p.id);
+              // A brand-new project is "Waiting for materials", which the
+              // default "Needs you" view hides, so jump to where it shows.
+              if (!formMode.editing) setFilter("ASSIGNED");
+              setFormMode(null);
+            }}
+          />
+        )}
+
+        {projects && !formMode && (
           <div className="grid gap-5 xl:grid-cols-[22rem_minmax(0,1fr)]">
             <div className={`space-y-2.5 ${selected ? "hidden xl:block" : ""}`}>
               {visible.length === 0 && (
@@ -200,7 +253,7 @@ export default function AdminProjectsPage() {
                   <div className="mt-2.5 flex items-baseline justify-between text-xs text-stone-500">
                     <span className="truncate">{p.labourHead.name}</span>
                     <span className="shrink-0 font-semibold tabular-nums text-stone-700">
-                      {formatPKR(p.payoutPKR ?? p.proposedMaterialsTotalPKR)}
+                      {p.status === "ASSIGNED" ? "No materials yet" : formatPKR(p.payoutPKR ?? p.proposedMaterialsTotalPKR)}
                     </span>
                   </div>
                 </button>
@@ -213,6 +266,7 @@ export default function AdminProjectsPage() {
                   key={selected.id}
                   project={selected}
                   onBack={() => setSelectedId(null)}
+                  onEdit={() => openForm(selected)}
                   onChanged={replaceProject}
                   onUnauthorized={onUnauthorized}
                 />
@@ -236,11 +290,13 @@ const digitsOnly = (v: string) => v.replace(/[^\d.]/g, "").replace(/(\..*)\./g, 
 function ProjectReview({
   project,
   onBack,
+  onEdit,
   onChanged,
   onUnauthorized,
 }: {
   project: SiteProjectDTO;
   onBack: () => void;
+  onEdit: () => void;
   onChanged: (p: SiteProjectDTO) => void;
   onUnauthorized: (reason?: string) => void;
 }) {
@@ -332,7 +388,18 @@ function ProjectReview({
               </span>
             </p>
           </div>
-          <StatusBadge status={project.status} />
+          <div className="flex flex-col items-end gap-2">
+            <StatusBadge status={project.status} />
+            {PRE_APPROVAL.includes(project.status) && (
+              <button
+                type="button"
+                onClick={onEdit}
+                className="flex min-h-9 items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2.5 text-xs font-medium text-stone-600 transition hover:border-stone-300 hover:text-stone-900"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Edit details
+              </button>
+            )}
+          </div>
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
           <Fact label="Labour head" value={project.labourHead.name} />
@@ -341,12 +408,20 @@ function ProjectReview({
           {project.crewSize !== null && <Fact label="Crew" value={`${project.crewSize} people`} />}
           {project.estimatedDays !== null && <Fact label="Estimated" value={`${project.estimatedDays} days`} />}
           {project.quote && <Fact label="Customer quote" value={project.quote.quoteNumber} />}
-          <Fact label="Submitted" value={formatDateTime(project.submittedAt)} />
+          <Fact label="Created" value={formatDateTime(project.createdAt)} />
+          {project.submittedAt && <Fact label="Materials submitted" value={formatDateTime(project.submittedAt)} />}
         </dl>
         {project.scopeNotes && <p className="mt-3 whitespace-pre-line text-sm text-stone-600">{project.scopeNotes}</p>}
       </div>
 
+      {/* Waiting for the labour head, or revision requested: the admin's only
+          options here are to cancel (everything else is the labour head's move). */}
+      {(project.status === "ASSIGNED" || project.status === "REVISION_REQUESTED") && (
+        <CancelCard project={project} onChanged={onChanged} onUnauthorized={onUnauthorized} />
+      )}
+
       {/* Materials: proposed vs approved */}
+      {project.materials.length > 0 && (
       <div className={CARD}>
         <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">
           {reviewable ? "Verify materials and prices" : "Materials"}
@@ -431,6 +506,7 @@ function ProjectReview({
           </ul>
         </div>
       </div>
+      )}
 
       {/* Payout */}
       {reviewable && (
@@ -638,5 +714,348 @@ function Row({ label, value, hint, muted }: { label: string; value: string; hint
         {hint && <span className="block text-xs text-amber-700">{hint}</span>}
       </dd>
     </div>
+  );
+}
+
+// ============================================================================
+// Cancel (project still waiting on the labour head)
+// ============================================================================
+
+function CancelCard({
+  project,
+  onChanged,
+  onUnauthorized,
+}: {
+  project: SiteProjectDTO;
+  onChanged: (p: SiteProjectDTO) => void;
+  onUnauthorized: (reason?: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function cancel() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await internalFetch("ADMIN", `/api/admin/projects/${project.id}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision: "REJECT", note: reason }),
+      });
+      if (res.status === 401) return onUnauthorized();
+      const data = (await res.json()) as ApiJson<{ project?: SiteProjectDTO }>;
+      if (!res.ok || !data.project) return setError(data?.error ?? "Could not cancel the project.");
+      onChanged(data.project);
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={CARD}>
+      {project.status === "ASSIGNED" && (
+        <p className="text-sm text-stone-700">
+          Waiting for <span className="font-semibold">{project.labourHead.name}</span> to open this project and enter the
+          materials and prices.
+        </p>
+      )}
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-700 transition hover:bg-red-50 sm:w-auto ${
+            project.status === "ASSIGNED" ? "mt-3" : ""
+          }`}
+        >
+          <XCircle className="h-4 w-4" /> Cancel project
+        </button>
+      ) : (
+        <div className={`rounded-xl border border-stone-200 bg-stone-50 p-3 ${project.status === "ASSIGNED" ? "mt-3" : ""}`}>
+          <label htmlFor="cancelReason" className="block text-sm font-medium text-stone-700">
+            Why are you cancelling this project?
+          </label>
+          <textarea
+            id="cancelReason"
+            rows={3}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. Customer cancelled"
+            className={`${FIELD} mt-1.5`}
+          />
+          <div className="mt-2.5 flex gap-2">
+            <button
+              type="button"
+              disabled={busy || !reason.trim()}
+              onClick={cancel}
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-60 sm:flex-none"
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              Cancel project
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setReason("");
+              }}
+              className="min-h-11 rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-600"
+            >
+              Keep it
+            </button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// New / edit project form
+// ============================================================================
+
+function ProjectForm({
+  editing,
+  options,
+  optionsError,
+  onUnauthorized,
+  onCancel,
+  onSaved,
+}: {
+  editing: SiteProjectDTO | null;
+  options: ProjectOptionsDTO | null;
+  optionsError: string | null;
+  onUnauthorized: (reason?: string) => void;
+  onCancel: () => void;
+  onSaved: (p: SiteProjectDTO) => void;
+}) {
+  const [labourHeadId, setLabourHeadId] = useState(editing?.labourHead.id ?? "");
+  const [quoteId, setQuoteId] = useState(editing?.quote?.id ?? "");
+  const [clientName, setClientName] = useState(editing?.clientName ?? "");
+  const [siteAddress, setSiteAddress] = useState(editing?.siteAddress ?? "");
+  const [city, setCity] = useState(editing?.city ?? "Lahore");
+  const [systemSizeKw, setSystemSizeKw] = useState(editing?.systemSizeKw?.toString() ?? "");
+  const [plannedStartDate, setPlannedStartDate] = useState(editing?.plannedStartDate ?? "");
+  const [crewSize, setCrewSize] = useState(editing?.crewSize?.toString() ?? "");
+  const [estimatedDays, setEstimatedDays] = useState(editing?.estimatedDays?.toString() ?? "");
+  const [scopeNotes, setScopeNotes] = useState(editing?.scopeNotes ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // The labour head and quote link are fixed once materials have been entered.
+  const assignmentLocked = editing !== null && editing.status !== "ASSIGNED";
+
+  function pickQuote(id: string) {
+    setQuoteId(id);
+    const q = options?.quotes.find((x) => x.id === id);
+    if (!q) return;
+    setClientName(q.clientName);
+    setCity(q.city);
+    if (q.address) setSiteAddress(q.address);
+    setSystemSizeKw(String(q.systemKw));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await internalFetch("ADMIN", editing ? `/api/admin/projects/${editing.id}` : "/api/admin/projects", {
+        method: editing ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          labourHeadId,
+          quoteId: quoteId || null,
+          clientName,
+          siteAddress,
+          city,
+          systemSizeKw: systemSizeKw ? Number(systemSizeKw) : null,
+          plannedStartDate: plannedStartDate || null,
+          crewSize: crewSize ? Number(crewSize) : null,
+          estimatedDays: estimatedDays ? Number(estimatedDays) : null,
+          scopeNotes: scopeNotes || null,
+        }),
+      });
+      if (res.status === 401) return onUnauthorized();
+      const data = (await res.json()) as ApiJson<{ project?: SiteProjectDTO }>;
+      if (!res.ok || !data.project) return setError(data?.error ?? "Could not save the project.");
+      onSaved(data.project);
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const label = "mb-1 block text-xs font-medium text-stone-500";
+
+  return (
+    <form onSubmit={handleSubmit} className="mx-auto max-w-3xl space-y-4">
+      <button type="button" onClick={onCancel} className="flex min-h-11 items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900">
+        <ArrowLeft className="h-4 w-4" /> Back to projects
+      </button>
+
+      <div className={`${CARD} space-y-4`}>
+        <div>
+          <h2 className="text-lg font-semibold text-stone-900">{editing ? "Edit project details" : "New project"}</h2>
+          <p className="mt-0.5 text-sm text-stone-500">
+            {editing
+              ? "The labour head sees these details. Materials and prices are entered by them."
+              : "Fill in the site details and pick the labour head. They will only need to enter the materials."}
+          </p>
+        </div>
+
+        {optionsError && (
+          <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {optionsError}
+          </p>
+        )}
+
+        <div>
+          <label htmlFor="labourHeadId" className={label}>
+            Labour head
+          </label>
+          <select
+            id="labourHeadId"
+            value={labourHeadId}
+            onChange={(e) => setLabourHeadId(e.target.value)}
+            disabled={assignmentLocked}
+            required
+            className={`${FIELD} disabled:bg-stone-100 disabled:text-stone-500`}
+          >
+            <option value="">{options ? "Select a labour head…" : "Loading…"}</option>
+            {/* Keep the current labour head selectable even if they were
+                deactivated since, so an edit doesn't silently blank it. */}
+            {editing && !options?.labourHeads.some((l) => l.id === editing.labourHead.id) && (
+              <option value={editing.labourHead.id}>{editing.labourHead.name}</option>
+            )}
+            {options?.labourHeads.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          {options && options.labourHeads.length === 0 && (
+            <p className="mt-1 text-xs text-amber-700">No labour heads yet. Add one under Team, in the Field Engineers section.</p>
+          )}
+          {assignmentLocked && (
+            <p className="mt-1 text-xs text-stone-400">Fixed once the labour head has entered materials.</p>
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="quoteId" className={label}>
+            Customer quote <span className="text-stone-400">(optional, fills in the details below)</span>
+          </label>
+          <select
+            id="quoteId"
+            value={quoteId}
+            onChange={(e) => pickQuote(e.target.value)}
+            disabled={assignmentLocked}
+            className={`${FIELD} disabled:bg-stone-100 disabled:text-stone-500`}
+          >
+            <option value="">Not linked</option>
+            {editing?.quote && !options?.quotes.some((q) => q.id === editing.quote?.id) && (
+              <option value={editing.quote.id}>{editing.quote.quoteNumber}</option>
+            )}
+            {options?.quotes.map((q) => (
+              <option key={q.id} value={q.id}>
+                {q.quoteNumber} · {q.clientName} · {q.systemKw} kW
+              </option>
+            ))}
+          </select>
+          {options && options.quotes.length === 0 && !editing?.quote && (
+            <p className="mt-1 text-xs text-stone-400">No approved quotes are waiting for a site project.</p>
+          )}
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label htmlFor="clientName" className={label}>
+              Client name
+            </label>
+            <input id="clientName" value={clientName} onChange={(e) => setClientName(e.target.value)} required className={FIELD} />
+          </div>
+          <div>
+            <label htmlFor="city" className={label}>
+              City
+            </label>
+            <input id="city" value={city} onChange={(e) => setCity(e.target.value)} required className={FIELD} />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="siteAddress" className={label}>
+            Site address
+          </label>
+          <input id="siteAddress" value={siteAddress} onChange={(e) => setSiteAddress(e.target.value)} required className={FIELD} />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-4">
+          <div>
+            <label htmlFor="systemSizeKw" className={label}>
+              System size (kW)
+            </label>
+            <input id="systemSizeKw" inputMode="decimal" value={systemSizeKw} onChange={(e) => setSystemSizeKw(digitsOnly(e.target.value))} className={FIELD} />
+          </div>
+          <div>
+            <label htmlFor="plannedStartDate" className={label}>
+              Planned start
+            </label>
+            <input id="plannedStartDate" type="date" value={plannedStartDate} onChange={(e) => setPlannedStartDate(e.target.value)} className={FIELD} />
+          </div>
+          <div>
+            <label htmlFor="crewSize" className={label}>
+              Crew size
+            </label>
+            <input id="crewSize" inputMode="numeric" value={crewSize} onChange={(e) => setCrewSize(digitsOnly(e.target.value))} className={FIELD} />
+          </div>
+          <div>
+            <label htmlFor="estimatedDays" className={label}>
+              Estimated days
+            </label>
+            <input id="estimatedDays" inputMode="numeric" value={estimatedDays} onChange={(e) => setEstimatedDays(digitsOnly(e.target.value))} className={FIELD} />
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="scopeNotes" className={label}>
+            Scope of work <span className="text-stone-400">(optional)</span>
+          </label>
+          <textarea id="scopeNotes" rows={3} value={scopeNotes} onChange={(e) => setScopeNotes(e.target.value)} className={FIELD} />
+        </div>
+
+        {error && (
+          <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </p>
+        )}
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            type="submit"
+            disabled={busy || !labourHeadId}
+            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60 sm:w-auto"
+          >
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            {editing ? "Save changes" : "Create and assign"}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="min-h-11 w-full rounded-xl border border-stone-200 bg-white px-5 py-2.5 text-sm font-medium text-stone-600 sm:w-auto"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </form>
   );
 }

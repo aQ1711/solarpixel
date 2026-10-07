@@ -1076,17 +1076,19 @@ model TickerSettings {
 }
 
 // ============================================================================
-// SITE PROJECTS (2026-10-07) — labour head enters project + materials, the
-// Super Admin verifies prices and accepts, the site runs, the labour head
-// is paid. Everything here is PUBLIC-schema and is data the labour head
-// entered themselves (their own proposed purchase prices), never Solar
-// Pixel's confidential vendor cost or margin — so it uses the ordinary
-// public Prisma client (lib/siteProjects.ts) and stays clear of
+// SITE PROJECTS (2026-10-07) — the Super Admin creates a project and assigns
+// it to a labour head, who only enters the materials and their prices; the
+// Super Admin verifies the prices and accepts, the site runs, the labour
+// head is paid. Everything here is PUBLIC-schema and the prices are the
+// labour head's own proposed purchase prices, never Solar Pixel's
+// confidential vendor cost or margin — so it uses the ordinary public
+// Prisma client (lib/siteProjects/server.ts) and stays clear of
 // vendor_private entirely.
 // ============================================================================
 
 enum SiteProjectStatus {
-  SUBMITTED // Labour head entered details + materials; awaiting the Super Admin
+  ASSIGNED // Super Admin created the project; waiting for the labour head's materials
+  SUBMITTED // Labour head entered the materials + prices; awaiting the Super Admin
   REVISION_REQUESTED // Sent back with a note; labour head edits and resubmits
   APPROVED // Super Admin accepted the materials/prices; site may start
   IN_PROGRESS // Labour head started the site
@@ -1098,6 +1100,7 @@ enum SiteProjectStatus {
 }
 
 enum SiteProjectEventType {
+  CREATED
   SUBMITTED
   REVISION_REQUESTED
   RESUBMITTED
@@ -1114,18 +1117,19 @@ model SiteProject {
   id            String @id @default(cuid())
   projectNumber String @unique // e.g. SITE-2026-4F9A21BC
 
-  // Optional link to the customer quote this site is delivering — pre-fills
-  // client/address/size, but a project can also be entered standalone.
+  // Optional link to the customer quote this site is delivering — the admin
+  // can pick one to pre-fill client/address/size, or enter a project
+  // standalone.
   quoteId String?
   quote   Quote?  @relation("SiteProjectQuote", fields: [quoteId], references: [id], onDelete: SetNull)
 
-  // The Field Engineer account acting as the labour head for this site.
+  // The Field Engineer account the Super Admin assigned as labour head.
   labourHeadId String
   labourHead   User   @relation("SiteProjectLabourHead", fields: [labourHeadId], references: [id], onDelete: Restrict)
 
-  status SiteProjectStatus @default(SUBMITTED)
+  status SiteProjectStatus @default(ASSIGNED)
 
-  // ---- Project details (entered before the site starts) ----
+  // ---- Project details (entered by the Super Admin when creating it) ----
   clientName       String
   siteAddress      String
   city             String
@@ -1156,9 +1160,10 @@ model SiteProject {
   paidAt           DateTime?
   paymentReference String?
 
-  submittedAt DateTime @default(now())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  // When the labour head last submitted materials; null while ASSIGNED.
+  submittedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   materials SiteProjectMaterial[]
   events    SiteProjectEvent[]

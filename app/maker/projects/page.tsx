@@ -19,7 +19,7 @@ import { AccessGate } from "@/components/internal/AccessGate";
 import { BrandMark } from "@/components/BrandMark";
 import { EVENT_LABEL, formatDate, formatDateTime, formatPKR, StatusBadge } from "@/components/siteProjects/shared";
 import { internalFetch, type ApiJson } from "@/lib/internal/access";
-import { lineTotalPKR, sumLinesPKR, type LinkableQuoteDTO, type SiteProjectDTO } from "@/lib/siteProjects/types";
+import { lineTotalPKR, sumLinesPKR, type SiteProjectDTO } from "@/lib/siteProjects/types";
 
 // ============================================================================
 // Shared look (same tokens as the Field Engineer survey tool)
@@ -41,7 +41,7 @@ interface Engineer {
   name: string;
 }
 
-type View = { kind: "list" } | { kind: "form"; editing: SiteProjectDTO | null } | { kind: "detail"; id: string };
+type View = { kind: "list" } | { kind: "detail"; id: string };
 
 // ============================================================================
 // Page
@@ -59,7 +59,6 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
   const [engineers, setEngineers] = useState<Engineer[]>([]);
   const [engineerId, setEngineerId] = useState("");
   const [projects, setProjects] = useState<SiteProjectDTO[] | null>(null);
-  const [quotes, setQuotes] = useState<LinkableQuoteDTO[]>([]);
   const [view, setView] = useState<View>({ kind: "list" });
   const [error, setError] = useState<string | null>(null);
 
@@ -111,17 +110,6 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engineerId]);
 
-  async function loadQuotes() {
-    try {
-      const res = await internalFetch("MAKER", "/api/maker/project-quotes");
-      if (res.status === 401) return onUnauthorized();
-      const data = (await res.json()) as ApiJson<{ quotes?: LinkableQuoteDTO[] }>;
-      if (res.ok) setQuotes(data.quotes ?? []);
-    } catch {
-      /* optional link: the form works without it */
-    }
-  }
-
   function chooseEngineer(id: string) {
     setEngineerId(id);
     setView({ kind: "list" });
@@ -133,7 +121,7 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
   }
 
   function upsertProject(p: SiteProjectDTO) {
-    setProjects((prev) => [p, ...(prev ?? []).filter((x) => x.id !== p.id)].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)));
+    setProjects((prev) => [p, ...(prev ?? []).filter((x) => x.id !== p.id)].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
   }
 
   const selected = view.kind === "detail" ? projects?.find((p) => p.id === view.id) ?? null : null;
@@ -148,7 +136,8 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
           </div>
           <h1 className="mt-0.5 text-xl font-bold text-[var(--color-ink)]">Site Projects</h1>
           <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
-            Enter the project and materials for approval. Start the site once it is approved, and get paid when it ends.
+            Open your project, enter the materials you need with their prices, and send them for approval. Start the site
+            once it is approved, and get paid when it ends.
           </p>
           <nav className="mt-3 flex gap-2 text-xs font-medium">
             <span className="rounded-full bg-[var(--color-amber)] px-3 py-1.5 text-[var(--color-amber-ink)]">Site Projects</span>
@@ -186,39 +175,15 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
           )}
         </div>
 
-        {engineerId && view.kind === "list" && (
-          <ProjectList
-            projects={projects}
-            onNew={() => {
-              void loadQuotes();
-              setView({ kind: "form", editing: null });
-            }}
-            onOpen={(id) => setView({ kind: "detail", id })}
-          />
-        )}
-
-        {engineerId && view.kind === "form" && (
-          <ProjectForm
-            key={view.editing?.id ?? "new"}
-            engineerId={engineerId}
-            editing={view.editing}
-            quotes={quotes}
-            onUnauthorized={onUnauthorized}
-            onCancel={() => setView(view.editing ? { kind: "detail", id: view.editing.id } : { kind: "list" })}
-            onSaved={(p) => {
-              upsertProject(p);
-              setView({ kind: "detail", id: p.id });
-            }}
-          />
-        )}
+        {engineerId && view.kind === "list" && <ProjectList projects={projects} onOpen={(id) => setView({ kind: "detail", id })} />}
 
         {engineerId && view.kind === "detail" && selected && (
           <ProjectDetail
+            key={selected.id}
             project={selected}
             engineerId={engineerId}
             onUnauthorized={onUnauthorized}
             onBack={() => setView({ kind: "list" })}
-            onEdit={() => setView({ kind: "form", editing: selected })}
             onChanged={upsertProject}
           />
         )}
@@ -231,21 +196,9 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
 // List
 // ============================================================================
 
-function ProjectList({
-  projects,
-  onNew,
-  onOpen,
-}: {
-  projects: SiteProjectDTO[] | null;
-  onNew: () => void;
-  onOpen: (id: string) => void;
-}) {
+function ProjectList({ projects, onOpen }: { projects: SiteProjectDTO[] | null; onOpen: (id: string) => void }) {
   return (
     <div className="space-y-3">
-      <button type="button" onClick={onNew} className={BTN_PRIMARY}>
-        <Plus className="h-4 w-4" /> New project
-      </button>
-
       {projects === null && (
         <div className="flex items-center justify-center gap-2 py-10 text-sm text-[var(--color-ink-muted)]">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading your projects…
@@ -256,8 +209,7 @@ function ProjectList({
         <div className={`${CARD} text-center`}>
           <ClipboardList className="mx-auto h-8 w-8 text-[var(--color-ink-faint)]" />
           <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
-            No projects yet. Tap <span className="text-[var(--color-ink)]">New project</span> to enter the details and
-            materials for approval.
+            No projects have been assigned to you yet. When the admin adds one, it will show up here.
           </p>
         </div>
       )}
@@ -267,19 +219,27 @@ function ProjectList({
           key={p.id}
           type="button"
           onClick={() => onOpen(p.id)}
-          className={`${CARD} block w-full text-left transition hover:border-[var(--color-border-strong)]`}
+          className={`${CARD} block w-full text-left transition hover:border-[var(--color-border-strong)] ${
+            p.status === "ASSIGNED" ? "!border-indigo-400/40" : ""
+          }`}
         >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
+          <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
+            <div className="min-w-[9rem] flex-1">
               <p className="truncate text-sm font-semibold text-[var(--color-ink)]">{p.clientName}</p>
-              <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">
+              <p className="mt-0.5 truncate text-xs text-[var(--color-ink-faint)]">
                 {p.projectNumber} · {p.city}
               </p>
             </div>
             <StatusBadge status={p.status} dark />
           </div>
           <p className="mt-3 text-xs text-[var(--color-ink-muted)]">
-            {p.payoutPKR !== null ? (
+            {p.status === "ASSIGNED" ? (
+              <span className="font-semibold text-indigo-300">Tap to enter the materials</span>
+            ) : p.status === "REVISION_REQUESTED" ? (
+              <span className="font-semibold text-orange-300">Tap to fix the materials</span>
+            ) : p.status === "REJECTED" ? (
+              <>This project was cancelled</>
+            ) : p.payoutPKR !== null ? (
               <>
                 Your payout <span className="font-semibold text-[var(--color-neon)]">{formatPKR(p.payoutPKR)}</span>
               </>
@@ -302,14 +262,12 @@ function ProjectDetail({
   engineerId,
   onUnauthorized,
   onBack,
-  onEdit,
   onChanged,
 }: {
   project: SiteProjectDTO;
   engineerId: string;
   onUnauthorized: (reason?: string) => void;
   onBack: () => void;
-  onEdit: () => void;
   onChanged: (p: SiteProjectDTO) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -339,10 +297,13 @@ function ProjectDetail({
   }
 
   const approvedTotal = project.approvedMaterialsTotalPKR;
+  // The materials list is shown read-only once submitted; while the labour
+  // head still has to enter (or fix) them, the editable form takes its place.
+  const editingMaterials = project.status === "ASSIGNED" || project.status === "REVISION_REQUESTED";
 
   return (
     <div className="space-y-4">
-      <button type="button" onClick={onBack} className="flex items-center gap-1.5 text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
+      <button type="button" onClick={onBack} className="flex min-h-11 items-center gap-1.5 text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
         <ArrowLeft className="h-4 w-4" /> All projects
       </button>
 
@@ -371,6 +332,12 @@ function ProjectDetail({
       </div>
 
       {/* What happens next, depending on where the project is */}
+      {project.status === "ASSIGNED" && (
+        <Callout tone="indigo" title="Your turn: enter the materials">
+          Add everything you will buy for this site, with your price for each. The admin checks the prices before you start.
+        </Callout>
+      )}
+
       {project.status === "SUBMITTED" && (
         <Callout tone="amber" title="Waiting for approval">
           The admin is checking your materials and prices. You can start the site once it is approved.
@@ -380,16 +347,17 @@ function ProjectDetail({
       {project.status === "REVISION_REQUESTED" && (
         <Callout tone="orange" title="Changes requested">
           {project.reviewNote}
-          <button type="button" onClick={onEdit} className={`${BTN_PRIMARY} mt-3`}>
-            Edit and resubmit
-          </button>
         </Callout>
       )}
 
       {project.status === "REJECTED" && (
-        <Callout tone="red" title="Project rejected">
+        <Callout tone="red" title="Project cancelled">
           {project.reviewNote}
         </Callout>
+      )}
+
+      {editingMaterials && (
+        <MaterialsForm project={project} engineerId={engineerId} onUnauthorized={onUnauthorized} onSubmitted={onChanged} />
       )}
 
       {project.payoutPKR !== null && project.status !== "REJECTED" && (
@@ -479,45 +447,47 @@ function ProjectDetail({
         </p>
       )}
 
-      <div className={CARD}>
-        <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-ink-faint)]">Materials</p>
-        <ul className="mt-2 divide-y divide-[var(--color-border)]">
-          {project.materials.map((m) => {
-            const changed =
-              m.approvedQuantity !== null &&
-              (m.approvedQuantity !== m.quantity || m.approvedUnitPricePKR !== m.proposedUnitPricePKR);
-            return (
-              <li key={m.id} className="py-2.5 text-sm">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-[var(--color-ink)]">{m.name}</span>
-                  <span className="shrink-0 tabular-nums text-[var(--color-ink-muted)]">
-                    {formatPKR(lineTotalPKR(m.quantity, m.proposedUnitPricePKR))}
-                  </span>
-                </div>
-                <p className="text-xs text-[var(--color-ink-faint)]">
-                  {m.quantity} {m.unit} × {formatPKR(m.proposedUnitPricePKR)}
-                </p>
-                {changed && (
-                  <p className="mt-0.5 text-xs text-[var(--color-neon)]">
-                    Approved: {m.approvedQuantity} {m.unit} × {formatPKR(m.approvedUnitPricePKR ?? 0)} ={" "}
-                    {formatPKR(lineTotalPKR(m.approvedQuantity ?? 0, m.approvedUnitPricePKR ?? 0))}
+      {!editingMaterials && project.materials.length > 0 && (
+        <div className={CARD}>
+          <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-ink-faint)]">Materials</p>
+          <ul className="mt-2 divide-y divide-[var(--color-border)]">
+            {project.materials.map((m) => {
+              const changed =
+                m.approvedQuantity !== null &&
+                (m.approvedQuantity !== m.quantity || m.approvedUnitPricePKR !== m.proposedUnitPricePKR);
+              return (
+                <li key={m.id} className="py-2.5 text-sm">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-[var(--color-ink)]">{m.name}</span>
+                    <span className="shrink-0 tabular-nums text-[var(--color-ink-muted)]">
+                      {formatPKR(lineTotalPKR(m.quantity, m.proposedUnitPricePKR))}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--color-ink-faint)]">
+                    {m.quantity} {m.unit} × {formatPKR(m.proposedUnitPricePKR)}
                   </p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-        <div className="mt-2 flex items-baseline justify-between border-t border-[var(--color-border)] pt-3 text-sm">
-          <span className="text-[var(--color-ink-muted)]">You proposed</span>
-          <span className="font-semibold tabular-nums text-[var(--color-ink)]">{formatPKR(project.proposedMaterialsTotalPKR)}</span>
-        </div>
-        {approvedTotal !== null && (
-          <div className="mt-1 flex items-baseline justify-between text-sm">
-            <span className="text-[var(--color-ink-muted)]">Approved</span>
-            <span className="font-semibold tabular-nums text-[var(--color-neon)]">{formatPKR(approvedTotal)}</span>
+                  {changed && (
+                    <p className="mt-0.5 text-xs text-[var(--color-neon)]">
+                      Approved: {m.approvedQuantity} {m.unit} × {formatPKR(m.approvedUnitPricePKR ?? 0)} ={" "}
+                      {formatPKR(lineTotalPKR(m.approvedQuantity ?? 0, m.approvedUnitPricePKR ?? 0))}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <div className="mt-2 flex items-baseline justify-between border-t border-[var(--color-border)] pt-3 text-sm">
+            <span className="text-[var(--color-ink-muted)]">You proposed</span>
+            <span className="font-semibold tabular-nums text-[var(--color-ink)]">{formatPKR(project.proposedMaterialsTotalPKR)}</span>
           </div>
-        )}
-      </div>
+          {approvedTotal !== null && (
+            <div className="mt-1 flex items-baseline justify-between text-sm">
+              <span className="text-[var(--color-ink-muted)]">Approved</span>
+              <span className="font-semibold tabular-nums text-[var(--color-neon)]">{formatPKR(approvedTotal)}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       <Timeline project={project} />
     </div>
@@ -538,11 +508,12 @@ function Callout({
   title,
   children,
 }: {
-  tone: "amber" | "orange" | "red";
+  tone: "indigo" | "amber" | "orange" | "red";
   title: string;
   children: React.ReactNode;
 }) {
   const toneClass = {
+    indigo: "border-indigo-400/30 bg-indigo-400/10 text-indigo-200",
     amber: "border-amber-400/30 bg-amber-400/10 text-amber-200",
     orange: "border-orange-400/30 bg-orange-400/10 text-orange-200",
     red: "border-red-400/30 bg-red-400/10 text-red-200",
@@ -578,7 +549,7 @@ function Timeline({ project }: { project: SiteProjectDTO }) {
 }
 
 // ============================================================================
-// Form (new project, or edit after changes were requested)
+// Materials form (the only thing a labour head enters)
 // ============================================================================
 
 interface MaterialRow {
@@ -593,33 +564,21 @@ const UNIT_SUGGESTIONS = ["pcs", "m", "set", "kg", "bag", "box", "roll"];
 const emptyRow = (key: number): MaterialRow => ({ key, name: "", unit: "pcs", quantity: "", unitPrice: "" });
 const digitsOnly = (v: string) => v.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
 
-function ProjectForm({
+function MaterialsForm({
+  project,
   engineerId,
-  editing,
-  quotes,
   onUnauthorized,
-  onCancel,
-  onSaved,
+  onSubmitted,
 }: {
+  project: SiteProjectDTO;
   engineerId: string;
-  editing: SiteProjectDTO | null;
-  quotes: LinkableQuoteDTO[];
   onUnauthorized: (reason?: string) => void;
-  onCancel: () => void;
-  onSaved: (p: SiteProjectDTO) => void;
+  onSubmitted: (p: SiteProjectDTO) => void;
 }) {
-  const [quoteId, setQuoteId] = useState(editing?.quote?.id ?? "");
-  const [clientName, setClientName] = useState(editing?.clientName ?? "");
-  const [siteAddress, setSiteAddress] = useState(editing?.siteAddress ?? "");
-  const [city, setCity] = useState(editing?.city ?? "Lahore");
-  const [systemSizeKw, setSystemSizeKw] = useState(editing?.systemSizeKw?.toString() ?? "");
-  const [plannedStartDate, setPlannedStartDate] = useState(editing?.plannedStartDate ?? "");
-  const [crewSize, setCrewSize] = useState(editing?.crewSize?.toString() ?? "");
-  const [estimatedDays, setEstimatedDays] = useState(editing?.estimatedDays?.toString() ?? "");
-  const [scopeNotes, setScopeNotes] = useState(editing?.scopeNotes ?? "");
+  // After "changes requested" the earlier list comes back pre-filled to fix.
   const [rows, setRows] = useState<MaterialRow[]>(
-    editing
-      ? editing.materials.map((m, i) => ({
+    project.materials.length > 0
+      ? project.materials.map((m, i) => ({
           key: i,
           name: m.name,
           unit: m.unit,
@@ -628,29 +587,16 @@ function ProjectForm({
         }))
       : [emptyRow(0)],
   );
-  const [nextKey, setNextKey] = useState(editing ? editing.materials.length : 1);
+  const [nextKey, setNextKey] = useState(Math.max(project.materials.length, 1));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  function pickQuote(id: string) {
-    setQuoteId(id);
-    const q = quotes.find((x) => x.id === id);
-    if (!q) return;
-    setClientName(q.clientName);
-    setCity(q.city);
-    if (q.address) setSiteAddress(q.address);
-    setSystemSizeKw(String(q.systemKw));
-  }
 
   function updateRow(key: number, patch: Partial<MaterialRow>) {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
 
   const total = useMemo(
-    () =>
-      sumLinesPKR(
-        rows.map((r) => ({ quantity: Number(r.quantity) || 0, unitPricePKR: Number(r.unitPrice) || 0 })),
-      ),
+    () => sumLinesPKR(rows.map((r) => ({ quantity: Number(r.quantity) || 0, unitPricePKR: Number(r.unitPrice) || 0 }))),
     [rows],
   );
 
@@ -659,33 +605,23 @@ function ProjectForm({
     setBusy(true);
     setError(null);
     try {
-      const payload = {
-        engineerId,
-        quoteId: editing ? undefined : quoteId || null,
-        clientName,
-        siteAddress,
-        city,
-        systemSizeKw: systemSizeKw ? Number(systemSizeKw) : null,
-        plannedStartDate: plannedStartDate || null,
-        crewSize: crewSize ? Number(crewSize) : null,
-        estimatedDays: estimatedDays ? Number(estimatedDays) : null,
-        scopeNotes: scopeNotes || null,
-        materials: rows.map((r) => ({
-          name: r.name,
-          unit: r.unit,
-          quantity: Number(r.quantity),
-          unitPricePKR: Number(r.unitPrice),
-        })),
-      };
-      const res = await internalFetch("MAKER", editing ? `/api/maker/projects/${editing.id}` : "/api/maker/projects", {
-        method: editing ? "PUT" : "POST",
+      const res = await internalFetch("MAKER", `/api/maker/projects/${project.id}/materials`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          engineerId,
+          materials: rows.map((r) => ({
+            name: r.name,
+            unit: r.unit,
+            quantity: Number(r.quantity),
+            unitPricePKR: Number(r.unitPrice),
+          })),
+        }),
       });
       if (res.status === 401) return onUnauthorized();
       const data = (await res.json()) as ApiJson<{ project?: SiteProjectDTO }>;
-      if (!res.ok || !data.project) return setError(data?.error ?? "Could not submit the project.");
-      onSaved(data.project);
+      if (!res.ok || !data.project) return setError(data?.error ?? "Could not send the materials.");
+      onSubmitted(data.project);
     } catch {
       setError("Network error. Check your connection and try again.");
     } finally {
@@ -694,163 +630,77 @@ function ProjectForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <button type="button" onClick={onCancel} className="flex items-center gap-1.5 text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
-        <ArrowLeft className="h-4 w-4" /> Cancel
+    <form onSubmit={handleSubmit} className={`${CARD} space-y-3`}>
+      <p className="flex items-center gap-1.5 text-sm font-semibold text-[var(--color-ink)]">
+        <HardHat className="h-4 w-4 text-[var(--color-amber)]" /> Materials and prices
+      </p>
+
+      {rows.map((r, i) => (
+        <div key={r.key} className="space-y-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
+          <div className="flex items-center gap-2">
+            <input
+              aria-label={`Material ${i + 1} name`}
+              value={r.name}
+              onChange={(e) => updateRow(r.key, { name: e.target.value })}
+              placeholder="Material name (e.g. DC cable)"
+              className={INPUT}
+            />
+            {rows.length > 1 && (
+              <button
+                type="button"
+                aria-label={`Remove material ${i + 1}`}
+                onClick={() => setRows((prev) => prev.filter((x) => x.key !== r.key))}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition hover:text-red-400"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div>
+              <label htmlFor={`qty-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
+                Quantity
+              </label>
+              <input id={`qty-${r.key}`} inputMode="decimal" value={r.quantity} onChange={(e) => updateRow(r.key, { quantity: digitsOnly(e.target.value) })} className={INPUT} />
+            </div>
+            <div>
+              <label htmlFor={`unit-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
+                Unit
+              </label>
+              <input id={`unit-${r.key}`} list="unit-options" value={r.unit} onChange={(e) => updateRow(r.key, { unit: e.target.value })} className={INPUT} />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+              <label htmlFor={`price-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
+                Price / unit (Rs)
+              </label>
+              <input id={`price-${r.key}`} inputMode="decimal" value={r.unitPrice} onChange={(e) => updateRow(r.key, { unitPrice: digitsOnly(e.target.value) })} className={INPUT} />
+            </div>
+          </div>
+          <p className="text-right text-xs tabular-nums text-[var(--color-ink-muted)]">
+            Line total {formatPKR(lineTotalPKR(Number(r.quantity) || 0, Number(r.unitPrice) || 0))}
+          </p>
+        </div>
+      ))}
+      <datalist id="unit-options">
+        {UNIT_SUGGESTIONS.map((u) => (
+          <option key={u} value={u} />
+        ))}
+      </datalist>
+
+      <button
+        type="button"
+        onClick={() => {
+          setRows((prev) => [...prev, emptyRow(nextKey)]);
+          setNextKey((k) => k + 1);
+        }}
+        className={`${BTN_GHOST} w-full`}
+      >
+        <Plus className="h-4 w-4" /> Add material
       </button>
 
-      <div className={`${CARD} space-y-3`}>
-        <p className="flex items-center gap-1.5 text-sm font-semibold text-[var(--color-ink)]">
-          <HardHat className="h-4 w-4 text-[var(--color-amber)]" />
-          {editing ? "Edit project" : "Project details"}
-        </p>
-
-        {editing ? (
-          editing.quote && <p className="text-xs text-[var(--color-ink-faint)]">Linked to customer quote {editing.quote.quoteNumber}</p>
-        ) : (
-          <div>
-            <label htmlFor="quoteId" className={LABEL}>
-              Customer quote <span className="text-[var(--color-ink-faint)]">(optional)</span>
-            </label>
-            <select id="quoteId" value={quoteId} onChange={(e) => pickQuote(e.target.value)} className={INPUT}>
-              <option value="">Not linked (type details)</option>
-              {quotes.map((q) => (
-                <option key={q.id} value={q.id}>
-                  {q.quoteNumber} · {q.clientName} · {q.systemKw} kW
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        <div>
-          <label htmlFor="clientName" className={LABEL}>
-            Client name
-          </label>
-          <input id="clientName" value={clientName} onChange={(e) => setClientName(e.target.value)} className={INPUT} required />
-        </div>
-        <div>
-          <label htmlFor="siteAddress" className={LABEL}>
-            Site address
-          </label>
-          <input id="siteAddress" value={siteAddress} onChange={(e) => setSiteAddress(e.target.value)} className={INPUT} required />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="city" className={LABEL}>
-              City
-            </label>
-            <input id="city" value={city} onChange={(e) => setCity(e.target.value)} className={INPUT} required />
-          </div>
-          <div>
-            <label htmlFor="systemSizeKw" className={LABEL}>
-              System size (kW)
-            </label>
-            <input id="systemSizeKw" inputMode="decimal" value={systemSizeKw} onChange={(e) => setSystemSizeKw(digitsOnly(e.target.value))} className={INPUT} />
-          </div>
-          <div className="col-span-2 sm:col-span-1">
-            <label htmlFor="plannedStartDate" className={LABEL}>
-              Planned start
-            </label>
-            <input id="plannedStartDate" type="date" value={plannedStartDate} onChange={(e) => setPlannedStartDate(e.target.value)} className={INPUT} />
-          </div>
-          <div className="col-span-2 grid grid-cols-2 gap-3 sm:col-span-1">
-            <div>
-              <label htmlFor="crewSize" className={LABEL}>
-                Crew
-              </label>
-              <input id="crewSize" inputMode="numeric" value={crewSize} onChange={(e) => setCrewSize(digitsOnly(e.target.value))} placeholder="4" className={INPUT} />
-            </div>
-            <div>
-              <label htmlFor="estimatedDays" className={LABEL}>
-                Days
-              </label>
-              <input id="estimatedDays" inputMode="numeric" value={estimatedDays} onChange={(e) => setEstimatedDays(digitsOnly(e.target.value))} placeholder="3" className={INPUT} />
-            </div>
-          </div>
-        </div>
-        <div>
-          <label htmlFor="scopeNotes" className={LABEL}>
-            Scope of work <span className="text-[var(--color-ink-faint)]">(optional)</span>
-          </label>
-          <textarea id="scopeNotes" rows={3} value={scopeNotes} onChange={(e) => setScopeNotes(e.target.value)} className={INPUT} />
-        </div>
-      </div>
-
-      <div className={`${CARD} space-y-3`}>
-        <p className="text-sm font-semibold text-[var(--color-ink)]">Materials and prices</p>
-        <p className="text-xs text-[var(--color-ink-muted)]">
-          List everything you will buy for this site with your price for each. The admin approves these prices before you
-          start.
-        </p>
-
-        {rows.map((r, i) => (
-          <div key={r.key} className="space-y-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
-            <div className="flex items-center gap-2">
-              <input
-                aria-label={`Material ${i + 1} name`}
-                value={r.name}
-                onChange={(e) => updateRow(r.key, { name: e.target.value })}
-                placeholder="Material name (e.g. DC cable)"
-                className={INPUT}
-              />
-              {rows.length > 1 && (
-                <button
-                  type="button"
-                  aria-label={`Remove material ${i + 1}`}
-                  onClick={() => setRows((prev) => prev.filter((x) => x.key !== r.key))}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition hover:text-red-400"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <div>
-                <label htmlFor={`qty-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
-                  Quantity
-                </label>
-                <input id={`qty-${r.key}`} inputMode="decimal" value={r.quantity} onChange={(e) => updateRow(r.key, { quantity: digitsOnly(e.target.value) })} className={INPUT} />
-              </div>
-              <div>
-                <label htmlFor={`unit-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
-                  Unit
-                </label>
-                <input id={`unit-${r.key}`} list="unit-options" value={r.unit} onChange={(e) => updateRow(r.key, { unit: e.target.value })} className={INPUT} />
-              </div>
-              <div className="col-span-2 sm:col-span-1">
-                <label htmlFor={`price-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
-                  Price / unit (Rs)
-                </label>
-                <input id={`price-${r.key}`} inputMode="decimal" value={r.unitPrice} onChange={(e) => updateRow(r.key, { unitPrice: digitsOnly(e.target.value) })} className={INPUT} />
-              </div>
-            </div>
-            <p className="text-right text-xs tabular-nums text-[var(--color-ink-muted)]">
-              Line total {formatPKR(lineTotalPKR(Number(r.quantity) || 0, Number(r.unitPrice) || 0))}
-            </p>
-          </div>
-        ))}
-        <datalist id="unit-options">
-          {UNIT_SUGGESTIONS.map((u) => (
-            <option key={u} value={u} />
-          ))}
-        </datalist>
-
-        <button
-          type="button"
-          onClick={() => {
-            setRows((prev) => [...prev, emptyRow(nextKey)]);
-            setNextKey((k) => k + 1);
-          }}
-          className={`${BTN_GHOST} w-full`}
-        >
-          <Plus className="h-4 w-4" /> Add material
-        </button>
-
-        <div className="flex items-baseline justify-between border-t border-[var(--color-border)] pt-3">
-          <span className="text-sm text-[var(--color-ink-muted)]">Materials total</span>
-          <span className="text-lg font-bold tabular-nums text-[var(--color-ink)]">{formatPKR(total)}</span>
-        </div>
+      <div className="flex items-baseline justify-between border-t border-[var(--color-border)] pt-3">
+        <span className="text-sm text-[var(--color-ink-muted)]">Materials total</span>
+        <span className="text-lg font-bold tabular-nums text-[var(--color-ink)]">{formatPKR(total)}</span>
       </div>
 
       {error && (
@@ -861,7 +711,7 @@ function ProjectForm({
 
       <button type="submit" disabled={busy} className={BTN_PRIMARY}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-        {editing ? "Resubmit for approval" : "Submit for approval"}
+        {project.status === "REVISION_REQUESTED" ? "Resubmit for approval" : "Send for approval"}
       </button>
     </form>
   );
