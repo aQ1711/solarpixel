@@ -1,4 +1,4 @@
-import { Users, ClipboardCheck, DollarSign, TrendingUp, UserCog, type LucideIcon } from "lucide-react";
+import { Users, ClipboardCheck, DollarSign, TrendingUp, UserCog, HardHat, type LucideIcon } from "lucide-react";
 
 /**
  * Single source of truth for "who can see which /admin/* page," shared
@@ -50,6 +50,14 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     label: "Checker",
     icon: ClipboardCheck,
     allowed: (v) => v.kind === "SUPER_ADMIN" || v.modules.includes("CHECKER"),
+  },
+  {
+    // Labour-head site projects: approving materials/prices and releasing
+    // payouts is money authority, so Super Admin only (never delegable).
+    href: "/admin/projects",
+    label: "Site Projects",
+    icon: HardHat,
+    allowed: (v) => v.kind === "SUPER_ADMIN",
   },
   {
     href: "/admin/pricing",

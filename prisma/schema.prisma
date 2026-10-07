@@ -354,6 +354,10 @@ model User {
   // SUPER_ADMIN: quotes they (as Checker) approved
   quotesApproved Quote[] @relation("QuoteCheckerApproved")
 
+  // FIELD_ENGINEER acting as a labour head: site projects they entered
+  // (see SiteProject)
+  siteProjectsAsLabourHead SiteProject[] @relation("SiteProjectLabourHead")
+
   // SUPER_ADMIN: vendor cost & margin records they authored
   vendorCostsCreated RawVendorCost[] @relation("VendorCostCreatedBy")
   marginRulesCreated MarginRule[]    @relation("MarginRuleCreatedBy")
@@ -568,12 +572,14 @@ model Quote {
 
   // ---- Stage 2: Maker Submission (Field Engineer) ----
   siteSurvey         SiteSurvey?
+  // Site projects (labour-head work orders) optionally linked to this quote
+  siteProjects       SiteProject[] @relation("SiteProjectQuote")
   boqItems           BoqItem[]
   auditLogs          AuditLog[]
-  finalSystemSizeKw  Decimal?    @db.Decimal(8, 3)
+  finalSystemSizeKw  Decimal?      @db.Decimal(8, 3)
   makerSubmittedAt   DateTime?
   makerSubmittedById String?
-  makerSubmittedBy   User?       @relation("QuoteMakerSubmitted", fields: [makerSubmittedById], references: [id], onDelete: SetNull)
+  makerSubmittedBy   User?         @relation("QuoteMakerSubmitted", fields: [makerSubmittedById], references: [id], onDelete: SetNull)
 
   // ---- Stage 3: Checker Approval (Super Admin) ----
   // Client-safe, margin-inclusive final price. This is the ONLY financial
@@ -1066,5 +1072,146 @@ model TickerSettings {
   updatedAt DateTime @updatedAt
 
   @@map("ticker_settings")
+  @@schema("public")
+}
+
+// ============================================================================
+// SITE PROJECTS (2026-10-07) — labour head enters project + materials, the
+// Super Admin verifies prices and accepts, the site runs, the labour head
+// is paid. Everything here is PUBLIC-schema and is data the labour head
+// entered themselves (their own proposed purchase prices), never Solar
+// Pixel's confidential vendor cost or margin — so it uses the ordinary
+// public Prisma client (lib/siteProjects.ts) and stays clear of
+// vendor_private entirely.
+// ============================================================================
+
+enum SiteProjectStatus {
+  SUBMITTED // Labour head entered details + materials; awaiting the Super Admin
+  REVISION_REQUESTED // Sent back with a note; labour head edits and resubmits
+  APPROVED // Super Admin accepted the materials/prices; site may start
+  IN_PROGRESS // Labour head started the site
+  COMPLETED // Labour head ended the site with a completion report; payout pending
+  PAID // Super Admin released the payout
+  REJECTED // Project turned down; terminal
+
+  @@schema("public")
+}
+
+enum SiteProjectEventType {
+  SUBMITTED
+  REVISION_REQUESTED
+  RESUBMITTED
+  APPROVED
+  REJECTED
+  STARTED
+  COMPLETED
+  PAID
+
+  @@schema("public")
+}
+
+model SiteProject {
+  id            String @id @default(cuid())
+  projectNumber String @unique // e.g. SITE-2026-4F9A21BC
+
+  // Optional link to the customer quote this site is delivering — pre-fills
+  // client/address/size, but a project can also be entered standalone.
+  quoteId String?
+  quote   Quote?  @relation("SiteProjectQuote", fields: [quoteId], references: [id], onDelete: SetNull)
+
+  // The Field Engineer account acting as the labour head for this site.
+  labourHeadId String
+  labourHead   User   @relation("SiteProjectLabourHead", fields: [labourHeadId], references: [id], onDelete: Restrict)
+
+  status SiteProjectStatus @default(SUBMITTED)
+
+  // ---- Project details (entered before the site starts) ----
+  clientName       String
+  siteAddress      String
+  city             String
+  systemSizeKw     Decimal?  @db.Decimal(8, 3)
+  plannedStartDate DateTime? @db.Date
+  crewSize         Int?
+  estimatedDays    Int?
+  scopeNotes       String?   @db.Text
+
+  // ---- Super Admin review ----
+  // Latest revision-request / rejection reason (the full history is in
+  // SiteProjectEvent).
+  reviewNote                String?   @db.Text
+  reviewedAt                DateTime?
+  // Set at approval and frozen: the payout the labour head is owed is
+  // approved materials + labour fee, snapshotted so a later edit can never
+  // silently change what was agreed.
+  labourFeePKR              Decimal?  @db.Decimal(12, 2)
+  approvedMaterialsTotalPKR Decimal?  @db.Decimal(14, 2)
+  payoutPKR                 Decimal?  @db.Decimal(14, 2)
+
+  // ---- Site execution ----
+  startedAt       DateTime?
+  completedAt     DateTime?
+  completionNotes String?   @db.Text
+
+  // ---- Payout ----
+  paidAt           DateTime?
+  paymentReference String?
+
+  submittedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  materials SiteProjectMaterial[]
+  events    SiteProjectEvent[]
+
+  @@index([labourHeadId])
+  @@index([status])
+  @@index([quoteId])
+  @@map("site_projects")
+  @@schema("public")
+}
+
+// One material line. quantity/proposedUnitPricePKR are what the labour head
+// entered; approvedQuantity/approvedUnitPricePKR are filled in for EVERY
+// line when the Super Admin approves (equal to the proposal unless they
+// edited it), and are what the payout is computed from.
+model SiteProjectMaterial {
+  id String @id @default(cuid())
+
+  projectId String
+  project   SiteProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  sortOrder Int    @default(0)
+  name      String
+  unit      String // free text: "pcs", "m", "set", "bag"...
+
+  quantity             Decimal @db.Decimal(10, 2)
+  proposedUnitPricePKR Decimal @db.Decimal(12, 2)
+
+  approvedQuantity     Decimal? @db.Decimal(10, 2)
+  approvedUnitPricePKR Decimal? @db.Decimal(12, 2)
+
+  @@index([projectId])
+  @@map("site_project_materials")
+  @@schema("public")
+}
+
+// Append-only timeline of a project's workflow steps. actorLabel is a
+// denormalized display name ("Super Admin", or the labour head's name) —
+// the Super Admin has no per-request User identity (see Role's doc
+// comment), so this is deliberately not an FK.
+model SiteProjectEvent {
+  id String @id @default(cuid())
+
+  projectId String
+  project   SiteProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  type       SiteProjectEventType
+  actorLabel String
+  note       String?              @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@map("site_project_events")
   @@schema("public")
 }
