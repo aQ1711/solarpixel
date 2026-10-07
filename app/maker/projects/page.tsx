@@ -713,7 +713,7 @@ function ProjectForm({
               Customer quote <span className="text-[var(--color-ink-faint)]">(optional)</span>
             </label>
             <select id="quoteId" value={quoteId} onChange={(e) => pickQuote(e.target.value)} className={INPUT}>
-              <option value="">Not linked, I will type the details</option>
+              <option value="">Not linked (type details)</option>
               {quotes.map((q) => (
                 <option key={q.id} value={q.id}>
                   {q.quoteNumber} · {q.clientName} · {q.systemKw} kW
@@ -748,13 +748,13 @@ function ProjectForm({
             </label>
             <input id="systemSizeKw" inputMode="decimal" value={systemSizeKw} onChange={(e) => setSystemSizeKw(digitsOnly(e.target.value))} className={INPUT} />
           </div>
-          <div>
+          <div className="col-span-2 sm:col-span-1">
             <label htmlFor="plannedStartDate" className={LABEL}>
               Planned start
             </label>
             <input id="plannedStartDate" type="date" value={plannedStartDate} onChange={(e) => setPlannedStartDate(e.target.value)} className={INPUT} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2 grid grid-cols-2 gap-3 sm:col-span-1">
             <div>
               <label htmlFor="crewSize" className={LABEL}>
                 Crew
@@ -791,7 +791,7 @@ function ProjectForm({
                 aria-label={`Material ${i + 1} name`}
                 value={r.name}
                 onChange={(e) => updateRow(r.key, { name: e.target.value })}
-                placeholder="Material name, e.g. 6mm DC cable"
+                placeholder="Material name (e.g. DC cable)"
                 className={INPUT}
               />
               {rows.length > 1 && (
@@ -799,13 +799,13 @@ function ProjectForm({
                   type="button"
                   aria-label={`Remove material ${i + 1}`}
                   onClick={() => setRows((prev) => prev.filter((x) => x.key !== r.key))}
-                  className="shrink-0 rounded-lg p-2 text-[var(--color-ink-faint)] transition hover:text-red-400"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition hover:text-red-400"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <div>
                 <label htmlFor={`qty-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
                   Quantity
@@ -818,7 +818,7 @@ function ProjectForm({
                 </label>
                 <input id={`unit-${r.key}`} list="unit-options" value={r.unit} onChange={(e) => updateRow(r.key, { unit: e.target.value })} className={INPUT} />
               </div>
-              <div>
+              <div className="col-span-2 sm:col-span-1">
                 <label htmlFor={`price-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
                   Price / unit (Rs)
                 </label>

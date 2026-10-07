@@ -25,9 +25,12 @@ import {
   type SiteProjectStatus,
 } from "@/lib/siteProjects/types";
 
-const CARD = "rounded-2xl border border-stone-200 bg-white p-5 shadow-sm";
+const CARD = "rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5";
 const FIELD =
-  "w-full rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm text-stone-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200";
+  "w-full rounded-lg border border-stone-200 bg-white px-2.5 py-2.5 text-sm sm:py-1.5 text-stone-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200";
+
+/** One shared column template so the header row and every material row line up (sm+). */
+const MATERIAL_GRID = "sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_5rem_7.5rem_6.5rem]";
 
 type Filter = "ACTION" | "ALL" | SiteProjectStatus;
 
@@ -103,7 +106,7 @@ export default function AdminProjectsPage() {
   }
 
   return (
-    <main className="min-h-dvh bg-stone-50 px-4 py-6 sm:px-8">
+    <main className="min-h-dvh bg-stone-50 px-4 py-4 sm:px-8 sm:py-6">
       <div className="mx-auto max-w-6xl">
         <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -111,7 +114,7 @@ export default function AdminProjectsPage() {
               <ShieldCheck className="h-3.5 w-3.5" /> Solar Pixel · Super Admin
             </p>
             <h1 className="mt-0.5 text-xl font-bold text-stone-900">Site Projects</h1>
-            <p className="mt-1 text-sm text-stone-500">
+            <p className={`mt-1 text-sm text-stone-500 ${selected ? "hidden xl:block" : ""}`}>
               Verify your labour heads&apos; materials and prices, accept the project, then release their payout when the
               site ends.
             </p>
@@ -133,7 +136,11 @@ export default function AdminProjectsPage() {
           </p>
         )}
 
-        <div className="mb-4 flex flex-wrap gap-2">
+        <div
+          className={`-mx-4 mb-4 gap-2 overflow-x-auto px-4 pb-1 sm:-mx-8 sm:px-8 xl:mx-0 xl:flex xl:flex-wrap xl:overflow-visible xl:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+            selected ? "hidden" : "flex"
+          }`}
+        >
           {FILTER_ORDER.map((f) => {
             const active = filter === f;
             const n = counts.get(f) ?? 0;
@@ -143,7 +150,7 @@ export default function AdminProjectsPage() {
                 type="button"
                 onClick={() => setFilter(f)}
                 aria-pressed={active}
-                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                className={`flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs font-medium transition ${
                   active
                     ? "border-violet-600 bg-violet-600 text-white"
                     : "border-stone-200 bg-white text-stone-600 hover:border-stone-300"
@@ -181,8 +188,8 @@ export default function AdminProjectsPage() {
                     selectedId === p.id ? "border-violet-500 ring-2 ring-violet-100" : "border-stone-200"
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
+                  <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1.5">
+                    <div className="min-w-[10rem] flex-1">
                       <p className="truncate text-sm font-semibold text-stone-900">{p.clientName}</p>
                       <p className="mt-0.5 truncate text-xs text-stone-500">
                         {p.projectNumber} · {p.city}
@@ -309,7 +316,7 @@ function ProjectReview({
 
   return (
     <div className="space-y-4">
-      <button type="button" onClick={onBack} className="flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900 xl:hidden">
+      <button type="button" onClick={onBack} className="flex min-h-11 items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900 xl:hidden">
         <ArrowLeft className="h-4 w-4" /> All projects
       </button>
 
@@ -344,72 +351,84 @@ function ProjectReview({
         <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">
           {reviewable ? "Verify materials and prices" : "Materials"}
         </p>
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[34rem] text-sm">
-            <thead>
-              <tr className="text-left text-xs text-stone-400">
-                <th className="pb-2 font-medium">Material</th>
-                <th className="pb-2 font-medium">Proposed</th>
-                <th className="pb-2 font-medium">Qty</th>
-                <th className="pb-2 font-medium">Price / unit</th>
-                <th className="pb-2 text-right font-medium">Approved total</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-100">
-              {project.materials.map((m) => {
-                const d = draft[m.id];
-                const qtyChanged = Number(d.qty) !== m.quantity;
-                const priceChanged = Number(d.price) !== m.proposedUnitPricePKR;
-                const readOnlyQty = m.approvedQuantity ?? m.quantity;
-                const readOnlyPrice = m.approvedUnitPricePKR ?? m.proposedUnitPricePKR;
-                return (
-                  <tr key={m.id} className="align-middle">
-                    <td className="py-2.5 pr-3 text-stone-900">{m.name}</td>
-                    <td className="py-2.5 pr-3 text-xs tabular-nums text-stone-500">
-                      {m.quantity} {m.unit} × {formatPKR(m.proposedUnitPricePKR)}
+        <div className="mt-3">
+          <div className={`hidden gap-3 pb-2 text-xs font-medium text-stone-400 sm:grid ${MATERIAL_GRID}`}>
+            <span>Material</span>
+            <span>Proposed</span>
+            <span>Qty</span>
+            <span>Price / unit</span>
+            <span className="text-right">Approved total</span>
+          </div>
+          <ul className="divide-y divide-stone-100">
+            {project.materials.map((m) => {
+              const d = draft[m.id];
+              const qtyChanged = Number(d.qty) !== m.quantity;
+              const priceChanged = Number(d.price) !== m.proposedUnitPricePKR;
+              const readOnlyQty = m.approvedQuantity ?? m.quantity;
+              const readOnlyPrice = m.approvedUnitPricePKR ?? m.proposedUnitPricePKR;
+              const approvedLine = formatPKR(
+                reviewable ? lineTotalPKR(Number(d.qty) || 0, Number(d.price) || 0) : lineTotalPKR(readOnlyQty, readOnlyPrice),
+              );
+              // Phones: name + total on top, proposal underneath, then the
+              // two editable fields side by side. sm+: one table-like row.
+              return (
+                <li key={m.id} className={`grid grid-cols-2 gap-x-3 gap-y-2 py-3 sm:items-center ${MATERIAL_GRID}`}>
+                  <div className="col-span-2 flex items-start justify-between gap-3 sm:col-span-1 sm:block">
+                    <p className="min-w-0 text-sm font-medium text-stone-900 sm:font-normal">{m.name}</p>
+                    <p className="shrink-0 text-sm font-semibold tabular-nums text-stone-900 sm:hidden">{approvedLine}</p>
+                  </div>
+                  <p className="col-span-2 text-xs tabular-nums text-stone-500 sm:col-span-1">
+                    <span className="sm:hidden">Proposed </span>
+                    {m.quantity} {m.unit} × {formatPKR(m.proposedUnitPricePKR)}
+                    <span className="hidden sm:inline">
                       <br />
-                      {formatPKR(lineTotalPKR(m.quantity, m.proposedUnitPricePKR))}
-                    </td>
-                    <td className="py-2.5 pr-2">
-                      {reviewable ? (
-                        <input
-                          aria-label={`Approved quantity for ${m.name}`}
-                          inputMode="decimal"
-                          value={d.qty}
-                          onChange={(e) => setDraft((prev) => ({ ...prev, [m.id]: { ...prev[m.id], qty: digitsOnly(e.target.value) } }))}
-                          className={`${FIELD} w-20 ${qtyChanged ? "border-amber-400 bg-amber-50" : ""}`}
-                        />
-                      ) : (
-                        <span className="tabular-nums">
-                          {readOnlyQty} {m.unit}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2.5 pr-2">
-                      {reviewable ? (
-                        <input
-                          aria-label={`Approved price per unit for ${m.name}`}
-                          inputMode="decimal"
-                          value={d.price}
-                          onChange={(e) => setDraft((prev) => ({ ...prev, [m.id]: { ...prev[m.id], price: digitsOnly(e.target.value) } }))}
-                          className={`${FIELD} w-28 ${priceChanged ? "border-amber-400 bg-amber-50" : ""}`}
-                        />
-                      ) : (
-                        <span className="tabular-nums">{formatPKR(readOnlyPrice)}</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 text-right font-medium tabular-nums text-stone-900">
-                      {formatPKR(
-                        reviewable
-                          ? lineTotalPKR(Number(d.qty) || 0, Number(d.price) || 0)
-                          : lineTotalPKR(readOnlyQty, readOnlyPrice),
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </span>
+                    <span className="sm:hidden"> = </span>
+                    {formatPKR(lineTotalPKR(m.quantity, m.proposedUnitPricePKR))}
+                  </p>
+                  <div>
+                    <label htmlFor={`q-${m.id}`} className="mb-1 block text-[11px] text-stone-400 sm:sr-only">
+                      Approved qty
+                    </label>
+                    {reviewable ? (
+                      <input
+                        id={`q-${m.id}`}
+                        aria-label={`Approved quantity for ${m.name}`}
+                        inputMode="decimal"
+                        value={d.qty}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, [m.id]: { ...prev[m.id], qty: digitsOnly(e.target.value) } }))}
+                        className={`${FIELD} ${qtyChanged ? "border-amber-400 bg-amber-50" : ""}`}
+                      />
+                    ) : (
+                      <p id={`q-${m.id}`} className="text-sm tabular-nums text-stone-900">
+                        {readOnlyQty} {m.unit}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label htmlFor={`p-${m.id}`} className="mb-1 block text-[11px] text-stone-400 sm:sr-only">
+                      Approved price / unit
+                    </label>
+                    {reviewable ? (
+                      <input
+                        id={`p-${m.id}`}
+                        aria-label={`Approved price per unit for ${m.name}`}
+                        inputMode="decimal"
+                        value={d.price}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, [m.id]: { ...prev[m.id], price: digitsOnly(e.target.value) } }))}
+                        className={`${FIELD} ${priceChanged ? "border-amber-400 bg-amber-50" : ""}`}
+                      />
+                    ) : (
+                      <p id={`p-${m.id}`} className="text-sm tabular-nums text-stone-900">
+                        {formatPKR(readOnlyPrice)}
+                      </p>
+                    )}
+                  </div>
+                  <p className="hidden text-right text-sm font-medium tabular-nums text-stone-900 sm:block">{approvedLine}</p>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       </div>
 
@@ -451,12 +470,12 @@ function ProjectReview({
           <input id="approveNote" value={approveNote} onChange={(e) => setApproveNote(e.target.value)} className={`${FIELD} mt-1`} />
 
           {mode === null ? (
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
                 type="button"
                 onClick={approve}
                 disabled={busy || payout <= 0}
-                className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60 sm:w-auto"
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 Approve and let them start
@@ -464,14 +483,14 @@ function ProjectReview({
               <button
                 type="button"
                 onClick={() => setMode("REQUEST_REVISION")}
-                className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 transition hover:border-stone-300"
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 transition hover:border-stone-300 sm:w-auto"
               >
                 <MessageSquareWarning className="h-4 w-4" /> Ask for changes
               </button>
               <button
                 type="button"
                 onClick={() => setMode("REJECT")}
-                className="flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-700 transition hover:bg-red-50 sm:w-auto"
               >
                 <XCircle className="h-4 w-4" /> Reject
               </button>
@@ -494,7 +513,7 @@ function ProjectReview({
                   type="button"
                   disabled={busy || !reason.trim()}
                   onClick={() => post("review", { decision: mode, note: reason }, "Could not send that.")}
-                  className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition disabled:opacity-60 ${
+                  className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition disabled:opacity-60 sm:flex-none ${
                     mode === "REJECT" ? "bg-red-600 hover:bg-red-700" : "bg-violet-600 hover:bg-violet-700"
                   }`}
                 >
@@ -507,7 +526,7 @@ function ProjectReview({
                     setMode(null);
                     setReason("");
                   }}
-                  className="rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-600"
+                  className="min-h-11 rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-600"
                 >
                   Cancel
                 </button>
@@ -547,7 +566,7 @@ function ProjectReview({
             type="button"
             disabled={busy}
             onClick={() => post("pay", { paymentReference: paymentReference || null }, "Could not mark this as paid.")}
-            className="mt-3 flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
+            className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60 sm:w-auto"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
             Mark {formatPKR(project.payoutPKR ?? 0)} as paid
