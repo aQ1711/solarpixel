@@ -3514,7 +3514,7 @@ function CalculatorCard() {
                 above for why that matters inside the dashboard's narrower
                 left column. bg-white (alternating back from Step 2's
                 bg-slate-50) — see StepHeader/Part 2. */}
-            <div ref={configurationRef} className="@container rounded-2xl border border-slate-200 bg-white p-4">
+            <div ref={configurationRef} className="@container rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
               <StepHeader step={3} title="Equipment Configurator" />
               <PathToggle path={customizationPath} onChange={setCustomizationPath} />
 
@@ -4127,7 +4127,7 @@ function CalculatorCard() {
                         second bespoke picker UI. */}
                     <div className="space-y-3 lg:hidden">
                       {/* Panels */}
-                      <div className="rounded-[18px] border border-slate-200 bg-white p-4">
+                      <div className="rounded-[18px] border border-slate-200 bg-white p-3.5">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-extrabold text-slate-900">Panels</span>
                           <span className="font-mono text-xs font-semibold text-emerald-700">
@@ -4175,9 +4175,9 @@ function CalculatorCard() {
                               // inline to the right on a wide-enough
                               // container (@xs:justify-between).
                               <>
-                              <div className="mt-3 flex flex-col gap-2 @xs:flex-row @xs:items-center @xs:justify-between">
+                              <div className="mt-3 flex items-center justify-between gap-3">
                                 <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-slate-900">
+                                  <p className="text-sm font-semibold leading-snug text-slate-900">
                                     {currentPanelOption?.specValue ? `${currentPanelOption.specValue} W` : currentPanelOption?.label}
                                     {currentPanelOption?.specValue ? " · " : ""}
                                     {currentPanelOption?.brand ?? ""}
@@ -4193,7 +4193,7 @@ function CalculatorCard() {
                                     shell was too wide to sit beside the
                                     spec text on a 390px card without
                                     squeezing it to nothing. */}
-                                <div className="flex shrink-0 items-center gap-3.5 self-start rounded-xl bg-[#F5F1EB] px-2 py-1.5 @xs:self-auto">
+                                <div className="flex shrink-0 items-center gap-2.5 rounded-xl bg-[#F5F1EB] px-2 py-1.5">
                                   <button
                                     type="button"
                                     onClick={() => setPanelQtyOverride(Math.max(panelFloor, panelQty - 1))}
@@ -4238,7 +4238,7 @@ function CalculatorCard() {
                       </div>
 
                       {/* Inverter */}
-                      <div className="rounded-[18px] border border-slate-200 bg-white p-4">
+                      <div className="rounded-[18px] border border-slate-200 bg-white p-3.5">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-extrabold text-slate-900">Inverter</span>
                           <span className="font-mono text-xs font-semibold text-emerald-700">
@@ -4335,7 +4335,7 @@ function CalculatorCard() {
                             const totalCapacityKw = specKw * displayQuantity;
                             return (
                               <div className="mt-3">
-                                <div className="flex flex-col gap-2 @xs:flex-row @xs:items-center @xs:justify-between">
+                                <div className="flex items-center justify-between gap-3">
                                   <div className="min-w-0">
                                     <p className="text-sm font-semibold text-slate-900">Number of Units</p>
                                     <p className="text-xs text-slate-500">
@@ -4344,7 +4344,7 @@ function CalculatorCard() {
                                       {!isFullyManual ? `min ${autoQuantity}` : ""}
                                     </p>
                                   </div>
-                                  <div className="flex shrink-0 items-center gap-3.5 self-start rounded-xl bg-[#F5F1EB] px-2 py-1.5 @xs:self-auto">
+                                  <div className="flex shrink-0 items-center gap-2.5 rounded-xl bg-[#F5F1EB] px-2 py-1.5">
                                     <button
                                       type="button"
                                       onClick={() => setInverterQuantityOverride(Math.max(minQuantity, displayQuantity - 1))}
