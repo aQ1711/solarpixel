@@ -131,81 +131,99 @@ export default function CustomQuotationPage() {
         )}
 
         {quotation && (
-          <article className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-8 print:rounded-none print:border-0 print:p-0 print:shadow-none">
-            <header className="flex items-start justify-between gap-4 border-b border-stone-200 pb-4">
+          <article className="relative overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-xl shadow-stone-200/50 print:overflow-visible print:rounded-none print:border-0 print:shadow-none">
+            {/* Same faint brand watermark as the customer-facing quote page;
+                deliberately not print:hidden so it survives Save as PDF. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute left-1/2 top-1/2 z-0 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.05] [print-color-adjust:exact] [-webkit-print-color-adjust:exact]"
+            >
+              <BrandMark className="h-full w-full" gradientId="customQuoteWatermark" />
+            </div>
+
+            <header
+              className="relative z-10 p-6 text-white [print-color-adjust:exact] [-webkit-print-color-adjust:exact] sm:p-8"
+              style={{ background: "linear-gradient(155deg, #0F172A 0%, #0B1220 60%, #0B3B30 150%)" }}
+            >
               <div className="flex items-center gap-2.5">
                 <BrandMark className="h-9 w-9 shrink-0" gradientId="solarPixelMarkGradientQuote" />
                 <div>
-                  <p className="text-lg font-bold leading-tight text-stone-900">Solar Pixel</p>
-                  <p className="text-xs text-stone-500">{WEBSITE_URL.replace("https://", "")}</p>
+                  <p className="text-sm font-semibold leading-tight">Solar Pixel</p>
+                  <p className="text-[10px] text-slate-400">(Pvt) Ltd. · {WEBSITE_URL.replace("https://", "")}</p>
                 </div>
               </div>
-              <div className="text-right">
-                <p className="text-xs uppercase tracking-wider text-stone-400">Quotation</p>
-                <p className="text-sm font-semibold text-stone-900">
-                  {quotation.quotationNumber}
-                  {quotation.version > 1 ? ` · Version ${quotation.version}` : ""}
-                </p>
-                <p className="text-xs text-stone-500">{new Date(quotation.createdAt).toLocaleDateString("en-PK", { dateStyle: "long" })}</p>
+              <div className="mt-6 flex items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-widest">
+                <span className="text-emerald-400">Official Quotation</span>
+                <span className="text-slate-400">{new Date(quotation.createdAt).toLocaleDateString("en-PK", { dateStyle: "long" })}</span>
               </div>
+              <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+                {quotation.quotationNumber}
+                {quotation.version > 1 && <span className="ml-2 text-base font-medium text-slate-400">Version {quotation.version}</span>}
+              </h1>
+              <p className="mt-1 text-sm text-slate-400">{SECTOR_LABEL[quotation.sector]} · Prepared for {quotation.customerName}</p>
+              <p className="mt-5 font-mono text-[10px] uppercase tracking-widest text-slate-400">Total price</p>
+              <p className="font-mono text-3xl font-bold tabular-nums text-emerald-400 sm:text-4xl">{formatPKR(quotation.totalPKR)}</p>
             </header>
 
-            <section className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
-              <div>
-                <p className="text-xs uppercase tracking-wider text-stone-400">Prepared for</p>
-                <p className="mt-0.5 font-semibold text-stone-900">{quotation.customerName}</p>
-                <p className="text-stone-600">{quotation.customerPhone}</p>
-                <p className="text-stone-600">
-                  {quotation.customerAddress ? `${quotation.customerAddress}, ` : ""}
-                  {quotation.customerCity}
-                </p>
-              </div>
-              <div className="sm:text-right">
-                <p className="text-xs uppercase tracking-wider text-stone-400">Customer type</p>
-                <p className="mt-0.5 text-stone-700">{SECTOR_LABEL[quotation.sector]}</p>
-                <p className="mt-1 text-xs text-stone-400">Prepared by {quotation.createdByName}</p>
-              </div>
-            </section>
-
-            <section className="mt-5">
-              <div className="hidden grid-cols-[minmax(0,1fr)_4rem_7.5rem_8rem] gap-3 border-b border-stone-200 pb-2 text-xs font-medium text-stone-400 sm:grid">
-                <span>Item</span>
-                <span className="text-right">Qty</span>
-                <span className="text-right">Unit price</span>
-                <span className="text-right">Amount</span>
-              </div>
-              <ul className="divide-y divide-stone-100">
-                {quotation.items.map((i) => (
-                  <li key={i.id} className="grid grid-cols-2 gap-x-3 gap-y-0.5 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_4rem_7.5rem_8rem] sm:items-center">
-                    <div className="col-span-2 sm:col-span-1">
-                      <p className="font-medium text-stone-900">{i.label}</p>
-                      <p className="text-xs text-stone-400">{i.unitLabel}</p>
-                    </div>
-                    <p className="text-stone-600 sm:text-right">
-                      <span className="text-xs text-stone-400 sm:hidden">Qty </span>
-                      {formatQty(i.quantity)}
-                    </p>
-                    <p className="text-right tabular-nums text-stone-600 sm:text-right">{formatPKR(i.unitPricePKR)}</p>
-                    <p className="col-span-2 text-right font-semibold tabular-nums text-stone-900 sm:col-span-1">{formatPKR(i.lineTotalPKR)}</p>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-2 flex items-baseline justify-between border-t-2 border-stone-900 pt-3">
-                <span className="text-sm font-semibold uppercase tracking-wider text-stone-600">Total</span>
-                <span className="text-2xl font-bold tabular-nums text-stone-900">{formatPKR(quotation.totalPKR)}</span>
-              </div>
-            </section>
-
-            {quotation.notes && (
-              <section className="mt-5 rounded-xl bg-stone-50 p-3 text-sm text-stone-700 print:border print:border-stone-200 print:bg-white">
-                <p className="mb-0.5 text-xs font-medium uppercase tracking-wider text-stone-400">Notes</p>
-                <p className="whitespace-pre-line">{quotation.notes}</p>
+            <div className="relative z-10 space-y-5 p-6 sm:p-8">
+              <section className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-stone-200 bg-stone-50/70 p-4 print:bg-white">
+                  <p className="text-xs text-stone-500">Prepared for</p>
+                  <p className="mt-0.5 font-semibold text-stone-900">{quotation.customerName}</p>
+                  <p className="text-sm text-stone-600">{quotation.customerPhone}</p>
+                  <p className="text-sm text-stone-600">
+                    {quotation.customerAddress ? `${quotation.customerAddress}, ` : ""}
+                    {quotation.customerCity}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-stone-200 bg-stone-50/70 p-4 print:bg-white">
+                  <p className="text-xs text-stone-500">Customer type</p>
+                  <p className="mt-0.5 font-semibold text-stone-900">{SECTOR_LABEL[quotation.sector]}</p>
+                  <p className="text-sm text-stone-600">Prepared by {quotation.createdByName}</p>
+                </div>
               </section>
-            )}
 
-            <footer className="mt-6 border-t border-stone-200 pt-3 text-xs text-stone-400">
-              Solar Pixel · {CONTACT_PHONE_DISPLAY} · {CONTACT_EMAIL}
-            </footer>
+              <section>
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Quotation items</p>
+                <div className="mt-2 hidden grid-cols-[minmax(0,1fr)_4rem_7.5rem_8rem] gap-3 border-b border-stone-200 pb-2 text-xs font-medium text-stone-400 sm:grid">
+                  <span>Item</span>
+                  <span className="text-right">Qty</span>
+                  <span className="text-right">Unit price</span>
+                  <span className="text-right">Amount</span>
+                </div>
+                <ul className="divide-y divide-stone-100">
+                  {quotation.items.map((i) => (
+                    <li key={i.id} className="grid grid-cols-2 gap-x-3 gap-y-0.5 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_4rem_7.5rem_8rem] sm:items-center">
+                      <div className="col-span-2 sm:col-span-1">
+                        <p className="font-medium text-stone-900">{i.label}</p>
+                        <p className="text-xs text-stone-400">{i.unitLabel}</p>
+                      </div>
+                      <p className="text-stone-600 sm:text-right">
+                        <span className="text-xs text-stone-400 sm:hidden">Qty </span>
+                        {formatQty(i.quantity)}
+                      </p>
+                      <p className="text-right tabular-nums text-stone-600">{formatPKR(i.unitPricePKR)}</p>
+                      <p className="col-span-2 text-right font-semibold tabular-nums text-stone-900 sm:col-span-1">{formatPKR(i.lineTotalPKR)}</p>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-2 flex items-baseline justify-between border-t border-stone-200 pt-3">
+                  <span className="text-sm font-semibold text-stone-900">Total</span>
+                  <span className="font-mono text-2xl font-bold tabular-nums text-emerald-600">{formatPKR(quotation.totalPKR)}</span>
+                </div>
+              </section>
+
+              {quotation.notes && (
+                <section className="rounded-2xl border border-stone-200 bg-stone-50/70 p-4 text-sm text-stone-700 print:bg-white">
+                  <p className="mb-0.5 text-xs font-semibold uppercase tracking-wider text-stone-500">Notes</p>
+                  <p className="whitespace-pre-line">{quotation.notes}</p>
+                </section>
+              )}
+
+              <footer className="border-t border-stone-200 pt-3 text-xs text-stone-400">
+                Solar Pixel (Pvt) Ltd. · {CONTACT_PHONE_DISPLAY} · {CONTACT_EMAIL}
+              </footer>
+            </div>
           </article>
         )}
 
