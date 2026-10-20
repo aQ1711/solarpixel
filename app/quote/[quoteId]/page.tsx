@@ -81,6 +81,8 @@ interface BreakdownSnapshot {
   installationPKR: number;
   siteWorksPKR?: number;
   panelWashingPKR?: number;
+  /** Negative; present only when an inverter + battery bundle deal applied. */
+  bundleDiscountPKR?: number;
 }
 
 const WHATSAPP_BUSINESS_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_BUSINESS_NUMBER || "923000000000";
@@ -154,6 +156,7 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
     { label: "Installation & Commissioning", valuePKR: breakdown.installationPKR },
     ...(breakdown.siteWorksPKR ? [{ label: "Site Works", valuePKR: breakdown.siteWorksPKR }] : []),
     ...(breakdown.panelWashingPKR ? [{ label: "Panel Washing (One Time Visit)", valuePKR: breakdown.panelWashingPKR }] : []),
+    ...(breakdown.bundleDiscountPKR ? [{ label: "Bundle Saving", valuePKR: breakdown.bundleDiscountPKR }] : []),
   ];
 
   const waMessage = `Assalam o Alaikum! I'm reviewing my Solar Pixel quote (Reference ID: #${quoteId}) and would like to discuss it further.`;

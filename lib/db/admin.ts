@@ -118,6 +118,10 @@ export interface ItemizedBreakdown {
    *  breakers, and 0 whenever every quantity is 0. See EquipmentSelections'
    *  civilBlockQty/earthingBoreQty/lightningArrestorQty doc comments. */
   siteWorksPKR: number;
+  /** Vendor bundle deal saving (2026-10-20) — a NEGATIVE amount (or absent /
+   *  0) subtracted from the total when the quote's inverter + battery pair is
+   *  an active BundleDeal. See bundleSellDiscountPKR. */
+  bundleDiscountPKR?: number;
   /** "One-Time Panel Washing Visit" (2026-08-21) — 0 unless the customer
    *  toggled it on in the Custom Equipment Builder's Services section
    *  (selections.includePanelWashing). Uses the SAME tiered rate
@@ -1012,6 +1016,24 @@ export async function calculateSystemPricing(
     panelWashingPKR: panelWashingResult ? Math.round(rawPanelWashingPKR) : 0,
   };
 
+  // Goodwe (etc.) inverter + battery bundle deal: when this exact pair is an
+  // active BundleDeal, the customer gets the vendor's combo saving, passed on
+  // at the same margin. One inverter + one battery only (a clubbed or
+  // multi-battery system is not the combo the vendor priced).
+  if (needsBattery && battery && inverterQuantity === 1) {
+    const bundle = await findActiveBundle(inverterCode, batteryCode);
+    if (bundle) {
+      const { sellDiscountPKR } = bundleSavings({
+        inverterCostRs: inverter!.unitCostRs.toNumber(),
+        batteryCostRs: battery.unitCostRs.toNumber(),
+        comboCostRs: bundle.comboCostRs.toNumber(),
+        inverterSellPKR: breakdown.inverterPKR,
+        batterySellPKR: breakdown.batteryPKR,
+      });
+      if (sellDiscountPKR > 0) breakdown.bundleDiscountPKR = -Math.round(sellDiscountPKR);
+    }
+  }
+
   // Total is the SUM of the (already-rounded) breakdown lines, not a
   // separately-rounded figure — guarantees the itemized BOQ always adds
   // up to exactly the headline price shown next to it, never off by a
@@ -1024,7 +1046,8 @@ export async function calculateSystemPricing(
     breakdown.structurePKR +
     breakdown.installationPKR +
     breakdown.siteWorksPKR +
-    breakdown.panelWashingPKR;
+    breakdown.panelWashingPKR +
+    (breakdown.bundleDiscountPKR ?? 0);
 
   const resolvedEquipment: ResolvedEquipment = {
     panel: {
@@ -1158,6 +1181,9 @@ interface AdminBoqPricingBreakdown {
   siteWorksPKR: number;
   /** See ItemizedBreakdown.panelWashingPKR's doc comment. */
   panelWashingPKR: number;
+  /** Bundle deal saving, NEGATIVE (cost-side in `breakdown`, client-side in
+   *  `markedUpBreakdown`); absent when no bundle applies. */
+  bundleDiscountPKR?: number;
 }
 
 export interface AdminBoqPricingResult {
@@ -1464,6 +1490,19 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
   const panelWashingResult = selections?.includePanelWashing ? panelWashingRawCostPKR(effectivePanelCount, settings) : null;
   const rawPanelWashingPKR = panelWashingResult?.rawCostPKR ?? 0;
 
+  // Same bundle deal as calculateSystemPricing (one inverter + one battery).
+  const bundle =
+    needsBattery && battery && batteryCode && inverterQuantity === 1 ? await findActiveBundle(inverterCode, batteryCode) : null;
+  const bundleRawSavingRs = bundle
+    ? bundleSavings({
+        inverterCostRs: inv.unitCostRs.toNumber(),
+        batteryCostRs: battery!.unitCostRs.toNumber(),
+        comboCostRs: bundle.comboCostRs.toNumber(),
+        inverterSellPKR: 0,
+        batterySellPKR: 0,
+      }).rawSavingRs
+    : 0;
+
   const breakdown: AdminBoqPricingBreakdown = {
     // Only panelPKR scales with the adjusted count — same deliberate v1
     // simplification as calculateSystemPricing (see its comment).
@@ -1486,6 +1525,7 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     dbUpgradePKR: requiresDbUpgrade && dbUpgrade ? round2(dbUpgrade.unitCostRs.toNumber()) : 0,
     siteWorksPKR: rawSiteWorksPKR,
     panelWashingPKR: rawPanelWashingPKR,
+    ...(bundleRawSavingRs > 0 ? { bundleDiscountPKR: -bundleRawSavingRs } : {}),
   };
 
   const exactRawCostPKR = round2(Object.values(breakdown).reduce((sum, n) => sum + n, 0));
@@ -1523,6 +1563,16 @@ export async function calculateAdminBoqPricing(input: AdminBoqPricingInput): Pro
     // customer sees for this line.
     panelWashingPKR: panelWashingResult ? round2(breakdown.panelWashingPKR) : 0,
   };
+  if (bundle && bundleRawSavingRs > 0) {
+    const { sellDiscountPKR } = bundleSavings({
+      inverterCostRs: inv.unitCostRs.toNumber(),
+      batteryCostRs: battery!.unitCostRs.toNumber(),
+      comboCostRs: bundle.comboCostRs.toNumber(),
+      inverterSellPKR: markedUpBreakdown.inverterPKR,
+      batterySellPKR: markedUpBreakdown.batteryPKR,
+    });
+    if (sellDiscountPKR > 0) markedUpBreakdown.bundleDiscountPKR = -round2(sellDiscountPKR);
+  }
 
   const exactClientPricePKR = Math.round(Object.values(markedUpBreakdown).reduce((sum, n) => sum + n, 0));
   const profitPKR = Math.round(exactClientPricePKR - exactRawCostPKR);
@@ -2840,4 +2890,182 @@ export async function listQuotableCatalog(sector: Sector): Promise<QuotableItem[
     });
   }
   return items;
+}
+
+
+// ============================================================================
+// Bundle deals (2026-10-20) — vendor inverter + battery combo prices
+// ============================================================================
+
+/** Finds the active BundleDeal for this exact inverter + battery pair. */
+async function findActiveBundle(inverterCode: string, batteryCode: string | null) {
+  if (!batteryCode) return null;
+  const adminPrisma = await getAdminPrisma();
+  return adminPrisma.bundleDeal.findFirst({ where: { inverterCode, batteryCode, isActive: true } });
+}
+
+/**
+ * The saving of buying the pair as a combo instead of separately.
+ *   rawSavingRs     — cost-side: separate costs minus the combo cost.
+ *   sellDiscountPKR — customer-side: the same proportional saving applied to
+ *                     what the two lines sell for, i.e. the combo is sold at
+ *                     the SAME margin as the separate items, so the customer
+ *                     gets the whole saving and our margin % is unchanged.
+ * Both are 0 when the combo is not actually cheaper.
+ */
+function bundleSavings(args: {
+  inverterCostRs: number;
+  batteryCostRs: number;
+  comboCostRs: number;
+  inverterSellPKR: number;
+  batterySellPKR: number;
+}): { rawSavingRs: number; sellDiscountPKR: number } {
+  const separateCost = args.inverterCostRs + args.batteryCostRs;
+  if (!(args.comboCostRs > 0) || !(separateCost > 0) || args.comboCostRs >= separateCost) {
+    return { rawSavingRs: 0, sellDiscountPKR: 0 };
+  }
+  const ratio = 1 - args.comboCostRs / separateCost;
+  return {
+    rawSavingRs: round2(separateCost - args.comboCostRs),
+    sellDiscountPKR: (args.inverterSellPKR + args.batterySellPKR) * ratio,
+  };
+}
+
+export interface PublicBundleDeal {
+  inverterCode: string;
+  batteryCode: string;
+  batteryLabel: string;
+  /** Rupees off for taking the pair together, at this sector's margin. */
+  discountPKR: number;
+  note: string | null;
+}
+
+/**
+ * Active bundle deals as the storefront may see them: only the rupee
+ * discount, never the combo cost. Skips a deal whose inverter or battery is
+ * inactive or out of stock, so the customer is never pushed toward something
+ * we can't supply.
+ */
+export async function listPublicBundleDeals(sector: Sector): Promise<PublicBundleDeal[]> {
+  const adminPrisma = await getAdminPrisma();
+  const deals = await adminPrisma.bundleDeal.findMany({ where: { isActive: true } });
+  if (deals.length === 0) return [];
+
+  const codes = Array.from(new Set(deals.flatMap((d) => [d.inverterCode, d.batteryCode])));
+  const now = new Date();
+  const [options, costs, prices] = await Promise.all([
+    adminPrisma.equipmentOption.findMany({ where: { isActive: true, inStock: true, code: { in: codes } } }),
+    adminPrisma.rawVendorCost.findMany({ where: { ...activeAsOf(now), itemName: { in: codes } } }),
+    getPublicUnitPricesPKR(sector),
+  ]);
+  const optionKey = (type: string, code: string) => `${type}::${code}`;
+  const optionByKey = new Map(options.map((o) => [optionKey(o.componentType, o.code), o]));
+  const costByKey = new Map<string, number>();
+  for (const c of costs) {
+    const key = optionKey(c.componentType, c.itemName);
+    if (!costByKey.has(key)) costByKey.set(key, c.unitCostRs.toNumber());
+  }
+
+  const out: PublicBundleDeal[] = [];
+  for (const d of deals) {
+    const inv = optionByKey.get(optionKey("INVERTER", d.inverterCode));
+    const bat = optionByKey.get(optionKey("BATTERY", d.batteryCode));
+    const invCost = costByKey.get(optionKey("INVERTER", d.inverterCode));
+    const batCost = costByKey.get(optionKey("BATTERY", d.batteryCode));
+    const invSell = prices[d.inverterCode]?.pricePKR;
+    const batSell = prices[d.batteryCode]?.pricePKR;
+    if (!inv || !bat || invCost === undefined || batCost === undefined || invSell === undefined || batSell === undefined) continue;
+    const { sellDiscountPKR } = bundleSavings({
+      inverterCostRs: invCost,
+      batteryCostRs: batCost,
+      comboCostRs: d.comboCostRs.toNumber(),
+      inverterSellPKR: Math.round(invSell),
+      batterySellPKR: Math.round(batSell),
+    });
+    const discountPKR = Math.round(sellDiscountPKR);
+    if (discountPKR <= 0) continue;
+    out.push({ inverterCode: d.inverterCode, batteryCode: d.batteryCode, batteryLabel: bat.label, discountPKR, note: d.note });
+  }
+  return out;
+}
+
+export interface BundleDealAdminDTO {
+  id: string;
+  inverterCode: string;
+  inverterLabel: string;
+  batteryCode: string;
+  batteryLabel: string;
+  comboCostRs: number;
+  /** Current separate costs of the two items and the saving versus the combo. */
+  separateCostRs: number;
+  savingRs: number;
+  note: string | null;
+  isActive: boolean;
+}
+
+/** Every bundle deal with its items' current separate costs, for /admin/pricing. */
+export async function listBundleDealsForAdmin(): Promise<BundleDealAdminDTO[]> {
+  const adminPrisma = await getAdminPrisma();
+  const deals = await adminPrisma.bundleDeal.findMany({ orderBy: [{ inverterCode: "asc" }, { batteryCode: "asc" }] });
+  if (deals.length === 0) return [];
+  const codes = Array.from(new Set(deals.flatMap((d) => [d.inverterCode, d.batteryCode])));
+  const now = new Date();
+  const [options, costs] = await Promise.all([
+    adminPrisma.equipmentOption.findMany({ where: { code: { in: codes } } }),
+    adminPrisma.rawVendorCost.findMany({ where: { ...activeAsOf(now), itemName: { in: codes } } }),
+  ]);
+  const label = (type: string, code: string) => options.find((o) => o.componentType === type && o.code === code)?.label ?? code;
+  const cost = (type: string, code: string) => costs.find((c) => c.componentType === type && c.itemName === code)?.unitCostRs.toNumber() ?? 0;
+  return deals.map((d) => {
+    const separateCostRs = round2(cost("INVERTER", d.inverterCode) + cost("BATTERY", d.batteryCode));
+    const comboCostRs = d.comboCostRs.toNumber();
+    return {
+      id: d.id,
+      inverterCode: d.inverterCode,
+      inverterLabel: label("INVERTER", d.inverterCode),
+      batteryCode: d.batteryCode,
+      batteryLabel: label("BATTERY", d.batteryCode),
+      comboCostRs,
+      separateCostRs,
+      savingRs: round2(Math.max(0, separateCostRs - comboCostRs)),
+      note: d.note,
+      isActive: d.isActive,
+    };
+  });
+}
+
+export async function upsertBundleDeal(input: {
+  inverterCode: string;
+  batteryCode: string;
+  comboCostRs: number;
+  note?: string | null;
+  isActive?: boolean;
+}): Promise<void> {
+  const adminPrisma = await getAdminPrisma();
+  const [inv, bat] = await Promise.all([
+    adminPrisma.equipmentOption.findFirst({ where: { componentType: "INVERTER", code: input.inverterCode, isActive: true } }),
+    adminPrisma.equipmentOption.findFirst({ where: { componentType: "BATTERY", code: input.batteryCode, isActive: true } }),
+  ]);
+  if (!inv) throw new PricingConfigurationError(`Inverter "${input.inverterCode}" isn't an active catalog item.`);
+  if (!bat) throw new PricingConfigurationError(`Battery "${input.batteryCode}" isn't an active catalog item.`);
+  await adminPrisma.bundleDeal.upsert({
+    where: { inverterCode_batteryCode: { inverterCode: input.inverterCode, batteryCode: input.batteryCode } },
+    create: {
+      inverterCode: input.inverterCode,
+      batteryCode: input.batteryCode,
+      comboCostRs: input.comboCostRs,
+      note: input.note ?? null,
+      isActive: input.isActive ?? true,
+    },
+    update: {
+      comboCostRs: input.comboCostRs,
+      ...(input.note !== undefined && { note: input.note }),
+      ...(input.isActive !== undefined && { isActive: input.isActive }),
+    },
+  });
+}
+
+export async function setBundleDealActive(id: string, isActive: boolean): Promise<void> {
+  const adminPrisma = await getAdminPrisma();
+  await adminPrisma.bundleDeal.update({ where: { id }, data: { isActive } });
 }
