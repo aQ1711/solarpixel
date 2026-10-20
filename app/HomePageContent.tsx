@@ -37,6 +37,7 @@ import {
   TrendingDown,
   Clock,
   CalendarCheck,
+  BadgePercent,
 } from "lucide-react";
 
 // ============================================================================
@@ -128,6 +129,9 @@ interface QuoteTier {
  *  client-facing PKR lines (never raw vendor cost) that sum to exactly
  *  `totalClientPricePKR`. */
 interface ItemizedBreakdown {
+  /** Vendor inverter + battery bundle saving: a NEGATIVE amount, absent or 0
+   *  when no bundle applies (see lib/db/admin.ts bundleSavings). */
+  bundleDiscountPKR?: number;
   panelsPKR: number;
   inverterPKR: number;
   batteryPKR: number;
@@ -255,6 +259,16 @@ type ComponentType =
   | "BREAKERS"
   | "MOUNTING_STRUCTURE"
   | "EV_CHARGER";
+
+/** Mirrors GET /api/equipment-options's `bundles` rows: a rupee discount for
+ *  pairing this inverter with this battery (never the vendor combo cost). */
+interface PublicBundleDealDTO {
+  inverterCode: string;
+  batteryCode: string;
+  batteryLabel: string;
+  discountPKR: number;
+  note: string | null;
+}
 
 /** Mirrors GET /api/equipment-options's per-row shape. Cost-free by
  *  design — this is the public catalog, never the confidential
@@ -1549,6 +1563,9 @@ function CalculatorCard() {
   const [customizationPath, setCustomizationPath] = useState<CustomizationPath>("RECOMMENDED");
   const [equipmentOptions, setEquipmentOptions] = useState<EquipmentOptionsByType | null>(null);
   const [equipmentOptionsError, setEquipmentOptionsError] = useState<string | null>(null);
+  // Inverter + battery combo deals (rupee discount only) for the "add this
+  // battery and save" suggestion in Build Your Own.
+  const [bundleDeals, setBundleDeals] = useState<PublicBundleDealDTO[]>([]);
   // Loading is derived, not tracked separately: it's true exactly while
   // we're on the Custom path with neither a result nor an error yet.
   const equipmentOptionsLoading = customizationPath === "CUSTOM" && !equipmentOptions && !equipmentOptionsError;
@@ -1641,10 +1658,11 @@ function CalculatorCard() {
     let cancelled = false;
     fetch(`/api/equipment-options?sector=${sector}`)
       .then(async (res) => {
-        const data = (await res.json()) as ApiJson<{ options?: EquipmentOptionsByType }>;
+        const data = (await res.json()) as ApiJson<{ options?: EquipmentOptionsByType; bundles?: PublicBundleDealDTO[] }>;
         if (!res.ok) throw new Error(data?.error ?? "Failed to load equipment options");
         if (!cancelled) {
           setEquipmentOptions(data.options ?? {});
+          setBundleDeals(data.bundles ?? []);
           setEquipmentOptionsError(null);
         }
       })
@@ -1799,6 +1817,18 @@ function CalculatorCard() {
   // "+ Rs X" cost of adding that battery back, instead of a generic
   // "Enter your bill to see pricing" placeholder.
   const currentBatteryUnitPricePKR = effectiveBatteryCode === NONE_CODE ? 0 : (currentBatteryOption?.unitPricePKR ?? null);
+  // "Add this battery and save" suggestion (shared by the phone and desktop
+  // Build Your Own layouts). Null unless the chosen inverter has a bundle deal.
+  const bundleSuggestion = (
+    <BundleSuggestion
+      bundles={bundleDeals}
+      inverterCode={effectiveInverterCode ?? null}
+      batteryCode={effectiveBatteryCode ?? null}
+      inverterQuantity={livePreview?.equipment.inverter.quantity ?? 1}
+      isHybrid={serviceType === "HYBRID_BATTERY"}
+      onPick={(code) => setBatteryCode(code)}
+    />
+  );
 
   // Battery — Company then Capacity cascading picker (2026-08-22), same
   // two-step pattern as Inverter's Company -> Model picker (see its doc
@@ -3946,6 +3976,8 @@ function CalculatorCard() {
                         </EquipmentSwapRow>
                       )}
 
+                      {bundleSuggestion}
+
                       {/* Cabling & Protection, and Mounting Structure —
                           Default & Swap rows (Part 5, 2026-08-20), matching
                           Panel/Inverter/Battery exactly instead of the old
@@ -4460,6 +4492,8 @@ function CalculatorCard() {
                           )}
                         </div>
                       )}
+
+                      {bundleSuggestion}
 
                       {/* Total + CTA — Build.html's sticky total bar,
                           rendered inline (not fixed) since Complete
@@ -5957,7 +5991,76 @@ function buildCostBreakdownRows(source: {
     ...(panelWashing
       ? [{ label: "Panel Washing (One Time Visit)", valuePKR: source.breakdown.panelWashingPKR }]
       : []),
+    // Goodwe-style inverter + battery bundle saving (a negative amount), so
+    // the rows still add up to the headline total.
+    ...(source.breakdown.bundleDiscountPKR
+      ? [{ label: "Goodwe Bundle Saving", valuePKR: source.breakdown.bundleDiscountPKR }]
+      : []),
   ];
+}
+
+/** "Add this battery and save Rs X" card for inverters that have a vendor
+ *  bundle deal (Hybrid only, single inverter). Shows the offer(s) until the
+ *  matching battery is picked, then confirms the saving that is applied. */
+function BundleSuggestion({
+  bundles,
+  inverterCode,
+  batteryCode,
+  inverterQuantity,
+  isHybrid,
+  onPick,
+}: {
+  bundles: PublicBundleDealDTO[];
+  inverterCode: string | null;
+  batteryCode: string | null;
+  inverterQuantity: number;
+  isHybrid: boolean;
+  onPick: (batteryCode: string) => void;
+}) {
+  if (!isHybrid || !inverterCode || inverterQuantity > 1) return null;
+  const forInverter = bundles.filter((b) => b.inverterCode === inverterCode);
+  if (forInverter.length === 0) return null;
+  const applied = forInverter.find((b) => b.batteryCode === batteryCode);
+  const note = forInverter[0].note;
+
+  if (applied) {
+    return (
+      <div className="flex items-start gap-2.5 rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5">
+        <BadgePercent className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-emerald-900">Bundle saving applied: {formatPKR(applied.discountPKR)} off</p>
+          <p className="mt-0.5 text-xs text-emerald-800">
+            {applied.batteryLabel} with this inverter.{note ? ` ${note}.` : ""}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5">
+      <p className="flex items-center gap-1.5 text-sm font-bold text-emerald-900">
+        <BadgePercent className="h-5 w-5 shrink-0 text-emerald-700" />
+        Pair a battery and save
+      </p>
+      {note && <p className="mt-0.5 text-xs text-emerald-800">{note}.</p>}
+      <div className="mt-2.5 space-y-2">
+        {forInverter.map((b) => (
+          <button
+            key={b.batteryCode}
+            type="button"
+            onClick={() => onPick(b.batteryCode)}
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-emerald-300 bg-white px-3 py-2.5 text-left transition-colors duration-200 hover:border-emerald-500"
+          >
+            <span className="min-w-0 text-xs font-semibold text-slate-900">Add {b.batteryLabel}</span>
+            <span className="shrink-0 rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white">
+              Save {formatPKR(b.discountPKR)}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function ResultSummary({

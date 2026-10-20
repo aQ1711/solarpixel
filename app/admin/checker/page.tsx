@@ -41,6 +41,8 @@ interface PricingBreakdown {
   acCablePKR: number;
   dataCablePKR: number;
   dbUpgradePKR: number;
+  /** Negative; present only when an inverter + battery bundle deal applied. */
+  bundleDiscountPKR?: number;
 }
 
 interface Pricing {
@@ -512,6 +514,9 @@ function QuoteReviewCard({
               {quote.survey.requiresDbUpgrade && (
                 <SurveyStat label="DB Upgrade" value={formatPKR(pricing.breakdown.dbUpgradePKR)} />
               )}
+              {pricing.breakdown.bundleDiscountPKR ? (
+                <SurveyStat label="Bundle deal saving" value={formatPKR(pricing.breakdown.bundleDiscountPKR)} />
+              ) : null}
             </dl>
           </details>
         </div>

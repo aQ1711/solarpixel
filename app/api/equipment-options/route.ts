@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Sector } from "@prisma/client";
 import { getDb } from "@/lib/db/client";
-import { getPublicUnitPricesPKR } from "@/lib/db/admin";
+import { getPublicUnitPricesPKR, listPublicBundleDeals } from "@/lib/db/admin";
 import { getTickerSettings } from "@/lib/db/tickerSettings";
 
 const VALID_SECTORS: Sector[] = ["RESIDENTIAL", "COMMERCIAL", "INDUSTRIAL"];
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
     const sectorParam = req.nextUrl.searchParams.get("sector");
     const sector: Sector = VALID_SECTORS.includes(sectorParam as Sector) ? (sectorParam as Sector) : "RESIDENTIAL";
 
-    const [options, unitPrices, tickerSettings] = await Promise.all([
+    const [options, unitPrices, tickerSettings, bundles] = await Promise.all([
       prisma.equipmentOption.findMany({
         where: { isActive: true },
         orderBy: [{ componentType: "asc" }, { sortOrder: "asc" }],
@@ -67,6 +67,10 @@ export async function GET(req: NextRequest) {
       }),
       getPublicUnitPricesPKR(sector),
       getTickerSettings(),
+      // Vendor inverter + battery combo deals, as a rupee discount only (never
+      // the combo cost) — powers the "add this battery and save" suggestion.
+      // A failure here must never take the whole catalog down.
+      listPublicBundleDeals(sector).catch(() => []),
     ]);
 
     const serialized = options.map((o) => ({
@@ -91,7 +95,7 @@ export async function GET(req: NextRequest) {
       (grouped[option.componentType] ??= []).push(option);
     }
 
-    return NextResponse.json({ options: grouped, tickerSettings });
+    return NextResponse.json({ options: grouped, tickerSettings, bundles });
   } catch (err) {
     console.error("[GET /api/equipment-options]", err);
     return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
