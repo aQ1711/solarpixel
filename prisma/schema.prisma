@@ -101,6 +101,8 @@ enum Role {
 enum AdminModule {
   LEADS
   CHECKER
+  QUOTES // Custom Quotation creator: build quotations from catalog items at
+  // locked prices. Never exposes cost/margin or any price editing.
 
   @@schema("public")
 }
@@ -353,6 +355,9 @@ model User {
 
   // SUPER_ADMIN: quotes they (as Checker) approved
   quotesApproved Quote[] @relation("QuoteCheckerApproved")
+
+  // ADMIN/SUPER_ADMIN: custom quotations they created (see CustomQuotation)
+  customQuotationsCreated CustomQuotation[] @relation("CustomQuotationCreator")
 
   // SUPER_ADMIN: vendor cost & margin records they authored
   vendorCostsCreated RawVendorCost[] @relation("VendorCostCreatedBy")
@@ -1066,5 +1071,73 @@ model TickerSettings {
   updatedAt DateTime @updatedAt
 
   @@map("ticker_settings")
+  @@schema("public")
+}
+
+// ============================================================================
+// CUSTOM QUOTATIONS (2026-10-20) — an admin with the QUOTES permission builds a
+// quotation from catalog items (a single inverter, a single battery, panels,
+// ...) at LOCKED prices. The server looks every price up from the catalog
+// (the same marked-up client price the storefront uses); the browser only
+// ever sends item codes + quantities, so a price can't be edited. Only the
+// SELLING price is stored here, never a cost or margin, so this lives in the
+// public schema.
+// ============================================================================
+
+model CustomQuotation {
+  id              String @id @default(cuid())
+  quotationNumber String @unique // e.g. CQ-2026-4F9A21BC
+
+  customerName    String
+  customerPhone   String
+  customerCity    String
+  customerAddress String?
+
+  // Which sector's margin the prices were looked up at (customer type).
+  sector Sector
+
+  notes String? @db.Text
+
+  // Sum of the line totals, frozen at creation.
+  totalPKR Decimal @db.Decimal(14, 2)
+
+  createdById   String
+  createdBy     User   @relation("CustomQuotationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  // Denormalized so the quotation still reads correctly if the account is
+  // later renamed.
+  createdByName String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items CustomQuotationItem[]
+
+  @@index([createdById])
+  @@index([createdAt])
+  @@map("custom_quotations")
+  @@schema("public")
+}
+
+model CustomQuotationItem {
+  id String @id @default(cuid())
+
+  quotationId String
+  quotation   CustomQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  componentType ComponentType
+  itemCode      String
+  // Snapshot of how the item read when quoted.
+  label         String
+  brand         String?
+  unitLabel     String // "per panel", "per piece", "per kW of system"
+
+  quantity     Decimal @db.Decimal(10, 2)
+  unitPricePKR Decimal @db.Decimal(14, 2)
+  lineTotalPKR Decimal @db.Decimal(14, 2)
+
+  @@index([quotationId])
+  @@map("custom_quotation_items")
   @@schema("public")
 }

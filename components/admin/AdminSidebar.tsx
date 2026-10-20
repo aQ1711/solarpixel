@@ -26,7 +26,7 @@ export function AdminSidebar({ viewer, onLogout }: { viewer: AdminViewer | null;
 
   return (
     <aside
-      className={`sticky top-0 flex h-dvh shrink-0 flex-col border-r border-stone-200 bg-white transition-[width] duration-200 ${
+      className={`print:hidden sticky top-0 flex h-dvh shrink-0 flex-col border-r border-stone-200 bg-white transition-[width] duration-200 ${
         collapsed ? "w-16" : "w-56"
       }`}
     >

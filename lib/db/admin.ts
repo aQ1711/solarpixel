@@ -2742,3 +2742,102 @@ export async function listLatestMarketPriceSnapshots(): Promise<MarketPriceSnaps
     fetchedAt: row.fetchedAt.toISOString(),
   }));
 }
+
+// ============================================================================
+// Custom Quotation catalog (2026-10-20)
+// ============================================================================
+
+/** One catalog item a Custom Quotation can include, with its LOCKED client
+ *  selling price per quoted unit. Like getPublicUnitPricesPKR this carries
+ *  only the marked-up price, never a raw cost or margin %. */
+export interface QuotableItem {
+  code: string;
+  componentType: ComponentType;
+  label: string;
+  brand: string | null;
+  specValue: number | null;
+  /** What one unit of `quantity` means, e.g. "per panel", "per piece",
+   *  "per kW of system". */
+  unitLabel: string;
+  unitPricePKR: number;
+  inStock: boolean;
+}
+
+/**
+ * Every active catalog item priced per quoted unit, at `sector`'s margin.
+ * The catalog stores some items per WATT (a panel's rate, and the
+ * system-wide cabling/structure/protection/labour rates) and others as a
+ * flat per-piece price (inverters, batteries, EV chargers), so each is
+ * converted to something a person can type a quantity against:
+ *   - panels: per panel (rate x the panel's own watts)
+ *   - system-rate items (cables, structure, breakers, labour): per kW of
+ *     system (rate x 1000)
+ *   - everything else: as stored
+ * Items with no active cost row are omitted, same as getPublicUnitPricesPKR.
+ */
+const QUOTABLE_CATEGORY_PREFIX: Partial<Record<ComponentType, string>> = {
+  DC_CABLE: "DC cabling",
+  AC_CABLE: "AC cabling",
+  MOUNTING_STRUCTURE: "Mounting structure",
+  BREAKERS: "Protection & breakers",
+  LABOR: "Installation & labour",
+};
+
+export async function listQuotableCatalog(sector: Sector): Promise<QuotableItem[]> {
+  const prices = await getPublicUnitPricesPKR(sector);
+  const adminPrisma = await getAdminPrisma();
+  const options = await adminPrisma.equipmentOption.findMany({
+    where: { isActive: true, isOtherOption: false },
+    orderBy: [{ componentType: "asc" }, { brand: "asc" }, { specValue: "asc" }, { label: "asc" }],
+  });
+
+  const items: QuotableItem[] = [];
+  for (const option of options) {
+    const price = prices[option.code];
+    if (!price) continue;
+    const specValue = option.specValue === null ? null : option.specValue.toNumber();
+
+    let unitPricePKR: number;
+    let unitLabel: string;
+    if (price.unit === "PER_WATT") {
+      if (option.componentType === "SOLAR_PANEL") {
+        if (specValue === null) continue;
+        unitPricePKR = round2(price.pricePKR * specValue);
+        unitLabel = "per panel";
+      } else {
+        unitPricePKR = round2(price.pricePKR * 1000);
+        unitLabel = "per kW of system";
+      }
+    } else if (price.unit === "PER_KWH") {
+      if (specValue === null) continue;
+      unitPricePKR = round2(price.pricePKR * specValue);
+      unitLabel = "per unit";
+    } else if (price.unit === "PER_METER") {
+      unitPricePKR = round2(price.pricePKR);
+      unitLabel = "per metre";
+    } else {
+      unitPricePKR = round2(price.pricePKR);
+      unitLabel = "per piece";
+    }
+
+    // Cabling/structure/protection/labour options are named by brand only
+    // ("Fast Cables"), which is ambiguous in a flat list: prefix the category.
+    const categoryPrefix = QUOTABLE_CATEGORY_PREFIX[option.componentType];
+    const label =
+      categoryPrefix && !option.label.toLowerCase().includes(categoryPrefix.toLowerCase())
+        ? `${categoryPrefix} · ${option.label}`
+        : option.label;
+
+    items.push({
+      code: option.code,
+      componentType: option.componentType,
+      label,
+      brand: option.brand,
+      specValue,
+      unitLabel,
+      unitPricePKR,
+      inStock: price.inStock,
+    });
+  }
+  return items;
+}

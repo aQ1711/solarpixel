@@ -17,7 +17,7 @@ const createAdminSchema = z.object({
     .trim()
     .regex(/^\+?[0-9]{10,15}$/, "Enter a valid phone number"),
   email: z.string().trim().email().optional(),
-  modules: z.array(z.enum(["LEADS", "CHECKER"])).min(1, "Grant at least one module"),
+  modules: z.array(z.enum(["LEADS", "CHECKER", "QUOTES"])).min(1, "Grant at least one module"),
 });
 
 /**
