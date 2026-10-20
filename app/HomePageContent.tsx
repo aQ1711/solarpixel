@@ -571,11 +571,6 @@ const PANEL_WASHING_SERVICE_VISIBLE = false;
 const VISIBLE_MASTER_SERVICES = MASTER_SERVICES.filter(
   (s) => s.value !== "SYSTEM_UPGRADES" || PANEL_WASHING_SERVICE_VISIBLE,
 );
-const MASTER_SERVICE_DESCRIPTION: Record<MasterService, string> = {
-  COMPLETE_SOLAR: "Get a turnkey solar + battery solution. Sized instantly from your bill.",
-  EV_CHARGER: "Tell us about your vehicle and charging needs. We'll follow up on WhatsApp with options and pricing.",
-  SYSTEM_UPGRADES: "Panel washing, inverter servicing, capacity upgrades, and more. Describe what you need below.",
-};
 
 const pkr = new Intl.NumberFormat("en-PK", {
   style: "currency",
@@ -1374,7 +1369,7 @@ function CalculatorCard() {
   // below (see that onClick handler): whichever section isn't the
   // active masterService simply isn't in the DOM, so its ref stays
   // null and scrollToStep's optional chaining no-ops safely for it.
-  const serviceSelectionRef = useRef<HTMLFieldSetElement>(null);
+  const serviceSelectionRef = useRef<HTMLDivElement>(null);
   const energyProfileRef = useRef<HTMLDivElement>(null);
   const configurationRef = useRef<HTMLDivElement>(null);
   const evChargerRef = useRef<HTMLDivElement>(null);
@@ -2543,53 +2538,37 @@ function CalculatorCard() {
           real (if indirect) way back to it via the "More We Do" services
           row further down the page, which drives the exact same
           setMasterService/setSector state. */}
-      <fieldset ref={serviceSelectionRef} className="hidden lg:block">
-        <legend className="mb-3 text-sm font-semibold text-slate-700">What do you need?</legend>
-        <div className={`grid grid-cols-1 gap-4 ${VISIBLE_MASTER_SERVICES.length === 3 ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
-          {VISIBLE_MASTER_SERVICES.map(({ value, label, icon: Icon }) => {
-            const active = masterService === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                onClick={() => {
-                  setMasterService(value);
-                  // Each service's own input section only exists in the
-                  // DOM for that branch — switching INTO one from a
-                  // different service means its ref isn't attached yet
-                  // at the moment this handler runs, so the scroll has
-                  // to wait for React to actually commit that new DOM
-                  // before it can find something to scroll to. Double
-                  // rAF (not a fixed setTimeout) is the standard "wait
-                  // for the next real paint" pattern — one rAF alone can
-                  // still fire before layout has settled.
-                  const targetRef =
-                    value === "COMPLETE_SOLAR" ? energyProfileRef : value === "EV_CHARGER" ? evChargerRef : panelWashingRef;
-                  requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(targetRef)));
-                }}
-                aria-pressed={active}
-                className={`relative flex min-w-0 items-start gap-3 rounded-2xl p-4 text-left transition-all duration-200 ${
-                  active
-                    ? "border-2 border-orange-700 bg-orange-50"
-                    : "border border-slate-200 bg-slate-50 hover:border-orange-400 hover:shadow-md"
-                }`}
-              >
-                <span
-                  className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border ${
-                    active ? "border-orange-300 bg-white text-orange-700" : "border-slate-200 bg-white text-slate-400"
-                  }`}
-                >
-                  <Icon className="h-9 w-9" />
-                </span>
-                <span className="min-w-0">
-                  <span className={`block text-sm font-semibold ${active ? "text-orange-900" : "text-slate-900"}`}>{label}</span>
-                  <span className="mt-0.5 block text-xs leading-snug text-slate-500">{MASTER_SERVICE_DESCRIPTION[value]}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </fieldset>
+      {/* Visitors land straight on the solar calculator, so the big
+          "What do you need?" card picker is gone. EV Charger is a quiet
+          secondary link (desktop only, mobile keeps its "More We Do" row),
+          with a matching way back once it is open. */}
+      <div ref={serviceSelectionRef} className="hidden items-center justify-end text-sm lg:flex">
+        {masterService === "COMPLETE_SOLAR" ? (
+          VISIBLE_MASTER_SERVICES.some((s) => s.value === "EV_CHARGER") && (
+            <button
+              type="button"
+              onClick={() => {
+                setMasterService("EV_CHARGER");
+                requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(evChargerRef)));
+              }}
+              className="font-medium text-slate-500 underline-offset-4 transition-colors duration-200 hover:text-orange-700 hover:underline"
+            >
+              Looking for an EV charger instead?
+            </button>
+          )
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setMasterService("COMPLETE_SOLAR");
+              requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(energyProfileRef)));
+            }}
+            className="flex items-center gap-1 font-semibold text-orange-700 underline-offset-4 hover:underline"
+          >
+            <ChevronLeft className="h-4 w-4" /> Back to the solar quote
+          </button>
+        )}
+      </div>
 
       {masterService === "COMPLETE_SOLAR" ? (
         // ============ Tesla-style split dashboard ============
