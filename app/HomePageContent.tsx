@@ -4249,9 +4249,14 @@ function CalculatorCard() {
                                   >
                                     −
                                   </button>
-                                  <span className="min-w-[22px] text-center font-mono text-base font-semibold text-slate-900">
-                                    {panelQty}
-                                  </span>
+                                  <StepperNumberInput
+                                    value={panelQty}
+                                    onChange={(v) => setPanelQtyOverride(v)}
+                                    min={panelFloor}
+                                    max={Number.isFinite(panelMax) ? panelMax : undefined}
+                                    label="Panels"
+                                    className="w-12 rounded-md border border-transparent bg-transparent text-center font-mono text-base font-semibold text-slate-900 outline-none focus:border-orange-400 focus:bg-white"
+                                  />
                                   <button
                                     type="button"
                                     onClick={() => setPanelQtyOverride(Math.min(panelMax, panelQty + 1))}
@@ -5722,6 +5727,55 @@ function RangeSlider({
  *  these 3 items aren't a brand pick, just a customer-adjustable count
  *  against a flat admin rate. 0 is a valid, reachable value ("I don't
  *  need this item"), never negative. */
+/** The number between a stepper's +/- buttons, typeable so a large change
+ *  (203 panels to 300 on an industrial system) is one entry, not ~100 taps.
+ *  Keeps its own draft while typing and commits, clamped to min/max, on blur
+ *  or Enter, so a half-typed number never reprices the quote. */
+function StepperNumberInput({
+  value,
+  onChange,
+  min,
+  max,
+  label,
+  className,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max?: number;
+  label: string;
+  className: string;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const n = Math.round(Number(draft));
+    setDraft(null);
+    if (draft.trim() === "" || !Number.isFinite(n)) return;
+    const clamped = Math.min(max ?? Infinity, Math.max(min, n));
+    if (clamped !== value) onChange(clamped);
+  };
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      aria-label={`${label} quantity`}
+      value={draft ?? String(value)}
+      onChange={(e) => setDraft(e.target.value.replace(/[^\d]/g, ""))}
+      onFocus={(e) => e.target.select()}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+          e.currentTarget.blur();
+        }
+      }}
+      className={className}
+    />
+  );
+}
+
 /** min defaults to 0 (Site Works' Earthing/Lightning — "I don't need
  *  this item" is valid); the Panel Quantity Adjuster passes a real
  *  min/max (see its caller) so this same component enforces the
@@ -5753,7 +5807,14 @@ function QuantityStepper({
         >
           −
         </button>
-        <span className="w-4 text-center text-sm font-bold text-slate-900">{value}</span>
+        <StepperNumberInput
+          value={value}
+          onChange={onChange}
+          min={min}
+          max={max}
+          label={label}
+          className="w-14 rounded-md border border-transparent bg-transparent text-center text-sm font-bold text-slate-900 outline-none focus:border-orange-400 focus:bg-white"
+        />
         <button
           type="button"
           onClick={() => onChange(Math.min(max ?? Infinity, value + 1))}
@@ -5865,8 +5926,8 @@ function SizingModeToggle({ sizeMode, onChange, dark }: { sizeMode: boolean; onC
     `flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors duration-200 ${
       active
         ? dark
-          ? "bg-orange-500 text-white"
-          : "bg-white text-orange-700 shadow-sm"
+          ? "bg-white/[0.14] text-white ring-1 ring-inset ring-orange-300/50"
+          : "bg-white text-orange-800 shadow-sm ring-1 ring-inset ring-orange-200"
         : dark
           ? "text-[#8FA0B4] hover:text-white"
           : "text-slate-500 hover:text-slate-800"
@@ -5928,7 +5989,9 @@ function SystemSizeField({
               aria-pressed={active}
               className={`min-h-9 rounded-full border px-3 text-xs font-semibold transition-colors duration-200 ${
                 active
-                  ? "border-orange-500 bg-orange-500 text-white"
+                  ? dark
+                    ? "border-orange-300/60 bg-white/[0.14] text-white"
+                    : "border-orange-300 bg-orange-50 text-orange-800"
                   : dark
                     ? "border-white/10 bg-white/[0.06] text-[#C4D0DD] hover:border-orange-400"
                     : "border-slate-200 bg-white text-slate-700 hover:border-orange-400"
