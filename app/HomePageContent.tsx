@@ -1624,6 +1624,25 @@ function CalculatorCard() {
   const sizingReady = sizeMode ? targetKwValid : billValid;
   const sizingPayload = sizeMode ? { targetSystemKw: resolvedTargetKw ?? undefined } : { monthlyBillPKR: resolvedBillPKR ?? undefined };
 
+  // A new system size invalidates picks made for the old one: 39 panels and a
+  // 10 kW Huawei chosen for a small system make no sense at 125 kW (they
+  // priced as 13 x 10 kW inverters). Quantity overrides are always cleared,
+  // and in size mode the inverter/battery models too so the engine re-picks
+  // what fits the new kW. Skips the first render so nothing resets on load.
+  const sizingKey = sizeMode ? `kw:${resolvedTargetKw}` : `bill:${resolvedBillPKR}`;
+  const previousSizingKey = useRef(sizingKey);
+  useEffect(() => {
+    if (previousSizingKey.current === sizingKey) return;
+    const wasSizeMode = previousSizingKey.current.startsWith("kw:");
+    previousSizingKey.current = sizingKey;
+    setPanelQtyOverride(null);
+    setInverterQuantityOverride(null);
+    if (sizeMode || wasSizeMode) {
+      setInverterCode(null);
+      setBatteryCode(null);
+    }
+  }, [sizingKey, sizeMode]);
+
   // Detailed Load Calculator's generator cost figure (2026-09-05) — real
   // arithmetic from the customer's own inputs (fuel cost/liter × their
   // stated consumption rate, divided by their generator's rated
@@ -1887,7 +1906,12 @@ function CalculatorCard() {
     customizationPath === "CUSTOM"
       ? {
           panelCode: effectivePanelCode ?? undefined,
-          inverterCode: effectiveInverterCode ?? undefined,
+          // Only an explicit pick is sent. The displayed default
+          // (effectiveInverterCode) falls back to the previous preview's
+          // server-resolved model; sending that back froze a 10 kW Huawei
+          // onto a 125 kW system (13 units) after the size changed. Left
+          // unset, the server re-resolves the right unit for the new size.
+          inverterCode: inverterCode && inverterCode === effectiveInverterCode ? inverterCode : undefined,
           // Manual inverter "clubbing" override (2026-08-29) — see the
           // inverterQuantityOverride state's own doc comment. Clamped
           // server-side to never go below the auto-computed minimum, same
@@ -1980,6 +2004,7 @@ function CalculatorCard() {
     customizationPath,
     effectivePanelCode,
     effectiveInverterCode,
+    inverterCode,
     inverterQuantityOverride,
     effectiveBatteryCode,
     effectiveCableCode,
