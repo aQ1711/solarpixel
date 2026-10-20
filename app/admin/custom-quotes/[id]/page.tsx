@@ -67,7 +67,11 @@ export default function CustomQuotationPage() {
   }, [quotation]);
 
   return (
-    <main className="min-h-dvh bg-stone-50 px-4 py-4 sm:px-8 sm:py-6 print:min-h-0 print:bg-white print:p-0">
+    <main className="min-h-dvh bg-stone-50 px-4 py-4 sm:px-8 sm:py-6 print:min-h-0 print:bg-white print:p-[10mm]">
+      {/* A zero page margin is what makes the browser leave its own header and
+          footer (date, title, URL) off the PDF; the main padding above keeps
+          the sheet off the paper edge. */}
+      <style>{"@media print{@page{size:A4;margin:0}}"}</style>
       <div className="mx-auto max-w-3xl">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 print:hidden">
           <Link href="/admin/custom-quotes" className="flex min-h-11 items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900">
@@ -132,15 +136,6 @@ export default function CustomQuotationPage() {
 
         {quotation && (
           <article className="relative overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-xl shadow-stone-200/50 print:overflow-visible print:rounded-none print:border-0 print:shadow-none">
-            {/* Same faint brand watermark as the customer-facing quote page;
-                deliberately not print:hidden so it survives Save as PDF. */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute left-1/2 top-1/2 z-0 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.05] [print-color-adjust:exact] [-webkit-print-color-adjust:exact]"
-            >
-              <BrandMark className="h-full w-full" gradientId="customQuoteWatermark" />
-            </div>
-
             <header
               className="relative z-10 p-6 text-white [print-color-adjust:exact] [-webkit-print-color-adjust:exact] sm:p-8"
               style={{ background: "linear-gradient(155deg, #0F172A 0%, #0B1220 60%, #0B3B30 150%)" }}
@@ -165,7 +160,16 @@ export default function CustomQuotationPage() {
               <p className="font-mono text-3xl font-bold tabular-nums text-emerald-400 sm:text-4xl">{formatPKR(quotation.totalPKR)}</p>
             </header>
 
-            <div className="relative z-10 space-y-5 p-6 sm:p-8">
+            <div className="relative isolate space-y-5 p-6 sm:p-8">
+            {/* Faint brand watermark centred on the items area (customer-facing quote look);
+                deliberately not print:hidden so it survives Save as PDF. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.05] [print-color-adjust:exact] [-webkit-print-color-adjust:exact]"
+            >
+              <BrandMark className="h-full w-full" gradientId="customQuoteWatermark" />
+            </div>
+
               <section className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-2xl border border-stone-200 bg-stone-50/70 p-4 print:bg-white">
                   <p className="text-xs text-stone-500">Prepared for</p>
