@@ -145,7 +145,14 @@ export default function CustomQuotesPage() {
 interface Picked {
   item: CatalogItemDTO;
   quantity: string;
+  /** True once the creator typed or stepped the quantity themselves. Until
+   *  then a per-kW item (structure, cabling, protection, labour) follows the
+   *  system size worked out from the panels. */
+  manual?: boolean;
 }
+
+const PER_KW_LABEL = "per kW of system";
+const isPerKw = (item: CatalogItemDTO) => item.unitLabel === PER_KW_LABEL;
 
 function QuotationBuilder({ onUnauthorized, onCancel }: { onUnauthorized: (reason?: string) => void; onCancel: () => void }) {
   const router = useRouter();
@@ -209,14 +216,26 @@ function QuotationBuilder({ onUnauthorized, onCancel }: { onUnauthorized: (reaso
     );
   }, [catalog, search, group]);
 
-  const total = roundMoney(picked.reduce((s, p) => s + lineTotalPKR(Number(p.quantity) || 0, p.item.unitPricePKR), 0));
+  // System size from the panels picked (panels x each one's watts), which the
+  // per-kW items are priced against. Without this a 14.6 kW system was being
+  // quoted as "1 kW" of structure/cabling/labour.
+  const systemKw = roundMoney(
+    picked
+      .filter((p) => p.item.componentType === "SOLAR_PANEL")
+      .reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (p.item.specValue ?? 0)) / 1000, 0),
+  );
+  /** The quantity actually used: per-kW items follow the panels until edited. */
+  const qtyOf = (p: Picked): number =>
+    isPerKw(p.item) && !p.manual && systemKw > 0 ? systemKw : Number(p.quantity) || 0;
+
+  const total = roundMoney(picked.reduce((s, p) => s + lineTotalPKR(qtyOf(p), p.item.unitPricePKR), 0));
   const pickedKeys = new Set(picked.map((p) => itemKey(p.item)));
 
   function add(item: CatalogItemDTO) {
     setPicked((prev) => (prev.some((p) => itemKey(p.item) === itemKey(item)) ? prev : [...prev, { item, quantity: "1" }]));
   }
   function setQty(key: string, quantity: string) {
-    setPicked((prev) => prev.map((p) => (itemKey(p.item) === key ? { ...p, quantity } : p)));
+    setPicked((prev) => prev.map((p) => (itemKey(p.item) === key ? { ...p, quantity, manual: true } : p)));
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -235,7 +254,7 @@ function QuotationBuilder({ onUnauthorized, onCancel }: { onUnauthorized: (reaso
           customerAddress: customerAddress || null,
           sector,
           notes: notes || null,
-          items: picked.map((p) => ({ code: p.item.code, componentType: p.item.componentType, quantity: Number(p.quantity) })),
+          items: picked.map((p) => ({ code: p.item.code, componentType: p.item.componentType, quantity: qtyOf(p) })),
         }),
       });
       if (res.status === 401) return onUnauthorized();
@@ -364,10 +383,17 @@ function QuotationBuilder({ onUnauthorized, onCancel }: { onUnauthorized: (reaso
       </div>
 
       <div className={`${CARD} space-y-3`}>
-        <h2 className="text-base font-semibold text-stone-900">Quotation items</h2>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-base font-semibold text-stone-900">Quotation items</h2>
+          {systemKw > 0 && (
+            <p className="text-xs font-medium text-stone-500">
+              System size from panels: <span className="tabular-nums text-stone-900">{systemKw} kW</span>
+            </p>
+          )}
+        </div>
         {picked.length === 0 && <p className="text-sm text-stone-400">Nothing added yet. Pick items above.</p>}
         {picked.map((p) => {
-          const qty = Number(p.quantity) || 0;
+          const qty = qtyOf(p);
           return (
             <div key={itemKey(p.item)} className="rounded-xl border border-stone-200 p-3">
               <div className="flex items-start justify-between gap-3">
@@ -376,6 +402,15 @@ function QuotationBuilder({ onUnauthorized, onCancel }: { onUnauthorized: (reaso
                   <p className="text-xs tabular-nums text-stone-500">
                     {formatPKR(p.item.unitPricePKR)} {p.item.unitLabel}
                   </p>
+                  {isPerKw(p.item) && (
+                    <p className="mt-0.5 text-[11px] text-violet-600">
+                      {p.manual
+                        ? "Quantity set by you (kW)."
+                        : systemKw > 0
+                          ? `Follows your panels: ${systemKw} kW. Edit to change.`
+                          : "Quantity in kW. Add panels to fill this in automatically."}
+                    </p>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -399,7 +434,7 @@ function QuotationBuilder({ onUnauthorized, onCancel }: { onUnauthorized: (reaso
                   <input
                     aria-label={`Quantity for ${p.item.label}`}
                     inputMode="decimal"
-                    value={p.quantity}
+                    value={isPerKw(p.item) && !p.manual && systemKw > 0 ? String(systemKw) : p.quantity}
                     onChange={(e) => setQty(itemKey(p.item), e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1"))}
                     className="h-10 w-16 rounded-lg border border-stone-200 text-center text-sm tabular-nums outline-none focus:border-violet-400"
                   />
