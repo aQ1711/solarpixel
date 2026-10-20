@@ -30,9 +30,26 @@ export interface CustomQuotationItemDTO {
   lineTotalPKR: number;
 }
 
+/** One entry in a quotation's version history. */
+export interface QuotationVersionDTO {
+  id: string;
+  version: number;
+  versionNote: string | null;
+  totalPKR: number;
+  createdByName: string;
+  createdAt: string;
+}
+
 export interface CustomQuotationDTO {
   id: string;
   quotationNumber: string;
+  /** 1 for the original; each edit adds the next number. */
+  version: number;
+  versionNote: string | null;
+  /** True when no newer version of this quotation exists. */
+  isLatest: boolean;
+  /** Every version of this quotation, oldest first (detail view only). */
+  versions?: QuotationVersionDTO[];
   customerName: string;
   customerPhone: string;
   customerCity: string;

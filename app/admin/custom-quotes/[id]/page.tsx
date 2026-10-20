@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Loader2, MessageCircle, Printer } from "lucide-react";
+import { ArrowLeft, History, Loader2, MessageCircle, Pencil, Printer } from "lucide-react";
 import { useAdminAuth } from "@/components/admin/AdminAuthContext";
 import { BrandMark } from "@/components/BrandMark";
 import { internalFetch, type ApiJson } from "@/lib/internal/access";
@@ -20,7 +20,7 @@ function buildMessage(q: CustomQuotationDTO): string {
   const lines = q.items.map((i) => `• ${i.label} × ${formatQty(i.quantity)} = ${formatPKR(i.lineTotalPKR)}`);
   return [
     `Assalam o Alaikum ${q.customerName},`,
-    `Here is your Solar Pixel quotation ${q.quotationNumber}:`,
+    `Here is your Solar Pixel quotation ${q.quotationNumber}${q.version > 1 ? ` (version ${q.version})` : ""}:`,
     "",
     ...lines,
     "",
@@ -61,7 +61,15 @@ export default function CustomQuotationPage() {
             <ArrowLeft className="h-4 w-4" /> All quotations
           </Link>
           {quotation && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              {quotation.isLatest && (
+                <Link
+                  href={`/admin/custom-quotes/${quotation.id}/edit`}
+                  className="flex min-h-11 items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 text-sm font-semibold text-violet-700 shadow-sm transition hover:bg-violet-100"
+                >
+                  <Pencil className="h-4 w-4" /> Edit (new version)
+                </Link>
+              )}
               <button
                 type="button"
                 onClick={() => window.print()}
@@ -69,14 +77,16 @@ export default function CustomQuotationPage() {
               >
                 <Printer className="h-4 w-4" /> Print / Save PDF
               </button>
-              <a
-                href={buildWaLink(quotation.customerPhone, buildMessage(quotation))}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-              >
-                <MessageCircle className="h-4 w-4" /> Send on WhatsApp
-              </a>
+              {quotation.isLatest && (
+                <a
+                  href={buildWaLink(quotation.customerPhone, buildMessage(quotation))}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                >
+                  <MessageCircle className="h-4 w-4" /> Send on WhatsApp
+                </a>
+              )}
             </div>
           )}
         </div>
@@ -92,6 +102,21 @@ export default function CustomQuotationPage() {
           </div>
         )}
 
+        {quotation && !quotation.isLatest && quotation.versions && (
+          <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 print:hidden">
+            <span>
+              You are viewing version {quotation.version}, which has been replaced. The latest is version{" "}
+              {quotation.versions[quotation.versions.length - 1].version}.
+            </span>
+            <Link
+              href={`/admin/custom-quotes/${quotation.versions[quotation.versions.length - 1].id}`}
+              className="font-semibold text-amber-900 underline"
+            >
+              Open the latest
+            </Link>
+          </div>
+        )}
+
         {quotation && (
           <article className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-8 print:rounded-none print:border-0 print:p-0 print:shadow-none">
             <header className="flex items-start justify-between gap-4 border-b border-stone-200 pb-4">
@@ -104,7 +129,10 @@ export default function CustomQuotationPage() {
               </div>
               <div className="text-right">
                 <p className="text-xs uppercase tracking-wider text-stone-400">Quotation</p>
-                <p className="text-sm font-semibold text-stone-900">{quotation.quotationNumber}</p>
+                <p className="text-sm font-semibold text-stone-900">
+                  {quotation.quotationNumber}
+                  {quotation.version > 1 ? ` · Version ${quotation.version}` : ""}
+                </p>
                 <p className="text-xs text-stone-500">{new Date(quotation.createdAt).toLocaleDateString("en-PK", { dateStyle: "long" })}</p>
               </div>
             </header>
@@ -166,6 +194,41 @@ export default function CustomQuotationPage() {
               Solar Pixel · {CONTACT_PHONE_DISPLAY} · {CONTACT_EMAIL}
             </footer>
           </article>
+        )}
+
+        {quotation?.versions && quotation.versions.length > 1 && (
+          <section className="mt-5 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm print:hidden sm:p-5">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-stone-900">
+              <History className="h-4 w-4 text-stone-400" /> Version history
+            </h2>
+            <ul className="mt-3 divide-y divide-stone-100">
+              {[...quotation.versions].reverse().map((v) => {
+                const current = v.id === quotation.id;
+                return (
+                  <li key={v.id}>
+                    <Link
+                      href={`/admin/custom-quotes/${v.id}`}
+                      className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3 text-sm transition hover:bg-stone-50 ${current ? "font-medium" : ""}`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${current ? "bg-violet-600 text-white" : "bg-stone-100 text-stone-600"}`}>
+                          v{v.version}
+                        </span>
+                        <span className="text-stone-700">
+                          {v.version === quotation.versions![quotation.versions!.length - 1].version ? "Latest" : "Replaced"}
+                          {v.versionNote ? ` · ${v.versionNote}` : v.version === 1 ? " · Original" : ""}
+                        </span>
+                      </span>
+                      <span className="text-xs text-stone-500">
+                        {new Date(v.createdAt).toLocaleDateString("en-PK", { dateStyle: "medium" })} · {v.createdByName} ·{" "}
+                        <span className="font-semibold tabular-nums text-stone-800">{formatPKR(v.totalPKR)}</span>
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
         )}
       </div>
     </main>

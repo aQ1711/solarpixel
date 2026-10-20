@@ -1085,8 +1085,14 @@ model TickerSettings {
 // ============================================================================
 
 model CustomQuotation {
-  id              String @id @default(cuid())
-  quotationNumber String @unique // e.g. CQ-2026-4F9A21BC
+  id              String  @id @default(cuid())
+  quotationNumber String // e.g. CQ-2026-4F9A21BC; shared by every version of one quotation
+  // Version number (1, 2, 3...). Editing a quotation never changes an existing
+  // row: it adds a new row with the same quotationNumber and version + 1, so
+  // every earlier version stays readable exactly as it was sent.
+  version         Int     @default(1)
+  // Optional "what changed" note the editor leaves on a new version.
+  versionNote     String?
 
   customerName    String
   customerPhone   String
@@ -1112,6 +1118,8 @@ model CustomQuotation {
 
   items CustomQuotationItem[]
 
+  @@unique([quotationNumber, version])
+  @@index([quotationNumber])
   @@index([createdById])
   @@index([createdAt])
   @@map("custom_quotations")
