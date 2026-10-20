@@ -53,6 +53,19 @@ export default function CustomQuotationPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // The browser names a saved PDF after the page title, so make it read like a
+  // file name: "Quotation CQ-2026-1690DF66 v2 - Mr Naveed - 20 Oct 2026".
+  useEffect(() => {
+    if (!quotation) return;
+    const previous = document.title;
+    const date = new Date(quotation.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const customer = quotation.customerName.replace(/[\\/:*?"<>|.]+/g, " ").replace(/\s+/g, " ").trim();
+    document.title = `Quotation ${quotation.quotationNumber}${quotation.version > 1 ? ` v${quotation.version}` : ""} - ${customer} - ${date}`;
+    return () => {
+      document.title = previous;
+    };
+  }, [quotation]);
+
   return (
     <main className="min-h-dvh bg-stone-50 px-4 py-4 sm:px-8 sm:py-6 print:min-h-0 print:bg-white print:p-0">
       <div className="mx-auto max-w-3xl">
