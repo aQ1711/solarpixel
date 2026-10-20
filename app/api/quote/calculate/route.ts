@@ -127,6 +127,16 @@ const calculateQuoteSchema = z
       .max(10_000_000, "monthlyBillPKR is unrealistically large")
       .optional(),
 
+    // "Build by system size" mode: the customer knows the kW they want and
+    // gives no bill. Exactly one of monthlyBillPKR / targetSystemKw must be
+    // sent (enforced in superRefine). Snapped up to a standard inverter size
+    // below, same as the bill-derived size.
+    targetSystemKw: z
+      .number()
+      .positive("targetSystemKw must be greater than 0")
+      .max(1000, "targetSystemKw is unrealistically large")
+      .optional(),
+
     sector: z.nativeEnum(Sector).optional(),
 
     // Customer's choice for Residential/Commercial (defaults to
@@ -210,8 +220,11 @@ const calculateQuoteSchema = z
   })
   .superRefine((data, ctx) => {
     if (data.requestKind === "SOLAR" || data.requestKind === "SOLAR_PREVIEW") {
-      if (data.monthlyBillPKR === undefined) {
-        ctx.addIssue({ code: "custom", path: ["monthlyBillPKR"], message: "monthlyBillPKR is required" });
+      if (data.monthlyBillPKR === undefined && data.targetSystemKw === undefined) {
+        ctx.addIssue({ code: "custom", path: ["monthlyBillPKR"], message: "monthlyBillPKR or targetSystemKw is required" });
+      }
+      if (data.monthlyBillPKR !== undefined && data.targetSystemKw !== undefined) {
+        ctx.addIssue({ code: "custom", path: ["targetSystemKw"], message: "Send either monthlyBillPKR or targetSystemKw, not both" });
       }
       if (data.sector === undefined) {
         ctx.addIssue({ code: "custom", path: ["sector"], message: "sector is required" });
@@ -335,20 +348,31 @@ interface PricedTier {
  *  reflects "same equipment, bigger system," not a silent reset to
  *  Recommended defaults. */
 async function priceTier(
-  monthlyBillPKR: number,
+  sizing: { monthlyBillPKR: number } | { targetSystemKw: number },
   offsetPct: number,
   sector: Sector,
   serviceType: ServiceType,
   selections: EquipmentSelections | undefined,
   targetBudgetTier: BudgetTier | undefined
 ): Promise<PricedTier> {
-  const { requiredDailyDaytimeUnits, rawKwRequired, systemKw: targetSystemKw } = calculateSystemSize(monthlyBillPKR, offsetPct);
+  // Size mode: the customer's own kW target replaces the bill-derived sizing
+  // (used as given; pricing picks the inverter and panel count from it). There is no
+  // consumption figure, so savings/payback can't be estimated and stay 0/null.
+  const sized =
+    "targetSystemKw" in sizing
+      ? {
+          requiredDailyDaytimeUnits: 0,
+          rawKwRequired: sizing.targetSystemKw,
+          systemKw: sizing.targetSystemKw,
+        }
+      : calculateSystemSize(sizing.monthlyBillPKR, offsetPct);
+  const { requiredDailyDaytimeUnits, rawKwRequired, systemKw: targetSystemKw } = sized;
   const { totalClientPricePKR, resolvedSystemKw, hasCustomRequirements, breakdown, resolvedEquipment, siteWorks, panelWashing } =
     await calculateSystemPricing(targetSystemKw, sector, serviceType, selections, targetBudgetTier);
-  const { estimatedMonthlySavingsPKR, paybackYears } = calculateSavingsAndPayback(
-    requiredDailyDaytimeUnits,
-    totalClientPricePKR
-  );
+  const { estimatedMonthlySavingsPKR, paybackYears } =
+    "targetSystemKw" in sizing
+      ? { estimatedMonthlySavingsPKR: 0, paybackYears: null }
+      : calculateSavingsAndPayback(requiredDailyDaytimeUnits, totalClientPricePKR);
   return {
     offsetPct,
     // resolvedSystemKw, not targetSystemKw — see PricedTier.systemKw's
@@ -422,10 +446,23 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
   // a plain non-optional local instead of an `input.x!` assertion at
   // each call site. fullName/whatsappPhone are narrowed separately below,
   // only on the persisting SOLAR path.
-  if (input.monthlyBillPKR === undefined || input.sector === undefined || input.daytimeUsagePct === undefined) {
+  if (
+    (input.monthlyBillPKR === undefined && input.targetSystemKw === undefined) ||
+    input.sector === undefined ||
+    input.daytimeUsagePct === undefined
+  ) {
     return NextResponse.json({ error: "Validation failed" }, { status: 400 });
   }
-  const { monthlyBillPKR, sector, daytimeUsagePct } = input;
+  const { sector, daytimeUsagePct } = input;
+  const sizeMode = input.targetSystemKw !== undefined;
+  // In size mode no bill exists: it is stored as 0 with billSource
+  // NOT_PROVIDED (the DB columns are NOT NULL), and every reader treats that
+  // pair as "no bill given".
+  const monthlyBillPKR = input.monthlyBillPKR ?? 0;
+  const sizing = sizeMode
+    ? { targetSystemKw: input.targetSystemKw as number }
+    : { monthlyBillPKR };
+  const billSource = sizeMode ? ("NOT_PROVIDED" as const) : input.billSource;
   const isPreview = input.requestKind === "SOLAR_PREVIEW";
 
   const serviceType = resolveServiceType(sector, input.serviceType);
@@ -436,7 +473,7 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
   let recommended: PricedTier;
   try {
     recommended = await priceTier(
-      monthlyBillPKR,
+      sizing,
       daytimeUsagePct,
       sector,
       serviceType,
@@ -462,10 +499,10 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
   //     binding estimate), and non-fatal if it can't be priced — the
   //     recommended tier above still succeeds either way.
   let nearZeroBillTier: PricedTier | null = null;
-  if (daytimeUsagePct < NEAR_ZERO_BILL_OFFSET_PCT) {
+  if (!sizeMode && daytimeUsagePct < NEAR_ZERO_BILL_OFFSET_PCT) {
     try {
       nearZeroBillTier = await priceTier(
-        monthlyBillPKR,
+        sizing,
         NEAR_ZERO_BILL_OFFSET_PCT,
         sector,
         serviceType,
@@ -531,7 +568,7 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
             estimatedDaytimeLoadKw: recommended.rawKwRequired,
             estimatedSystemSizeKw: recommended.systemKw,
             automatedEstimatePriceRs: recommended.totalClientPricePKR,
-            billSource: input.billSource,
+            billSource,
             uploadedBillFileUrl: input.billFileUrl ?? undefined,
             // Persisted as the EFFECTIVE tier ("no preference" -> the same
             // "UNDER_1M" it was actually priced under, per
@@ -589,7 +626,8 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
     paybackYears: recommended.paybackYears,
     offsetPct: daytimeUsagePct,
     daysToDeploy: DAYS_TO_DEPLOY_DEFAULT,
-    billSource: input.billSource,
+    billSource,
+    sizingMode: sizeMode ? "SIZE" : "BILL",
     monthlyBillPKR,
     hasCustomRequirements: recommended.hasCustomRequirements,
     breakdown: recommended.breakdown,

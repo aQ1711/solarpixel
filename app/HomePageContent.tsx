@@ -206,7 +206,9 @@ interface QuoteResult {
   paybackYears: number | null;
   offsetPct: number;
   daysToDeploy: number;
-  billSource: BillSource;
+  billSource: BillSource | "NOT_PROVIDED";
+  /** "SIZE" when the customer chose a kW instead of giving a bill. */
+  sizingMode?: "BILL" | "SIZE";
   monthlyBillPKR: number;
   nearZeroBillTier: QuoteTier | null;
   breakdown: ItemizedBreakdown;
@@ -1615,6 +1617,17 @@ function CalculatorCard() {
   const serviceType: ServiceType =
     LOCKED_SERVICE_TYPE_BY_SECTOR[sector] ?? (sector === "RESIDENTIAL" ? residentialServiceType : commercialServiceType);
   const resolvedBillPKR = billAmountInput.trim() === "" ? null : Number(billAmountInput);
+  // "Build by system size" mode: the customer knows the kW they want and
+  // skips the bill. The server takes exactly one of monthlyBillPKR /
+  // targetSystemKw, so everything that used to be gated on a valid bill is
+  // gated on `sizingReady` and sends `sizingPayload` instead.
+  const [sizeMode, setSizeMode] = useState(false);
+  const [targetKwInput, setTargetKwInput] = useState("");
+  const resolvedTargetKw = targetKwInput.trim() === "" ? null : Number(targetKwInput);
+  const targetKwValid = resolvedTargetKw !== null && Number.isFinite(resolvedTargetKw) && resolvedTargetKw > 0 && resolvedTargetKw <= 1000;
+  const billValid = resolvedBillPKR !== null && !Number.isNaN(resolvedBillPKR) && resolvedBillPKR > 0;
+  const sizingReady = sizeMode ? targetKwValid : billValid;
+  const sizingPayload = sizeMode ? { targetSystemKw: resolvedTargetKw ?? undefined } : { monthlyBillPKR: resolvedBillPKR ?? undefined };
 
   // Detailed Load Calculator's generator cost figure (2026-09-05) — real
   // arithmetic from the customer's own inputs (fuel cost/liter × their
@@ -1921,7 +1934,7 @@ function CalculatorCard() {
   // doc comment.)
   useEffect(() => {
     if (masterService !== "COMPLETE_SOLAR") return;
-    if (resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0) return;
+    if (!sizingReady) return;
 
     const timeoutId = setTimeout(async () => {
       setLivePreviewLoading(true);
@@ -1932,7 +1945,7 @@ function CalculatorCard() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             requestKind: "SOLAR_PREVIEW",
-            monthlyBillPKR: resolvedBillPKR,
+            ...sizingPayload,
             sector,
             serviceType: sector === "INDUSTRIAL" ? undefined : serviceType,
             daytimeUsagePct: DAYTIME_USAGE_PCT_BY_SECTOR[sector],
@@ -1965,6 +1978,8 @@ function CalculatorCard() {
   }, [
     masterService,
     resolvedBillPKR,
+    sizeMode,
+    resolvedTargetKw,
     sector,
     serviceType,
     customizationPath,
@@ -1994,7 +2009,7 @@ function CalculatorCard() {
 
   useEffect(() => {
     if (masterService !== "COMPLETE_SOLAR") return;
-    if (resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0) return;
+    if (!sizingReady) return;
 
     const timeoutId = setTimeout(async () => {
       try {
@@ -2003,7 +2018,7 @@ function CalculatorCard() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             requestKind: "SOLAR_PREVIEW",
-            monthlyBillPKR: resolvedBillPKR,
+            ...sizingPayload,
             sector,
             serviceType: sector === "INDUSTRIAL" ? undefined : serviceType,
             daytimeUsagePct: DAYTIME_USAGE_PCT_BY_SECTOR[sector],
@@ -2020,7 +2035,8 @@ function CalculatorCard() {
       }
     }, 250);
     return () => clearTimeout(timeoutId);
-  }, [masterService, resolvedBillPKR, sector, serviceType]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [masterService, resolvedBillPKR, sizeMode, resolvedTargetKw, sector, serviceType]);
 
   // Mobile hero first-look figures (2026-10-05, "i want real figures no
   // fake or hardcode"): until the customer touches the bill field, the
@@ -2307,8 +2323,8 @@ function CalculatorCard() {
   async function handleSolarSubmit() {
     setErrorMessage(null);
 
-    if (resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0) {
-      setErrorMessage("Enter your monthly electricity bill amount.");
+    if (!sizingReady) {
+      setErrorMessage(sizeMode ? "Enter the system size you want in kW." : "Enter your monthly electricity bill amount.");
       return;
     }
 
@@ -2318,7 +2334,7 @@ function CalculatorCard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          monthlyBillPKR: resolvedBillPKR,
+          ...sizingPayload,
           sector,
           // Industrial is server-forced regardless — omit rather than send
           // a value that would just be ignored. See resolveServiceType().
@@ -2493,8 +2509,8 @@ function CalculatorCard() {
   //   untouched first look -> heroSamplePreview (real call, sample bill)
   //   cleared/0 by user    -> nothing ("—"; a result for the old number
   //                           would describe a bill no longer in the field)
-  const heroBillEmpty = resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0;
-  const heroTilePreview = heroBillEmpty ? (heroBillTouched ? null : heroSamplePreview) : livePreview;
+  const heroBillEmpty = sizeMode ? !targetKwValid : resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0;
+  const heroTilePreview = heroBillEmpty ? (heroBillTouched || sizeMode ? null : heroSamplePreview) : livePreview;
   // true = a real figure is still on its way (show a quiet placeholder);
   // false with no preview = nothing to show ("—").
   const heroTilesPending = heroBillEmpty
@@ -2722,7 +2738,7 @@ function CalculatorCard() {
                         <div className="rounded-[14px] border border-emerald-400/25 bg-emerald-400/10 p-3">
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-emerald-200/80">You save / mo</p>
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-emerald-400">
-                            {livePreview ? `~${formatPKR(livePreview.estimatedMonthlySavingsPKR)}` : "N/A"}
+                            {livePreview && livePreview.estimatedMonthlySavingsPKR > 0 ? `~${formatPKR(livePreview.estimatedMonthlySavingsPKR)}` : "N/A"}
                           </p>
                         </div>
                       </div>
@@ -3022,6 +3038,15 @@ function CalculatorCard() {
                     </>
                   ) : (
                     <>
+                      <div className="mt-3">
+                        <SizingModeToggle sizeMode={sizeMode} onChange={setSizeMode} dark />
+                      </div>
+                      {sizeMode && (
+                        <div className="mt-3">
+                          <SystemSizeField id="targetKwHero" value={targetKwInput} onChange={setTargetKwInput} dark />
+                        </div>
+                      )}
+                      {!sizeMode && (<>
                       <div className="mt-3 flex items-center justify-between">
                         <label htmlFor="heroBillAmount" className="font-mono text-[10px] font-semibold uppercase tracking-widest text-[#8FA0B4]">
                           Your Monthly Bill
@@ -3112,6 +3137,7 @@ function CalculatorCard() {
                           </p>
                         </div>
                       )}
+                      </>)}
                       <div className="mt-2 grid grid-cols-2 gap-2.5">
                         <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.06] p-3">
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-[#8FA0B4]">You need</p>
@@ -3131,7 +3157,9 @@ function CalculatorCard() {
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-emerald-200/80">You save / mo</p>
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-emerald-400">
                             {heroTilePreview
-                              ? `~${formatPKR(heroTilePreview.estimatedMonthlySavingsPKR)}`
+                              ? heroTilePreview.estimatedMonthlySavingsPKR > 0
+                                ? `~${formatPKR(heroTilePreview.estimatedMonthlySavingsPKR)}`
+                                : "N/A"
                               : heroTilesPending
                                 ? <span className="animate-pulse text-[#5E6E82]" aria-label="Calculating">…</span>
                                 : "—"}
@@ -3175,7 +3203,13 @@ function CalculatorCard() {
                 of identical cards" look (Part 2) — see StepHeader. */}
             <div ref={energyProfileRef} className="hidden rounded-2xl border border-slate-200 bg-white p-4 lg:block">
               <StepHeader step={1} title="Energy Profile" />
+              <div className="mb-3">
+                <SizingModeToggle sizeMode={sizeMode} onChange={setSizeMode} />
+              </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {sizeMode ? (
+                  <SystemSizeField id="targetKwDesktop" value={targetKwInput} onChange={setTargetKwInput} />
+                ) : (
                 <div>
                   <label htmlFor="billAmount" className="mb-1.5 block text-sm font-semibold text-slate-700">
                     Average Monthly Bill (PKR)
@@ -3206,6 +3240,7 @@ function CalculatorCard() {
                     <p className="mt-1.5 text-xs font-medium text-slate-500">= {formatBillInWords(resolvedBillPKR)}</p>
                   )}
                 </div>
+                )}
                 <div>
                   {/* Target Budget (2026-08-20) — auto-selects the
                       inverter/battery strategy (see the Calculation
@@ -3257,11 +3292,11 @@ function CalculatorCard() {
                 </div>
               </div>
 
-              {resolvedBillPKR !== null && resolvedBillPKR > 0 && (
+              {(sizeMode ? targetKwValid : resolvedBillPKR !== null && resolvedBillPKR > 0) && (
                 <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-orange-700">
                   <Zap className="h-4 w-4 shrink-0" />
                   {livePreview ? (
-                    <>Recommended System: {livePreview.systemKw} kW</>
+                    <>{sizeMode ? "Your System" : "Recommended System"}: {livePreview.systemKw} kW</>
                   ) : (
                     <>Calculating recommended system size…</>
                   )}
@@ -3278,7 +3313,7 @@ function CalculatorCard() {
                   Industrial-scale bill silently carries over and
                   produces a nonsense "Recommended System: 100 kW" for a
                   Residential/Commercial property. */}
-              {sector !== "INDUSTRIAL" && resolvedBillPKR !== null && resolvedBillPKR >= INDUSTRIAL_SECTOR_THRESHOLD_PKR && (
+              {!sizeMode && sector !== "INDUSTRIAL" && resolvedBillPKR !== null && resolvedBillPKR >= INDUSTRIAL_SECTOR_THRESHOLD_PKR && (
                 <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
                   <p className="text-xs leading-relaxed text-amber-800">
@@ -3295,7 +3330,7 @@ function CalculatorCard() {
                   selected above — see the dedicated baselinePreview
                   effect, a separate live-preview call that always forces
                   targetBudgetTier: "UNDER_1M". */}
-              {resolvedBillPKR !== null && resolvedBillPKR > 0 && baselinePreview && (
+              {(sizeMode ? targetKwValid : resolvedBillPKR !== null && resolvedBillPKR > 0) && baselinePreview && (
                 <p className="mt-1.5 text-sm text-slate-500">
                   Starting from: <span className="font-semibold text-slate-700">{formatPKR(baselinePreview.totalClientPricePKR)}</span>{" "}
                   (panels + inverter only, no battery)
@@ -3309,7 +3344,7 @@ function CalculatorCard() {
                   app deliberately sizes for daytime usage only (the "no
                   grid export" business model), so the dropdown says so
                   honestly rather than promising 100% bill offset. */}
-              {resolvedBillPKR !== null && resolvedBillPKR > 0 && livePreview && (
+              {!sizeMode && resolvedBillPKR !== null && resolvedBillPKR > 0 && livePreview && (
                 <div className="mt-1.5">
                   <button
                     type="button"
@@ -4625,7 +4660,7 @@ function CalculatorCard() {
                     </div>
                     <div>
                       <p className="text-[10px] text-slate-500">Savings/mo</p>
-                      <p className="text-sm font-bold text-emerald-600">{formatPKR(livePreview.estimatedMonthlySavingsPKR)}</p>
+                      <p className="text-sm font-bold text-emerald-600">{livePreview.estimatedMonthlySavingsPKR > 0 ? formatPKR(livePreview.estimatedMonthlySavingsPKR) : "N/A"}</p>
                     </div>
                     <div>
                       <p className="text-[10px] text-slate-500">Payback</p>
@@ -5136,7 +5171,7 @@ function CalculatorCard() {
               : ""}
           </p>
           <p className="truncate text-base font-bold">
-            {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "Enter your bill above"}
+            {livePreview ? formatPKR(livePreview.totalClientPricePKR) : sizeMode ? "Enter your system size above" : "Enter your bill above"}
           </p>
         </div>
         <button
@@ -5842,6 +5877,96 @@ function CustomRequirementNotice() {
 // is best-effort, and we'd rather admit uncertainty than guess.
 // ============================================================================
 
+const SIZE_PRESETS_KW = [3, 5, 8, 10, 15, 20];
+
+/** Bill / system-size switch for the Complete Solar inputs. `dark` is the
+ *  mobile hero card's palette, light is the desktop Energy Profile card. */
+function SizingModeToggle({ sizeMode, onChange, dark }: { sizeMode: boolean; onChange: (sizeMode: boolean) => void; dark?: boolean }) {
+  const option = (active: boolean) =>
+    `flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors duration-200 ${
+      active
+        ? dark
+          ? "bg-orange-500 text-white"
+          : "bg-white text-orange-700 shadow-sm"
+        : dark
+          ? "text-[#8FA0B4] hover:text-white"
+          : "text-slate-500 hover:text-slate-800"
+    }`;
+  return (
+    <div
+      role="group"
+      aria-label="How do you want to size your system?"
+      className={`flex gap-1 rounded-xl p-1 ${dark ? "border border-white/10 bg-white/[0.06]" : "bg-slate-100"}`}
+    >
+      <button type="button" aria-pressed={!sizeMode} onClick={() => onChange(false)} className={option(!sizeMode)}>
+        I know my bill
+      </button>
+      <button type="button" aria-pressed={sizeMode} onClick={() => onChange(true)} className={option(sizeMode)}>
+        I know the system size
+      </button>
+    </div>
+  );
+}
+
+/** kW target input with quick presets, used when the customer sizes by kW. */
+function SystemSizeField({
+  id,
+  value,
+  onChange,
+  dark,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  dark?: boolean;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className={`mb-1.5 block text-sm font-semibold ${dark ? "text-[#8FA0B4]" : "text-slate-700"}`}>
+        System size (kW)
+      </label>
+      <input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, "").replace(/^(\d*\.?\d*).*$/, "$1"))}
+        placeholder="e.g. 10"
+        className={
+          dark
+            ? "w-full rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-3 font-mono text-lg font-semibold text-white placeholder:text-[#5E6E82] outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
+            : "w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-base font-medium text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
+        }
+      />
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {SIZE_PRESETS_KW.map((kw) => {
+          const active = Number(value) === kw;
+          return (
+            <button
+              key={kw}
+              type="button"
+              onClick={() => onChange(String(kw))}
+              aria-pressed={active}
+              className={`min-h-9 rounded-full border px-3 text-xs font-semibold transition-colors duration-200 ${
+                active
+                  ? "border-orange-500 bg-orange-500 text-white"
+                  : dark
+                    ? "border-white/10 bg-white/[0.06] text-[#C4D0DD] hover:border-orange-400"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-orange-400"
+              }`}
+            >
+              {kw} kW
+            </button>
+          );
+        })}
+      </div>
+      <p className={`mt-2 text-[11px] leading-relaxed ${dark ? "text-[#8FA0B4]" : "text-slate-500"}`}>
+        Sized to the kW you choose, not to your usage. Savings and payback need a bill, so they show as N/A. Share your bill later and we will check the size fits.
+      </p>
+    </div>
+  );
+}
+
 const BILL_SOURCE_LABEL: Record<Exclude<BillSource, "MANUAL">, string> = {
   UPLOADED_PDF: "From Your PDF",
   UPLOADED_IMAGE: "From Your Photo",
@@ -6279,10 +6404,16 @@ function ResultSummary({
         >
           <ChevronLeft className="h-3.5 w-3.5" /> Edit Inputs
         </button>
-        {result.billSource !== "MANUAL" && (
-          <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
-            <BadgeCheck className="h-3.5 w-3.5" /> From Your Bill
+        {result.billSource === "NOT_PROVIDED" ? (
+          <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-600">
+            <Gauge className="h-3.5 w-3.5" /> Sized by your chosen kW
           </span>
+        ) : (
+          result.billSource !== "MANUAL" && (
+            <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+              <BadgeCheck className="h-3.5 w-3.5" /> From Your Bill
+            </span>
+          )
         )}
       </div>
 
@@ -6369,7 +6500,7 @@ function ResultSummary({
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center print:rounded-none print:border-0 print:bg-white print:py-2.5">
           <TrendingDown className="mx-auto h-3.5 w-3.5 text-emerald-600 print:hidden" />
           <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-500 print:mt-0">Monthly Savings</p>
-          <p className="mt-0.5 text-sm font-bold text-emerald-600">{formatPKR(result.estimatedMonthlySavingsPKR)}</p>
+          <p className="mt-0.5 text-sm font-bold text-emerald-600">{result.estimatedMonthlySavingsPKR > 0 ? formatPKR(result.estimatedMonthlySavingsPKR) : "N/A"}</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center print:rounded-none print:border-0 print:bg-white print:py-2.5">
           <Clock className="mx-auto h-3.5 w-3.5 text-slate-400 print:hidden" />

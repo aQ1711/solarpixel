@@ -842,7 +842,7 @@ export function LeadDetailContent({
         {lead.email && <DetailRow icon={Mail} label="Email" value={lead.email} />}
         <DetailRow icon={MapPin} label="Location" value={[lead.address, lead.city].filter(Boolean).join(", ")} />
         <DetailRow icon={Zap} label="Sector" value={SECTOR_LABELS[lead.sector] ?? lead.sector} />
-        <DetailRow icon={Receipt} label="Monthly Bill" value={formatPKR(lead.monthlyBillRs)} />
+        <DetailRow icon={Receipt} label="Monthly Bill" value={lead.monthlyBillRs > 0 ? formatPKR(lead.monthlyBillRs) : "Not provided (customer chose a system size)"} />
       </Section>
 
       {quote && (

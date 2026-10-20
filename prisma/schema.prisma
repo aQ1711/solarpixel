@@ -140,6 +140,7 @@ enum BillSource {
   MANUAL // typed in directly
   UPLOADED_PDF // parsed from an uploaded bill PDF
   UPLOADED_IMAGE // parsed from an uploaded bill photo/screenshot (OCR)
+  NOT_PROVIDED // customer sized by kW instead; monthlyBillRs is stored as 0
 
   @@schema("public")
 }
