@@ -160,12 +160,12 @@ export default function CustomQuotationPage() {
               <p className="font-mono text-3xl font-bold tabular-nums text-emerald-400 sm:text-4xl">{formatPKR(quotation.totalPKR)}</p>
             </header>
 
-            <div className="relative isolate space-y-5 p-6 sm:p-8">
+            <div className="relative isolate space-y-5 p-6 sm:p-8 print:[isolation:auto]">
             {/* Faint brand watermark centred on the items area (customer-facing quote look);
                 deliberately not print:hidden so it survives Save as PDF. */}
             <div
               aria-hidden
-              className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.05] [print-color-adjust:exact] [-webkit-print-color-adjust:exact]"
+              className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.05] [print-color-adjust:exact] [-webkit-print-color-adjust:exact] print:fixed print:z-[1]"
             >
               <BrandMark className="h-full w-full" gradientId="customQuoteWatermark" />
             </div>

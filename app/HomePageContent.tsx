@@ -6810,7 +6810,7 @@ function ResultSummary({
   const costBreakdownRows = buildCostBreakdownRows(result);
 
   return (
-    <div className="animate-fade-up relative mx-auto my-8 w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-2xl shadow-slate-200/60 print:my-0 print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:px-[12mm] print:py-[12mm] print:shadow-none print:[-webkit-box-decoration-break:clone] print:[box-decoration-break:clone]">
+    <div className="animate-fade-up relative mx-auto my-8 w-full max-w-3xl overflow-hidden rounded-3xl print:[animation:none] print:[transform:none] border border-slate-200 bg-white text-slate-900 shadow-2xl shadow-slate-200/60 print:my-0 print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:px-[12mm] print:py-[12mm] print:shadow-none print:[-webkit-box-decoration-break:clone] print:[box-decoration-break:clone]">
       {/* A zero page margin is what stops the browser stamping its own
           date/title header and URL/page-number footer on the PDF. The
           padding above stands in for the margin, and box-decoration-break
@@ -6828,7 +6828,7 @@ function ResultSummary({
           <defs> id and break one instance's fill). */}
       <div
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-1/3 -z-10 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.04]"
+        className="pointer-events-none absolute left-1/2 top-1/3 -z-10 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.04] print:fixed print:top-1/2 print:z-[1] print:opacity-[0.05] print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]"
       >
         <BrandMark className="h-full w-full" gradientId="resultWatermark" />
       </div>
