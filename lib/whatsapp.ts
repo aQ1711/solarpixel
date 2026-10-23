@@ -47,7 +47,7 @@ export interface ContractMessageInput {
   quoteNumber: string;
   systemKw: number;
   finalPriceRs: number;
-  daysToDeploy: number;
+  deploymentLabel: string;
   lineItems: ContractLineItems;
 }
 
@@ -58,7 +58,7 @@ export interface ContractMessageInput {
  *  "Installation & Commissioning" — so the contract is transparent about
  *  what the final price covers, not just one lump-sum figure. */
 export function buildContractMessage(input: ContractMessageInput): string {
-  const { fullName, quoteNumber, systemKw, finalPriceRs, daysToDeploy, lineItems } = input;
+  const { fullName, quoteNumber, systemKw, finalPriceRs, deploymentLabel, lineItems } = input;
 
   const lines: [string, number | undefined][] = [
     ["Solar Panels", lineItems.panelPKR],
@@ -86,7 +86,7 @@ export function buildContractMessage(input: ContractMessageInput): string {
     itemizedText,
     "",
     `Final Price: ${pkrFormatter.format(finalPriceRs)}`,
-    `Live in: ${daysToDeploy} days from confirmation`,
+    `Live in: ${deploymentLabel} from confirmation`,
     "",
     "No WAPDA net-metering paperwork. Reply YES to confirm and we'll lock in your installation slot.",
   ].join("\n");

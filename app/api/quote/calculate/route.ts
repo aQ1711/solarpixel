@@ -17,7 +17,7 @@ import {
   type BudgetTier,
 } from "@/lib/db/admin";
 import { extractLeadIntelligence, EMPTY_LEAD_INTELLIGENCE, type LeadIntelligence } from "@/lib/leadIntelligence";
-import { DAYS_TO_DEPLOY_DEFAULT } from "@/lib/constants";
+import { estimateDeployment } from "@/lib/constants";
 
 // EV Charger cable pricing has no admin-configurable field yet (unlike
 // evChargerInstallationFee) — only the flat base fee lives in
@@ -688,7 +688,8 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
     paybackYears: recommended.paybackYears,
     generation: recommended.generation,
     offsetPct: daytimeUsagePct,
-    daysToDeploy: DAYS_TO_DEPLOY_DEFAULT,
+    daysToDeploy: estimateDeployment(recommended.systemKw).days,
+    deploymentLabel: estimateDeployment(recommended.systemKw).label,
     billSource,
     sizingMode: sizeMode ? "SIZE" : "BILL",
     monthlyBillPKR,

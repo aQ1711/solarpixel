@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db/client";
 import { calculateAdminBoqPricing, parseEquipmentSelections, parseBudgetTier, PricingConfigurationError } from "@/lib/db/admin";
 import { assertAdminModuleAccess, InternalAuthError } from "@/lib/auth/internal-guard";
 import { buildWaLink, buildContractMessage } from "@/lib/whatsapp";
-import { DAYS_TO_DEPLOY_DEFAULT } from "@/lib/constants";
+import { estimateDeployment } from "@/lib/constants";
 
 const approveSchema = z.object({
   approvedById: z.string().min(1, "approvedById is required"),
@@ -163,7 +163,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ quo
       quoteNumber: quote.quoteNumber,
       systemKw: quote.estimatedSystemSizeKw.toNumber(),
       finalPriceRs: pricing.exactClientPricePKR,
-      daysToDeploy: DAYS_TO_DEPLOY_DEFAULT,
+      deploymentLabel: estimateDeployment(quote.estimatedSystemSizeKw.toNumber()).label,
       lineItems: pricing.markedUpBreakdown,
     });
     const waHref = buildWaLink(quote.lead.phone, contractMessage);

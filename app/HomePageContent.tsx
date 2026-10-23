@@ -220,6 +220,7 @@ interface QuoteResult {
   generation?: GenerationEstimate | null;
   offsetPct: number;
   daysToDeploy: number;
+  deploymentLabel?: string;
   billSource: BillSource | "NOT_PROVIDED";
   /** "SIZE" when the customer chose a kW instead of giving a bill. */
   sizingMode?: "BILL" | "SIZE";
@@ -6657,7 +6658,7 @@ function ResultSummary({
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center print:rounded-none print:border-0 print:bg-white print:py-2.5">
           <CalendarCheck className="mx-auto h-3.5 w-3.5 text-slate-400 print:hidden" />
           <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-500 print:mt-0">Live In</p>
-          <p className="mt-0.5 text-sm font-bold text-slate-900">{result.daysToDeploy} Days</p>
+          <p className="mt-0.5 text-sm font-bold text-slate-900">{result.deploymentLabel ?? `${result.daysToDeploy} Days`}</p>
         </div>
       </div>
       <GenerationNote generation={result.generation} systemKw={result.systemKw} className="mx-4 mt-2 sm:mx-6 print:mx-0" />
