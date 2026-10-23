@@ -6174,9 +6174,7 @@ function IndustrialBenefitSection({ result }: { result: QuoteResult }) {
           </div>
           <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5 print:bg-white">
             <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm">
-                <BrandMark className="h-6 w-6" gradientId="benefitBrandMark" />
-              </span>
+              <BrandMark className="h-8 w-8 shrink-0" gradientId="benefitBrandMark" />
               <div>
                 <p className="text-sm font-extrabold leading-tight text-emerald-800">Solar Pixel</p>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">You pay once</p>
