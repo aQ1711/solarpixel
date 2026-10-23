@@ -6077,7 +6077,7 @@ function SavingsVsGridChart({ annualSavingsPKR, systemCostPKR }: { annualSavings
   const show = (i: number) => i === 0 || i === horizon || i % (horizon > 10 ? 3 : 2) === 0 || i === Math.ceil(paybackYears);
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Bar chart of your position each year after paying for the system" className="h-auto w-full">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Bar chart of your position each year after paying for the system" className="h-auto w-full print:mx-auto print:w-[84%]">
         <defs>
           <linearGradient id="netLoss" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#F7BBBD" />
@@ -6162,14 +6162,14 @@ function IndustrialSystemDiagram({
   const { panel, inverter } = result.equipment;
   const dateLabel = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
   return (
-    <section className="mt-6 print:break-inside-avoid">
+    <section className="mt-8 print:break-before-page print:mt-0">
       <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
         <Activity className="h-3.5 w-3.5" /> Electrical single line diagram
       </p>
       <h3 className="mt-1 text-lg font-extrabold leading-snug tracking-tight text-slate-900">How your plant connects to your site.</h3>
       <p className="mb-2 mt-1 text-[11px] leading-relaxed text-slate-500">
         From the PV array through the inverters and protection to your LT board, with the LESCO / WAPDA supply
-        {siteDetails?.generator ? " and your generator" : ""}. Scroll sideways on a phone.
+        {siteDetails?.generator ? " and your generator" : ""}.<span className="print:hidden"> Scroll sideways on a phone.</span>
       </p>
       <SingleLineDiagram
         panelCount={panel.count}
@@ -6196,7 +6196,7 @@ const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Se
 /** Industrial quotation, second page: the saving against the grid explained
  *  for someone who has never read a solar proposal. Headline numbers first,
  *  then the picture, the seasons, and finally how the numbers were reached. */
-function IndustrialBenefitSection({ result }: { result: QuoteResult }) {
+function IndustrialBenefitSection({ result, part }: { result: QuoteResult; part: "summary" | "evidence" }) {
   const g = result.generation ?? null;
   const annualSavingsPKR = g ? g.annualSavingsPKR : result.estimatedMonthlySavingsPKR * 12;
   const systemCost = result.totalClientPricePKR;
@@ -6208,7 +6208,8 @@ function IndustrialBenefitSection({ result }: { result: QuoteResult }) {
   const currentMonthIndex = g ? MONTH_SHORT.findIndex((m) => g.generationMonth.startsWith(m)) : -1;
   const keepAvoid = "print:break-inside-avoid";
 
-  return (
+  if (part === "summary") {
+    return (
     <section className="mt-8 space-y-4">
       <div>
         <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
@@ -6285,7 +6286,12 @@ function IndustrialBenefitSection({ result }: { result: QuoteResult }) {
           </ul>
         </div>
       </div>
+    </section>
+    );
+  }
 
+  return (
+    <section className="mt-8 space-y-4 print:mt-0 print:break-before-page">
       <div className={`rounded-2xl border border-slate-200 bg-white p-4 ${keepAvoid}`}>
         <p className="text-sm font-bold text-slate-900">Where you stand, year by year</p>
         <p className="text-[11px] text-slate-500">
@@ -6306,7 +6312,7 @@ function IndustrialBenefitSection({ result }: { result: QuoteResult }) {
         <div className={`rounded-2xl border border-slate-200 bg-white p-4 ${keepAvoid}`}>
           <p className="text-sm font-bold text-slate-900">How the saving changes through the year</p>
           <p className="text-[11px] text-slate-500">Summer sun is stronger, so those months save more.</p>
-          <div className="mt-3 flex h-36 items-end gap-1.5" role="img" aria-label="Estimated savings for each month of the year">
+          <div className="mt-3 flex h-36 items-end gap-1.5 print:h-28" role="img" aria-label="Estimated savings for each month of the year">
             {monthly.map((v, i) => {
               const current = i === currentMonthIndex;
               return (
@@ -6886,7 +6892,7 @@ function ResultSummary({
   const costBreakdownRows = buildCostBreakdownRows(result);
 
   return (
-    <div className="animate-fade-up relative mx-auto my-8 w-full max-w-3xl overflow-hidden rounded-3xl print:[animation:none] print:[transform:none] border border-slate-200 bg-white text-slate-900 shadow-2xl shadow-slate-200/60 print:my-0 print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:px-[12mm] print:py-[12mm] print:shadow-none print:[-webkit-box-decoration-break:clone] print:[box-decoration-break:clone]">
+    <div className="animate-fade-up relative mx-auto my-8 w-full max-w-3xl overflow-hidden rounded-3xl print:[animation:none]! print:[transform:none]! border border-slate-200 bg-white text-slate-900 shadow-2xl shadow-slate-200/60 print:my-0 print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:px-[12mm] print:py-[12mm] print:shadow-none print:[-webkit-box-decoration-break:clone] print:[box-decoration-break:clone]">
       {/* A zero page margin is what stops the browser stamping its own
           date/title header and URL/page-number footer on the PDF. The
           padding above stands in for the margin, and box-decoration-break
@@ -7122,8 +7128,9 @@ function ResultSummary({
           </table>
         </div>
 
+        {isIndustrial && <IndustrialBenefitSection result={result} part="summary" />}
         {isIndustrial && <IndustrialSystemDiagram result={result} siteDetails={siteDetails} customerName={customerName} />}
-        {isIndustrial && <IndustrialBenefitSection result={result} />}
+        {isIndustrial && <IndustrialBenefitSection result={result} part="evidence" />}
       </div>
 
       {/* ---- Footer — the repeated "Total Price" card that used to sit
@@ -7132,7 +7139,7 @@ function ResultSummary({
           right below the cost breakdown (which itself ends on the same
           total) was three copies of one figure on one document — pure
           repetition, not reinforcement. ---- */}
-      <div className="mt-6 border-t border-slate-200 bg-slate-50 px-6 py-6 sm:px-8">
+      <div className="mt-6 border-t border-slate-200 bg-slate-50 px-6 py-6 sm:px-8 print:mt-2 print:py-3">
         <p className="text-center text-[11px] leading-relaxed text-slate-500">
           Email: solarpixelpk@gmail.com · Mobile: +92 328 2155550 · Site:{" "}
           <a
