@@ -200,6 +200,13 @@ interface ResolvedEquipment {
 interface GenerationEstimate {
   monthlyGenerationKwh: number;
   generationMonth: string;
+  kwhPerKwpPerDay: number;
+  daysInMonth: number;
+  dustDerate: number;
+  selfUseShare: number;
+  usedKwh: number;
+  tariffPKR: number;
+  annualSavingsPKR: number;
 }
 
 interface QuoteResult {
@@ -4686,7 +4693,7 @@ function CalculatorCard() {
                       </p>
                     </div>
                   </div>
-                  <GenerationNote generation={livePreview.generation} />
+                  <GenerationNote generation={livePreview.generation} systemKw={livePreview.systemKw} />
 
                   {/* "What's included" (2026-09-04, LOCKED spec's Quote
                       screen, mobile only) — ONLY real, already-priced
@@ -5952,15 +5959,59 @@ function CustomRequirementNotice() {
 // ============================================================================
 
 /** Explains where the savings figure comes from when the customer sized by
- *  kW instead of giving a bill. */
-function GenerationNote({ generation, className }: { generation?: GenerationEstimate | null; className?: string }) {
+ *  kW instead of giving a bill: one line, plus the full working on demand. */
+function GenerationNote({
+  generation,
+  systemKw,
+  className,
+}: {
+  generation?: GenerationEstimate | null;
+  systemKw: number;
+  className?: string;
+}) {
   if (!generation) return null;
+  const g = generation;
+  const monthlySavings = Math.round(g.usedKwh * g.tariffPKR);
   return (
-    <p className={className ?? "mt-2 text-[11px] leading-relaxed text-slate-500"}>
-      Estimate for Lahore in {generation.generationMonth}: about {generation.monthlyGenerationKwh.toLocaleString("en-PK")} units
-      generated this month, valued at the grid tariff. Output changes with the season, and payback is based on the full year.
-      Savings assume you use the power you generate.
-    </p>
+    <div className={className ?? "mt-2"}>
+      <p className="text-[11px] leading-relaxed text-slate-500">
+        Estimate for Lahore in {g.generationMonth}, based on the system size you chose rather than your usage.
+      </p>
+      <details className="group mt-1 text-[11px] text-slate-600">
+        <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1 font-semibold text-orange-700 [&::-webkit-details-marker]:hidden">
+          <ChevronDown className="h-3.5 w-3.5 transition-transform duration-200 group-open:rotate-180" />
+          How we calculated this
+        </summary>
+        <ol className="mt-1 space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-3 leading-relaxed print:bg-white">
+          <li>
+            <span className="font-semibold text-slate-800">1. Sunshine:</span> a typical Lahore system delivers about{" "}
+            {g.kwhPerKwpPerDay} units per kW per day in {g.generationMonth}, after normal inverter and cable losses.
+          </li>
+          <li>
+            <span className="font-semibold text-slate-800">2. Units generated:</span> {formatTrim(systemKw, 1)} kW × {g.kwhPerKwpPerDay} ×{" "}
+            {g.daysInMonth} days × {Math.round(g.dustDerate * 100)}% (dust between cleanings) ≈{" "}
+            {g.monthlyGenerationKwh.toLocaleString("en-PK")} units.
+          </li>
+          <li>
+            <span className="font-semibold text-slate-800">3. Units you use:</span> about {Math.round(g.selfUseShare * 100)}% of those,{" "}
+            {g.usedKwh.toLocaleString("en-PK")} units, are used on site. There is no export credit, so anything you do not use earns
+            nothing.
+          </li>
+          <li>
+            <span className="font-semibold text-slate-800">4. Savings:</span> {g.usedKwh.toLocaleString("en-PK")} units × Rs {g.tariffPKR} per
+            unit ≈ {formatPKR(monthlySavings)} this month.
+          </li>
+          <li>
+            <span className="font-semibold text-slate-800">5. Payback:</span> uses the whole year (summer produces more than winter), about{" "}
+            {formatPKR(g.annualSavingsPKR)} a year.
+          </li>
+          <li className="border-t border-slate-200 pt-1.5 text-slate-500">
+            An estimate, not a guarantee. Your real bill, tariff slab and how much you use during the day will change it. Share your bill
+            and we will refine it.
+          </li>
+        </ol>
+      </details>
+    </div>
   );
 }
 
@@ -6604,7 +6655,7 @@ function ResultSummary({
           <p className="mt-0.5 text-sm font-bold text-slate-900">{result.daysToDeploy} Days</p>
         </div>
       </div>
-      <GenerationNote generation={result.generation} className="mx-4 mt-2 text-[11px] leading-relaxed text-slate-500 sm:mx-6 print:mx-0" />
+      <GenerationNote generation={result.generation} systemKw={result.systemKw} className="mx-4 mt-2 sm:mx-6 print:mx-0" />
 
       {/* ---- Warnings ---- */}
       {(isInverterBottleneck || result.hasCustomRequirements) && (

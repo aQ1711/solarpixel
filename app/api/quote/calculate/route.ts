@@ -305,24 +305,60 @@ function calculateSystemSize(monthlyBillPKR: number, daytimeUsagePct: number) {
 
 // Size mode has no bill, so savings come from what the array should generate
 // in Lahore instead. Typical delivered kWh per installed kWp per day for each
-// month (after normal system losses), Jan..Dec. An estimate, labelled as such
-// in the UI, not a guarantee.
+// month (after inverter/cable/temperature losses), Jan..Dec. An estimate,
+// labelled as such in the UI, not a guarantee.
 const LAHORE_KWH_PER_KWP_PER_DAY = [3.0, 3.6, 4.4, 5.0, 5.4, 5.2, 4.5, 4.4, 4.6, 4.3, 3.5, 2.9];
+// Dust/soiling between cleanings in Lahore.
+const DUST_DERATE = 0.95;
+// Share of the generated units the site actually uses itself. With no
+// export credit (no net metering), anything not used on site earns nothing.
+// Hybrid homes store the surplus in the battery, so more of it is used.
+const SELF_USE_SHARE: Record<Sector, number> = { RESIDENTIAL: 0.7, COMMERCIAL: 0.9, INDUSTRIAL: 0.95 };
+const HYBRID_SELF_USE_SHARE = 0.85;
+// Blended grid price a saved unit is worth, by sector (PKR/unit, incl. taxes).
+const TARIFF_BY_SECTOR: Record<Sector, number> = { RESIDENTIAL: BLENDED_TARIFF_PKR_PER_UNIT, COMMERCIAL: 55, INDUSTRIAL: 45 };
 
-function lahoreGenerationEstimate(systemKw: number, totalClientPricePKR: number) {
+interface GenerationEstimate {
+  monthlyGenerationKwh: number;
+  generationMonth: string;
+  /** Inputs behind the figures, shown to the customer as the working. */
+  kwhPerKwpPerDay: number;
+  daysInMonth: number;
+  dustDerate: number;
+  selfUseShare: number;
+  usedKwh: number;
+  tariffPKR: number;
+  annualSavingsPKR: number;
+}
+
+function lahoreGenerationEstimate(systemKw: number, totalClientPricePKR: number, sector: Sector, serviceType: ServiceType) {
   // Pakistan time, so the month does not flip early on a server running in UTC.
   const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Karachi" }));
   const month = now.getMonth();
-  const daysInMonth = new Date(now.getFullYear(), month + 1, 0).getDate();
-  const monthlyGenerationKwh = Math.round(systemKw * LAHORE_KWH_PER_KWP_PER_DAY[month] * daysInMonth);
-  const estimatedMonthlySavingsPKR = Math.round(monthlyGenerationKwh * BLENDED_TARIFF_PKR_PER_UNIT);
-  const annualKwh =
-    systemKw * LAHORE_KWH_PER_KWP_PER_DAY.reduce((sum, perDay, m) => sum + perDay * new Date(now.getFullYear(), m + 1, 0).getDate(), 0);
+  const daysIn = (m: number) => new Date(now.getFullYear(), m + 1, 0).getDate();
+  const selfUseShare = sector === "RESIDENTIAL" && serviceType === "HYBRID_BATTERY" ? HYBRID_SELF_USE_SHARE : SELF_USE_SHARE[sector];
+  const tariffPKR = TARIFF_BY_SECTOR[sector];
+  const kwhPerKwpPerDay = LAHORE_KWH_PER_KWP_PER_DAY[month];
+  const monthlyGenerationKwh = Math.round(systemKw * kwhPerKwpPerDay * daysIn(month) * DUST_DERATE);
+  const usedKwh = Math.round(monthlyGenerationKwh * selfUseShare);
+  const estimatedMonthlySavingsPKR = Math.round(usedKwh * tariffPKR);
+  const annualGenerationKwh =
+    systemKw * DUST_DERATE * LAHORE_KWH_PER_KWP_PER_DAY.reduce((sum, perDay, m) => sum + perDay * daysIn(m), 0);
   // Payback uses the whole year, not this month, so winter does not look slow.
-  const annualSavingsPKR = annualKwh * BLENDED_TARIFF_PKR_PER_UNIT;
+  const annualSavingsPKR = Math.round(annualGenerationKwh * selfUseShare * tariffPKR);
   const paybackYears = annualSavingsPKR > 0 ? Math.round((totalClientPricePKR / annualSavingsPKR) * 10) / 10 : null;
-  const generationMonth = now.toLocaleString("en-US", { month: "long" });
-  return { monthlyGenerationKwh, estimatedMonthlySavingsPKR, paybackYears, generationMonth };
+  const generation: GenerationEstimate = {
+    monthlyGenerationKwh,
+    generationMonth: now.toLocaleString("en-US", { month: "long" }),
+    kwhPerKwpPerDay,
+    daysInMonth: daysIn(month),
+    dustDerate: DUST_DERATE,
+    selfUseShare,
+    usedKwh,
+    tariffPKR,
+    annualSavingsPKR,
+  };
+  return { generation, estimatedMonthlySavingsPKR, paybackYears };
 }
 
 function calculateSavingsAndPayback(requiredDailyDaytimeUnits: number, totalClientPricePKR: number) {
@@ -357,7 +393,7 @@ interface PricedTier {
   estimatedMonthlySavingsPKR: number;
   paybackYears: number | null;
   /** Size mode only: estimated Lahore output for the current month. */
-  generation: { monthlyGenerationKwh: number; generationMonth: string } | null;
+  generation: GenerationEstimate | null;
   hasCustomRequirements: boolean;
   breakdown: ItemizedBreakdown;
   resolvedEquipment: ResolvedEquipment;
@@ -393,9 +429,10 @@ async function priceTier(
   const { requiredDailyDaytimeUnits, rawKwRequired, systemKw: targetSystemKw } = sized;
   const { totalClientPricePKR, resolvedSystemKw, hasCustomRequirements, breakdown, resolvedEquipment, siteWorks, panelWashing } =
     await calculateSystemPricing(targetSystemKw, sector, serviceType, selections, targetBudgetTier);
-  const generation = "targetSystemKw" in sizing ? lahoreGenerationEstimate(resolvedSystemKw, totalClientPricePKR) : null;
-  const { estimatedMonthlySavingsPKR, paybackYears } = generation
-    ? generation
+  const lahore = "targetSystemKw" in sizing ? lahoreGenerationEstimate(resolvedSystemKw, totalClientPricePKR, sector, serviceType) : null;
+  const generation = lahore?.generation ?? null;
+  const { estimatedMonthlySavingsPKR, paybackYears } = lahore
+    ? lahore
     : calculateSavingsAndPayback(requiredDailyDaytimeUnits, totalClientPricePKR);
   return {
     offsetPct,
@@ -406,7 +443,7 @@ async function priceTier(
     totalClientPricePKR,
     estimatedMonthlySavingsPKR,
     paybackYears,
-    generation: generation && { monthlyGenerationKwh: generation.monthlyGenerationKwh, generationMonth: generation.generationMonth },
+    generation,
     hasCustomRequirements,
     breakdown,
     resolvedEquipment,
