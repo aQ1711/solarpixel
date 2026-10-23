@@ -6152,6 +6152,30 @@ function IndustrialBenefitSection({ result }: { result: QuoteResult }) {
         </p>
       </div>
 
+      <div
+        className={`overflow-hidden rounded-2xl border border-rose-200 bg-rose-50 p-4 print:bg-white ${keepAvoid}`}
+      >
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-700">What you lose to LESCO without solar</p>
+        <div className="mt-2 grid grid-cols-3 gap-2.5">
+          <div>
+            <p className="text-lg font-extrabold leading-tight text-rose-700 sm:text-2xl">{formatCompactPKR(Math.round(annualSavingsPKR / 365))}</p>
+            <p className="text-[10px] text-slate-600">every day</p>
+          </div>
+          <div>
+            <p className="text-lg font-extrabold leading-tight text-rose-700 sm:text-2xl">{formatCompactPKR(Math.round(annualSavingsPKR / 12))}</p>
+            <p className="text-[10px] text-slate-600">every month, yearly average</p>
+          </div>
+          <div>
+            <p className="text-lg font-extrabold leading-tight text-rose-700 sm:text-2xl">{formatCompactPKR(annualSavingsPKR * 10)}</p>
+            <p className="text-[10px] text-slate-600">over 10 years</p>
+          </div>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
+          This is what you pay the grid for the same units this plant would generate and you would use. With solar you pay for the system once
+          and stop paying this.
+        </p>
+      </div>
+
       <div className={`grid grid-cols-3 gap-2.5 ${keepAvoid}`}>
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3.5 print:bg-white">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">You save each month</p>
