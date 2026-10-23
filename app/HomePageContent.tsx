@@ -2570,6 +2570,176 @@ function CalculatorCard() {
   // catalog row — for the Battery row's "5.12kWh" display label only.
   const activeBatteryCapacityKwh = currentBatteryOption?.specValue ?? 0;
 
+  // Cabling, Protection, Mounting Structure, Site Works and Services rows:
+  // one definition shared by the desktop accordion and the mobile builder so
+  // the two can never offer different specs.
+  const extraBuildRows = equipmentOptions ? (
+    <>
+                      {/* Cabling & Protection, and Mounting Structure —
+                          Default & Swap rows (Part 5, 2026-08-20), matching
+                          Panel/Inverter/Battery exactly instead of the old
+                          numbered "4. Cables, Protection, and Mounting"
+                          accordion (dropped the "4." — none of the other
+                          rows are numbered, so it never matched the rest
+                          of the flow). Cable/Breakers have no individually
+                          split breakdown field (the backend combines them
+                          into one `cablingAndProtectionPKR` line), so
+                          their current-price label uses the same
+                          unitPricePKR × systemWatts math the alternative
+                          cards' deltaLabel already computes — the exact
+                          per-line figure the backend itself derives from
+                          before summing the two together. Structure DOES
+                          have its own dedicated `structurePKR` breakdown
+                          field, so that one uses the real backend total
+                          directly, same as Panel/Inverter/Battery. */}
+                      <EquipmentSwapRow
+                        title="DC/AC Cabling"
+                        icon={ShieldWireIcon}
+                        currentLabel={currentCableOption?.label ?? "Select a cable"}
+                        currentPriceLabel={equipmentUnitCostLabel(currentCableOption?.unitPricePKR ?? null, systemWatts)}
+                        isOpen={openEquipmentSection === "CABLE"}
+                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "CABLE" ? null : "CABLE"))}
+                      >
+                        <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
+                          {(equipmentOptions.DC_CABLE ?? []).map((o) => (
+                            <SwapOptionCard
+                              key={o.code}
+                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
+                              imageUrl={o.logoUrl}
+                              active={effectiveCableCode === o.code}
+                              inStock={o.inStock}
+                              onClick={() => setCableCode(o.code)}
+                              deltaLabel={swapDeltaLabel(
+                                o.unitPricePKR,
+                                currentCableOption?.unitPricePKR ?? null,
+                                systemWatts,
+                                effectiveCableCode === o.code
+                              )}
+                            />
+                          ))}
+                        </div>
+                      </EquipmentSwapRow>
+
+                      <EquipmentSwapRow
+                        title="Protection & Breakers"
+                        icon={ShieldWireIcon}
+                        currentLabel={currentBreakersOption?.label ?? "Select protection"}
+                        currentPriceLabel={equipmentUnitCostLabel(currentBreakersOption?.unitPricePKR ?? null, systemWatts)}
+                        isOpen={openEquipmentSection === "BREAKERS"}
+                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "BREAKERS" ? null : "BREAKERS"))}
+                      >
+                        <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
+                          {(equipmentOptions.BREAKERS ?? []).map((o) => (
+                            <SwapOptionCard
+                              key={o.code}
+                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
+                              imageUrl={o.logoUrl}
+                              active={effectiveBreakersCode === o.code}
+                              inStock={o.inStock}
+                              onClick={() => setBreakersCode(o.code)}
+                              deltaLabel={swapDeltaLabel(
+                                o.unitPricePKR,
+                                currentBreakersOption?.unitPricePKR ?? null,
+                                systemWatts,
+                                effectiveBreakersCode === o.code
+                              )}
+                            />
+                          ))}
+                        </div>
+                      </EquipmentSwapRow>
+
+                      <EquipmentSwapRow
+                        title="Mounting Structure"
+                        icon={ShieldWireIcon}
+                        currentLabel={currentStructureOption?.label ?? "Select a structure"}
+                        currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.structurePKR) : null}
+                        isOpen={openEquipmentSection === "STRUCTURE"}
+                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "STRUCTURE" ? null : "STRUCTURE"))}
+                      >
+                        <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
+                          {(equipmentOptions.MOUNTING_STRUCTURE ?? []).map((o) => (
+                            <SwapOptionCard
+                              key={o.code}
+                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
+                              imageUrl={o.logoUrl}
+                              icon={STRUCTURE_ICON_BY_CODE[o.code]}
+                              active={effectiveStructureCode === o.code}
+                              inStock={o.inStock}
+                              onClick={() => setStructureCode(o.code)}
+                              deltaLabel={swapDeltaLabel(
+                                o.unitPricePKR,
+                                currentStructureOption?.unitPricePKR ?? null,
+                                systemWatts,
+                                effectiveStructureCode === o.code
+                              )}
+                            />
+                          ))}
+                        </div>
+                      </EquipmentSwapRow>
+
+                      {/* Site Works (2026-08-20) — civil blocks, earthing
+                          & boring, and lightning arrestor. Not a
+                          brand/model swap like every row above: Earthing/
+                          Lightning are customer-adjustable counts against
+                          a flat admin rate (GlobalPricingSettings);
+                          Civil Blocks is READ-ONLY as of this update —
+                          always auto-computed server-side as
+                          Math.ceil(panelCount × 1.5), never customer-set
+                          (see EquipmentSelections.civilBlockQty's doc
+                          comment). Collapsed by default (not important
+                          for the client to fuss over, but the option's
+                          here) — same EquipmentSwapRow shell as every
+                          other row for visual consistency. */}
+                      <EquipmentSwapRow
+                        title="Site Works"
+                        icon={Wrench}
+                        currentLabel={(() => {
+                          const civilBlockQty = livePreview?.siteWorks.civilBlockQty ?? 0;
+                          const total = civilBlockQty + earthingBoreQty + lightningArrestorQty;
+                          return total > 0 ? `${total} item${total === 1 ? "" : "s"} selected` : "No site works selected";
+                        })()}
+                        currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.siteWorksPKR) : null}
+                        isOpen={openEquipmentSection === "SITE_WORKS"}
+                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "SITE_WORKS" ? null : "SITE_WORKS"))}
+                      >
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">Civil Blocks</p>
+                              <p className="text-[11px] text-slate-500">Auto-calculated: {formatTrim(1.5)}× your panel count</p>
+                            </div>
+                            <span className="text-sm font-bold text-slate-900">{livePreview?.siteWorks.civilBlockQty ?? "N/A"}</span>
+                          </div>
+                          <QuantityStepper label="Earthing & Boring" value={earthingBoreQty} onChange={setEarthingBoreQty} />
+                          <QuantityStepper
+                            label="Lightning Arrestor"
+                            value={lightningArrestorQty}
+                            onChange={setLightningArrestorQty}
+                          />
+                        </div>
+                      </EquipmentSwapRow>
+
+                      {/* Services (2026-08-21) — a toggleable add-on, not
+                          a brand/model pick or a quantity, so a plain
+                          on/off switch rather than EquipmentSwapRow's
+                          expand-to-swap or QuantityStepper's +/- shell.
+                          Dynamically recalculates with the Panel Quantity
+                          Adjuster above — same effectivePanelCount the
+                          backend already resolved for Civil Blocks. */}
+                      <div>
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Services</p>
+                        <ServiceToggleCard
+                          title="One Time Panel Washing Visit"
+                          icon={WaterDropIcon}
+                          description="A single professional cleaning visit after installation, not a recurring plan."
+                          active={includePanelWashing}
+                          onToggle={() => setIncludePanelWashing((s) => !s)}
+                          priceLabel={livePreview?.panelWashing ? formatPKR(livePreview.breakdown.panelWashingPKR) : null}
+                        />
+                      </div>
+    </>
+  ) : null;
+
   return (
     <>
     <form
@@ -4058,168 +4228,7 @@ function CalculatorCard() {
 
                       {bundleSuggestion}
 
-                      {/* Cabling & Protection, and Mounting Structure —
-                          Default & Swap rows (Part 5, 2026-08-20), matching
-                          Panel/Inverter/Battery exactly instead of the old
-                          numbered "4. Cables, Protection, and Mounting"
-                          accordion (dropped the "4." — none of the other
-                          rows are numbered, so it never matched the rest
-                          of the flow). Cable/Breakers have no individually
-                          split breakdown field (the backend combines them
-                          into one `cablingAndProtectionPKR` line), so
-                          their current-price label uses the same
-                          unitPricePKR × systemWatts math the alternative
-                          cards' deltaLabel already computes — the exact
-                          per-line figure the backend itself derives from
-                          before summing the two together. Structure DOES
-                          have its own dedicated `structurePKR` breakdown
-                          field, so that one uses the real backend total
-                          directly, same as Panel/Inverter/Battery. */}
-                      <EquipmentSwapRow
-                        title="DC/AC Cabling"
-                        icon={ShieldWireIcon}
-                        currentLabel={currentCableOption?.label ?? "Select a cable"}
-                        currentPriceLabel={equipmentUnitCostLabel(currentCableOption?.unitPricePKR ?? null, systemWatts)}
-                        isOpen={openEquipmentSection === "CABLE"}
-                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "CABLE" ? null : "CABLE"))}
-                      >
-                        <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
-                          {(equipmentOptions.DC_CABLE ?? []).map((o) => (
-                            <SwapOptionCard
-                              key={o.code}
-                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
-                              imageUrl={o.logoUrl}
-                              active={effectiveCableCode === o.code}
-                              inStock={o.inStock}
-                              onClick={() => setCableCode(o.code)}
-                              deltaLabel={swapDeltaLabel(
-                                o.unitPricePKR,
-                                currentCableOption?.unitPricePKR ?? null,
-                                systemWatts,
-                                effectiveCableCode === o.code
-                              )}
-                            />
-                          ))}
-                        </div>
-                      </EquipmentSwapRow>
-
-                      <EquipmentSwapRow
-                        title="Protection & Breakers"
-                        icon={ShieldWireIcon}
-                        currentLabel={currentBreakersOption?.label ?? "Select protection"}
-                        currentPriceLabel={equipmentUnitCostLabel(currentBreakersOption?.unitPricePKR ?? null, systemWatts)}
-                        isOpen={openEquipmentSection === "BREAKERS"}
-                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "BREAKERS" ? null : "BREAKERS"))}
-                      >
-                        <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
-                          {(equipmentOptions.BREAKERS ?? []).map((o) => (
-                            <SwapOptionCard
-                              key={o.code}
-                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
-                              imageUrl={o.logoUrl}
-                              active={effectiveBreakersCode === o.code}
-                              inStock={o.inStock}
-                              onClick={() => setBreakersCode(o.code)}
-                              deltaLabel={swapDeltaLabel(
-                                o.unitPricePKR,
-                                currentBreakersOption?.unitPricePKR ?? null,
-                                systemWatts,
-                                effectiveBreakersCode === o.code
-                              )}
-                            />
-                          ))}
-                        </div>
-                      </EquipmentSwapRow>
-
-                      <EquipmentSwapRow
-                        title="Mounting Structure"
-                        icon={ShieldWireIcon}
-                        currentLabel={currentStructureOption?.label ?? "Select a structure"}
-                        currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.structurePKR) : null}
-                        isOpen={openEquipmentSection === "STRUCTURE"}
-                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "STRUCTURE" ? null : "STRUCTURE"))}
-                      >
-                        <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
-                          {(equipmentOptions.MOUNTING_STRUCTURE ?? []).map((o) => (
-                            <SwapOptionCard
-                              key={o.code}
-                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
-                              imageUrl={o.logoUrl}
-                              icon={STRUCTURE_ICON_BY_CODE[o.code]}
-                              active={effectiveStructureCode === o.code}
-                              inStock={o.inStock}
-                              onClick={() => setStructureCode(o.code)}
-                              deltaLabel={swapDeltaLabel(
-                                o.unitPricePKR,
-                                currentStructureOption?.unitPricePKR ?? null,
-                                systemWatts,
-                                effectiveStructureCode === o.code
-                              )}
-                            />
-                          ))}
-                        </div>
-                      </EquipmentSwapRow>
-
-                      {/* Site Works (2026-08-20) — civil blocks, earthing
-                          & boring, and lightning arrestor. Not a
-                          brand/model swap like every row above: Earthing/
-                          Lightning are customer-adjustable counts against
-                          a flat admin rate (GlobalPricingSettings);
-                          Civil Blocks is READ-ONLY as of this update —
-                          always auto-computed server-side as
-                          Math.ceil(panelCount × 1.5), never customer-set
-                          (see EquipmentSelections.civilBlockQty's doc
-                          comment). Collapsed by default (not important
-                          for the client to fuss over, but the option's
-                          here) — same EquipmentSwapRow shell as every
-                          other row for visual consistency. */}
-                      <EquipmentSwapRow
-                        title="Site Works"
-                        icon={Wrench}
-                        currentLabel={(() => {
-                          const civilBlockQty = livePreview?.siteWorks.civilBlockQty ?? 0;
-                          const total = civilBlockQty + earthingBoreQty + lightningArrestorQty;
-                          return total > 0 ? `${total} item${total === 1 ? "" : "s"} selected` : "No site works selected";
-                        })()}
-                        currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.siteWorksPKR) : null}
-                        isOpen={openEquipmentSection === "SITE_WORKS"}
-                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "SITE_WORKS" ? null : "SITE_WORKS"))}
-                      >
-                        <div className="space-y-2.5">
-                          <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3">
-                            <div>
-                              <p className="text-sm font-semibold text-slate-900">Civil Blocks</p>
-                              <p className="text-[11px] text-slate-500">Auto-calculated: {formatTrim(1.5)}× your panel count</p>
-                            </div>
-                            <span className="text-sm font-bold text-slate-900">{livePreview?.siteWorks.civilBlockQty ?? "N/A"}</span>
-                          </div>
-                          <QuantityStepper label="Earthing & Boring" value={earthingBoreQty} onChange={setEarthingBoreQty} />
-                          <QuantityStepper
-                            label="Lightning Arrestor"
-                            value={lightningArrestorQty}
-                            onChange={setLightningArrestorQty}
-                          />
-                        </div>
-                      </EquipmentSwapRow>
-
-                      {/* Services (2026-08-21) — a toggleable add-on, not
-                          a brand/model pick or a quantity, so a plain
-                          on/off switch rather than EquipmentSwapRow's
-                          expand-to-swap or QuantityStepper's +/- shell.
-                          Dynamically recalculates with the Panel Quantity
-                          Adjuster above — same effectivePanelCount the
-                          backend already resolved for Civil Blocks. */}
-                      <div>
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Services</p>
-                        <ServiceToggleCard
-                          title="One Time Panel Washing Visit"
-                          icon={WaterDropIcon}
-                          description="A single professional cleaning visit after installation, not a recurring plan."
-                          active={includePanelWashing}
-                          onToggle={() => setIncludePanelWashing((s) => !s)}
-                          priceLabel={livePreview?.panelWashing ? formatPKR(livePreview.breakdown.panelWashingPKR) : null}
-                        />
-                      </div>
+                      {extraBuildRows}
                     </div>
 
                     {/* Mobile: Build.html's simpler 3-card layout
@@ -4267,6 +4276,30 @@ function CalculatorCard() {
                             );
                           })}
                         </div>
+                        {currentPanelBrand && panelSkusForBrand(currentPanelBrand).length > 1 && (
+                          <>
+                            <p className="mb-1.5 mt-3 text-xs font-medium text-slate-600">Wattage</p>
+                            <div className="flex flex-wrap gap-2">
+                              {panelSkusForBrand(currentPanelBrand).map((o) => (
+                                <button
+                                  key={o.code}
+                                  type="button"
+                                  disabled={!o.inStock}
+                                  onClick={() => setPanelCode(o.code)}
+                                  aria-pressed={effectivePanelCode === o.code}
+                                  className={`rounded-full px-3.5 py-2 text-xs font-semibold transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
+                                    effectivePanelCode === o.code
+                                      ? "bg-orange-600 text-white"
+                                      : "border border-slate-200 bg-white text-slate-900 hover:border-orange-300"
+                                  }`}
+                                >
+                                  {o.specValue ? `${o.specValue} W` : o.label}
+                                  {!o.inStock ? " (out of stock)" : ""}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
                         {livePreview &&
                           (() => {
                             const panelFloor = Math.min(PANEL_COUNT_ABSOLUTE_MINIMUM, livePreview.equipment.panel.maxCount ?? Infinity);
@@ -4471,9 +4504,14 @@ function CalculatorCard() {
                                     >
                                       −
                                     </button>
-                                    <span className="min-w-[22px] text-center font-mono text-base font-semibold text-slate-900">
-                                      {displayQuantity}
-                                    </span>
+                                    <StepperNumberInput
+                                      value={displayQuantity}
+                                      onChange={(v) => setInverterQuantityOverride(v)}
+                                      min={minQuantity}
+                                      max={MAX_INVERTER_UNITS}
+                                      label="Inverter units"
+                                      className="w-12 rounded-md border border-transparent bg-transparent text-center font-mono text-base font-semibold text-slate-900 outline-none focus:border-orange-400 focus:bg-white"
+                                    />
                                     <button
                                       type="button"
                                       onClick={() => setInverterQuantityOverride(Math.min(MAX_INVERTER_UNITS, displayQuantity + 1))}
@@ -4579,6 +4617,8 @@ function CalculatorCard() {
                       )}
 
                       {bundleSuggestion}
+
+                      {extraBuildRows}
 
                       {/* Total + CTA — Build.html's sticky total bar,
                           rendered inline (not fixed) since Complete
