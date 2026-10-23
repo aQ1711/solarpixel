@@ -329,6 +329,8 @@ interface GenerationEstimate {
   usedKwh: number;
   tariffPKR: number;
   annualSavingsPKR: number;
+  /** Estimated savings for each month, January first, for the seasonal chart. */
+  monthlySavingsPKR: number[];
 }
 
 function lahoreGenerationEstimate(systemKw: number, totalClientPricePKR: number, sector: Sector, serviceType: ServiceType) {
@@ -357,6 +359,9 @@ function lahoreGenerationEstimate(systemKw: number, totalClientPricePKR: number,
     usedKwh,
     tariffPKR,
     annualSavingsPKR,
+    monthlySavingsPKR: LAHORE_KWH_PER_KWP_PER_DAY.map((perDay, m) =>
+      Math.round(systemKw * perDay * daysIn(m) * DUST_DERATE * selfUseShare * tariffPKR),
+    ),
   };
   return { generation, estimatedMonthlySavingsPKR, paybackYears };
 }
