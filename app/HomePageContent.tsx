@@ -6518,7 +6518,12 @@ function ResultSummary({
   const costBreakdownRows = buildCostBreakdownRows(result);
 
   return (
-    <div className="animate-fade-up relative mx-auto my-8 w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-2xl shadow-slate-200/60 print:my-0 print:max-w-none print:rounded-none print:border-0 print:shadow-none">
+    <div className="animate-fade-up relative mx-auto my-8 w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-2xl shadow-slate-200/60 print:my-0 print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:px-[12mm] print:py-[12mm] print:shadow-none print:[-webkit-box-decoration-break:clone] print:[box-decoration-break:clone]">
+      {/* A zero page margin is what stops the browser stamping its own
+          date/title header and URL/page-number footer on the PDF. The
+          padding above stands in for the margin, and box-decoration-break
+          repeats it on every printed page. */}
+      <style>{"@media print{@page{size:A4;margin:0}}"}</style>
       {/* Background watermark (2026-09-04) — a large, very faint version
           of the real mark sitting quietly behind the whole document
           (screen AND print, deliberately NOT print:hidden — the point is
