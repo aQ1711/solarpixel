@@ -479,3 +479,19 @@ body {
   text-underline-offset: 2px;
 }
 
+
+/* Animated power-flow dashes in the industrial quotation diagram. Standing
+   still for reduced motion and in print. */
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+.flow-dash {
+  animation: flow-dash 1.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce), print {
+  .flow-dash {
+    animation: none;
+  }
+}

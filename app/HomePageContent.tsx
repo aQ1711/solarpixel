@@ -38,6 +38,9 @@ import {
   Clock,
   CalendarCheck,
   BadgePercent,
+  Factory,
+  Fuel,
+  Server,
 } from "lucide-react";
 
 // ============================================================================
@@ -2526,6 +2529,17 @@ function CalculatorCard() {
         installationArea={installationArea}
         customerName={fullName}
         isIndustrial={sector === "INDUSTRIAL"}
+        siteDetails={{
+          connectionType,
+          sanctionedLoadKw: Number(sanctionedLoadKwInput) > 0 ? Number(sanctionedLoadKwInput) : null,
+          generator:
+            generatorFuelType || Number(generatorCapacityKwInput) > 0
+              ? {
+                  fuel: generatorFuelType,
+                  capacityKw: Number(generatorCapacityKwInput) > 0 ? Number(generatorCapacityKwInput) : null,
+                }
+              : null,
+        }}
       />
     );
   }
@@ -6130,6 +6144,150 @@ function SavingsVsGridChart({ annualSavingsPKR, systemCostPKR }: { annualSavings
   );
 }
 
+interface IndustrialSiteDetails {
+  connectionType: "HT" | "LT" | null;
+  sanctionedLoadKw: number | null;
+  generator: { fuel: "DIESEL" | "GAS" | null; capacityKw: number | null } | null;
+}
+
+/** A downward arrow between two diagram boxes. The dashes drift on screen to
+ *  show the direction power moves, and stand still in print. */
+function FlowArrow({ tone = "slate" }: { tone?: "slate" | "emerald" | "amber" }) {
+  const stroke = tone === "emerald" ? "#059669" : tone === "amber" ? "#D97706" : "#64748B";
+  return (
+    <svg viewBox="0 0 16 36" className="mx-auto h-8 w-4 shrink-0" aria-hidden>
+      <line x1="8" y1="0" x2="8" y2="26" stroke={stroke} strokeWidth="2" strokeDasharray="4 4" className="flow-dash" />
+      <path d="M2 24 L8 34 L14 24 Z" fill={stroke} />
+    </svg>
+  );
+}
+
+/** Industrial quotation: how the plant feeds the factory, built from what the
+ *  customer chose (panels, inverters) and told us (connection, load,
+ *  generator). Boxes only appear for things that are really in the quote. */
+function IndustrialSystemDiagram({ result, siteDetails }: { result: QuoteResult; siteDetails?: IndustrialSiteDetails }) {
+  const { panel, inverter } = result.equipment;
+  const arrayKw = panel.specValue ? (panel.count * panel.specValue) / 1000 : result.systemKw;
+  const inverterKw = inverter.specValue ? inverter.specValue * inverter.quantity : null;
+  const isHT = siteDetails?.connectionType === "HT";
+  const generator = siteDetails?.generator ?? null;
+  const sources = 2 + (generator ? 1 : 0);
+  const box = "rounded-2xl border p-3 text-center";
+  const iconWrap = "mx-auto flex h-10 w-10 items-center justify-center rounded-xl";
+  const keep = "print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]";
+
+  return (
+    <section className="mt-6 print:break-inside-avoid">
+      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
+        <Activity className="h-3.5 w-3.5" /> How your plant powers your site
+      </p>
+      <h3 className="mt-1 text-lg font-extrabold leading-snug tracking-tight text-slate-900">
+        Sunlight to your machines, step by step.
+      </h3>
+      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+        Your solar power is used first. LESCO{generator ? " and your generator fill" : " fills"} in whatever the sun cannot cover.
+      </p>
+
+      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:p-4 print:bg-white">
+        <div className={`grid grid-cols-1 gap-3 ${sources === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+          {/* Solar column */}
+          <div className="flex flex-col">
+            <div className={`${box} border-emerald-300 bg-emerald-50 ${keep}`}>
+              <span className={`${iconWrap} bg-emerald-500 text-white ${keep}`}>
+                <Sun className="h-5 w-5" />
+              </span>
+              <p className="mt-1.5 text-xs font-extrabold text-emerald-800">Solar array</p>
+              <p className="text-[11px] leading-snug text-slate-600">
+                {panel.count} x {panel.label}
+              </p>
+              <p className="text-[11px] font-semibold text-emerald-700">{formatTrim(arrayKw, 1)} kW of panels</p>
+            </div>
+            <FlowArrow tone="emerald" />
+            <div className={`${box} flex-1 border-slate-300 bg-slate-900 text-white ${keep}`}>
+              <span className={`${iconWrap} bg-white/10 text-emerald-300 ${keep}`}>
+                <Server className="h-5 w-5" />
+              </span>
+              <p className="mt-1.5 text-xs font-extrabold">Control room: inverters</p>
+              <p className="text-[11px] leading-snug text-slate-300">
+                {inverter.quantity > 1 ? `${inverter.quantity} x ` : ""}
+                {inverter.label}
+              </p>
+              {inverterKw && <p className="text-[11px] font-semibold text-emerald-300">{formatTrim(inverterKw)} kW of inverters</p>}
+              <p className="mt-1 text-[10px] text-slate-400">DC cables in, AC power out, with breakers and earthing</p>
+            </div>
+          </div>
+
+          {/* Grid column */}
+          <div className="flex flex-col">
+            <div className={`${box} border-brand-coral-200 bg-brand-coral-50 ${keep}`}>
+              <span className={`${iconWrap} bg-brand-coral text-white ${keep}`}>
+                <Zap className="h-5 w-5" />
+              </span>
+              <p className="mt-1.5 text-xs font-extrabold text-brand-coral-ink">LESCO / WAPDA grid</p>
+              <p className="text-[11px] leading-snug text-slate-600">{isHT ? "11 kV HT connection" : "400 V LT connection"}</p>
+              {siteDetails?.sanctionedLoadKw && (
+                <p className="text-[11px] font-semibold text-[#C2474C]">{formatTrim(siteDetails.sanctionedLoadKw)} kW sanctioned load</p>
+              )}
+            </div>
+            <FlowArrow tone="amber" />
+            <div className={`${box} flex-1 border-slate-200 bg-white`}>
+              <span className={`${iconWrap} bg-slate-100 text-slate-600`}>
+                <Gauge className="h-5 w-5" />
+              </span>
+              <p className="mt-1.5 text-xs font-extrabold text-slate-800">{isHT ? "Your transformer" : "Meter and incoming supply"}</p>
+              <p className="text-[11px] leading-snug text-slate-600">
+                {isHT ? "Steps 11 kV down to 400 V for the site" : "Grid power arrives at 400 V"}
+              </p>
+            </div>
+          </div>
+
+          {/* Generator column, only when they told us about one */}
+          {generator && (
+            <div className="flex flex-col">
+              <div className={`${box} border-amber-300 bg-amber-50 ${keep}`}>
+                <span className={`${iconWrap} bg-amber-500 text-white ${keep}`}>
+                  <Fuel className="h-5 w-5" />
+                </span>
+                <p className="mt-1.5 text-xs font-extrabold text-amber-800">Your generator</p>
+                <p className="text-[11px] leading-snug text-slate-600">
+                  {generator.fuel === "GAS" ? "Gas" : generator.fuel === "DIESEL" ? "Diesel" : "Generator"}
+                  {generator.capacityKw ? `, ${formatTrim(generator.capacityKw)} kW` : ""}
+                </p>
+                <p className="text-[11px] font-semibold text-amber-700">Stays as backup</p>
+              </div>
+              <FlowArrow tone="amber" />
+              <div className={`${box} flex-1 border-slate-200 bg-white`}>
+                <span className={`${iconWrap} bg-slate-100 text-slate-600`}>
+                  <Activity className="h-5 w-5" />
+                </span>
+                <p className="mt-1.5 text-xs font-extrabold text-slate-800">Auto changeover</p>
+                <p className="text-[11px] leading-snug text-slate-600">Generator only starts when solar and grid are both unavailable</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <FlowArrow />
+        <div className={`rounded-2xl bg-slate-800 px-3 py-2.5 text-center text-white ${keep}`}>
+          <p className="text-xs font-extrabold">Main distribution panel</p>
+          <p className="text-[10px] text-slate-300">Solar first, then grid{generator ? ", then generator" : ""}</p>
+        </div>
+        <FlowArrow />
+        <div className={`${box} border-orange-300 bg-orange-50 ${keep}`}>
+          <span className={`${iconWrap} bg-orange-500 text-white ${keep}`}>
+            <Factory className="h-5 w-5" />
+          </span>
+          <p className="mt-1.5 text-xs font-extrabold text-orange-900">Your factory</p>
+          <p className="text-[11px] leading-snug text-slate-600">Machines, motors, lighting and offices run on this power</p>
+        </div>
+      </div>
+      <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+        Simplified layout for explanation. The final single line diagram is prepared after our engineers survey your site.
+      </p>
+    </section>
+  );
+}
+
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** Industrial quotation, second page: the saving against the grid explained
@@ -6635,12 +6793,15 @@ function ResultSummary({
   installationArea,
   customerName,
   isIndustrial,
+  siteDetails,
 }: {
   result: QuoteResult;
   onEdit: () => void;
   /** Industrial quotations print the priced quotation on page one and the
    *  cost breakdown, savings chart and working on the following pages. */
   isIndustrial?: boolean;
+  /** What an industrial customer told us about their site, for the diagram. */
+  siteDetails?: IndustrialSiteDetails;
   /** "Refine your details" (2026-09-04, mobile Live Estimate panel) —
    *  capture-only, no pricing effect (see that field's own doc comment
    *  in CalculatorCard). Optional/undefined for the EV Charger/Panel
@@ -7058,6 +7219,7 @@ function ResultSummary({
           </table>
         </div>
 
+        {isIndustrial && <IndustrialSystemDiagram result={result} siteDetails={siteDetails} />}
         {isIndustrial && <IndustrialBenefitSection result={result} />}
       </div>
 
