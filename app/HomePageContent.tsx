@@ -2713,6 +2713,14 @@ function CalculatorCard() {
                           Industrial input, which is also a plain,
                           uncapped field. */}
                       <div className="mt-4">
+                        <SizingModeToggle sizeMode={sizeMode} onChange={setSizeMode} dark />
+                      </div>
+                      {sizeMode ? (
+                        <div className="mt-4">
+                          <SystemSizeField id="targetKwIndustrialMobile" value={targetKwInput} onChange={setTargetKwInput} dark presets={sector === "INDUSTRIAL" ? INDUSTRIAL_SIZE_PRESETS_KW : undefined} />
+                        </div>
+                      ) : (
+                      <div className="mt-4">
                         <label htmlFor="industrialBillAmount" className="mb-1.5 block text-xs font-semibold text-[#D4AF37]">
                           Average Monthly Bill (PKR)
                         </label>
@@ -2746,6 +2754,7 @@ function CalculatorCard() {
                           A rough figure is fine. Our engineer confirms exact pricing on site.
                         </p>
                       </div>
+                      )}
 
                       {/* Same real "You need/You save" tiles as
                           Residential/Commercial — same livePreview,
@@ -2776,7 +2785,7 @@ function CalculatorCard() {
                           be this small, so this only suggests, exactly
                           like the mirror-image warning on the
                           Residential/Commercial card below. */}
-                      {resolvedBillPKR !== null && resolvedBillPKR < INDUSTRIAL_SECTOR_THRESHOLD_PKR && (
+                      {!sizeMode && resolvedBillPKR !== null && resolvedBillPKR < INDUSTRIAL_SECTOR_THRESHOLD_PKR && (
                         <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2.5">
                           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
                           <p className="text-xs leading-relaxed text-amber-200">
@@ -3231,7 +3240,7 @@ function CalculatorCard() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {sizeMode ? (
                   <div className="sm:col-span-2">
-                    <SystemSizeField id="targetKwDesktop" value={targetKwInput} onChange={setTargetKwInput} />
+                    <SystemSizeField id="targetKwDesktop" value={targetKwInput} onChange={setTargetKwInput} presets={sector === "INDUSTRIAL" ? INDUSTRIAL_SIZE_PRESETS_KW : undefined} />
                   </div>
                 ) : (
                 <div>
@@ -6304,6 +6313,7 @@ function IndustrialBenefitSection({ result }: { result: QuoteResult }) {
 }
 
 const SIZE_PRESETS_KW = [3, 5, 8, 10, 15, 20];
+const INDUSTRIAL_SIZE_PRESETS_KW = [50, 100, 125, 200, 300, 500];
 
 /** Bill / system-size switch for the Complete Solar inputs. `dark` is the
  *  mobile hero card's palette, light is the desktop Energy Profile card. */
@@ -6340,11 +6350,13 @@ function SystemSizeField({
   value,
   onChange,
   dark,
+  presets = SIZE_PRESETS_KW,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
   dark?: boolean;
+  presets?: number[];
 }) {
   return (
     <div>
@@ -6365,7 +6377,7 @@ function SystemSizeField({
         }
       />
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {SIZE_PRESETS_KW.map((kw) => {
+        {presets.map((kw) => {
           const active = Number(value) === kw;
           return (
             <button
