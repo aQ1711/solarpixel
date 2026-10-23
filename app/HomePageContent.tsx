@@ -6152,47 +6152,67 @@ function IndustrialBenefitSection({ result }: { result: QuoteResult }) {
         </p>
       </div>
 
-      <div
-        className={`overflow-hidden rounded-2xl border border-rose-200 bg-rose-50 p-4 print:bg-white ${keepAvoid}`}
-      >
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-700">What you lose to LESCO without solar</p>
-        <div className="mt-2 grid grid-cols-3 gap-2.5">
-          <div>
-            <p className="text-lg font-extrabold leading-tight text-rose-700 sm:text-2xl">{formatCompactPKR(Math.round(annualSavingsPKR / 365))}</p>
-            <p className="text-[10px] text-slate-600">every day</p>
+      {/* Side by side, readable in a glance: what the grid costs against
+          what Solar Pixel costs, then what the customer actually gets. */}
+      <div className={`${keepAvoid}`}>
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3.5 print:bg-white">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-600 text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
+                <Zap className="h-4 w-4" />
+              </span>
+              <div>
+                <p className="text-sm font-extrabold leading-tight text-rose-800">LESCO / WAPDA</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-600">You keep paying</p>
+              </div>
+            </div>
+            <p className="mt-3 text-[10px] uppercase tracking-wide text-slate-500">Every month</p>
+            <p className="text-xl font-extrabold leading-tight text-rose-700 sm:text-2xl">{formatCompactPKR(Math.round(annualSavingsPKR / 12))}</p>
+            <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-500">Over 10 years</p>
+            <p className="text-xl font-extrabold leading-tight text-rose-700 sm:text-2xl">{formatCompactPKR(annualSavingsPKR * 10)}</p>
+            <p className="mt-2 text-[11px] font-semibold text-rose-700">The bill never ends, and tariffs only go up.</p>
           </div>
-          <div>
-            <p className="text-lg font-extrabold leading-tight text-rose-700 sm:text-2xl">{formatCompactPKR(Math.round(annualSavingsPKR / 12))}</p>
-            <p className="text-[10px] text-slate-600">every month, yearly average</p>
-          </div>
-          <div>
-            <p className="text-lg font-extrabold leading-tight text-rose-700 sm:text-2xl">{formatCompactPKR(annualSavingsPKR * 10)}</p>
-            <p className="text-[10px] text-slate-600">over 10 years</p>
+          <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5 print:bg-white">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm">
+                <BrandMark className="h-6 w-6" gradientId="benefitBrandMark" />
+              </span>
+              <div>
+                <p className="text-sm font-extrabold leading-tight text-emerald-800">Solar Pixel</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">You pay once</p>
+              </div>
+            </div>
+            <p className="mt-3 text-[10px] uppercase tracking-wide text-slate-500">Every month after</p>
+            <p className="text-xl font-extrabold leading-tight text-emerald-700 sm:text-2xl">Rs 0</p>
+            <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-500">Whole system, one time</p>
+            <p className="text-xl font-extrabold leading-tight text-emerald-700 sm:text-2xl">{formatCompactPKR(systemCost)}</p>
+            <p className="mt-2 text-[11px] font-semibold text-emerald-700">Paid back in {formatTrim(paybackYears, 1)} years, then it is free power.</p>
           </div>
         </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-          This is what you pay the grid for the same units this plant would generate and you would use. With solar you pay for the system once
-          and stop paying this.
-        </p>
-      </div>
-
-      <div className={`grid grid-cols-3 gap-2.5 ${keepAvoid}`}>
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3.5 print:bg-white">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">You save each month</p>
-          <p className="mt-1 text-lg font-extrabold leading-tight text-emerald-700 sm:text-xl">{formatCompactPKR(result.estimatedMonthlySavingsPKR)}</p>
-          <p className="mt-0.5 text-[10px] text-slate-500">{g ? `Based on ${g.generationMonth}` : "From your bill"}</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5 print:bg-white">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-600">System pays for itself</p>
-          <p className="mt-1 text-lg font-extrabold leading-tight text-slate-900 sm:text-xl">{formatTrim(paybackYears, 1)} years</p>
-          <p className="mt-0.5 text-[10px] text-slate-500">After that, the saving is yours</p>
-        </div>
-        <div className="rounded-2xl border border-orange-200 bg-orange-50 p-3.5 print:bg-white">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-700">Kept over 10 years</p>
-          <p className="mt-1 text-lg font-extrabold leading-tight text-orange-700 sm:text-xl">
-            {tenYearGain > 0 ? formatCompactPKR(tenYearGain) : "N/A"}
-          </p>
-          <p className="mt-0.5 text-[10px] text-slate-500">After paying for the system</p>
+        {tenYearGain > 0 && (
+          <div className="mt-2.5 rounded-2xl bg-slate-900 px-4 py-3 text-center text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
+            <p className="text-[11px] text-slate-300">With Solar Pixel, in 10 years you keep</p>
+            <p className="text-2xl font-extrabold leading-tight text-emerald-400">{formatCompactPKR(tenYearGain)}</p>
+            <p className="text-[11px] text-slate-300">that would have gone to LESCO</p>
+          </div>
+        )}
+        <div className="mt-2.5 rounded-2xl border border-slate-200 bg-white p-3.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">What you get with Solar Pixel</p>
+          <ul className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-[12px] text-slate-700 sm:grid-cols-2">
+            {[
+              `A ${formatTrim(result.systemKw, 1)} kW solar plant on your site`,
+              `${result.equipment.panel.count} ${result.equipment.panel.label}`,
+              `${result.equipment.inverter.quantity > 1 ? `${result.equipment.inverter.quantity} x ` : ""}${result.equipment.inverter.label}`,
+              g ? `About ${g.monthlyGenerationKwh.toLocaleString("en-PK")} units of your own power each month` : "Your own power, made on your roof",
+              "No net metering paperwork",
+              `Installed and live in ${result.deploymentLabel ?? `${result.daysToDeploy} days`}`,
+            ].map((line) => (
+              <li key={line} className="flex items-start gap-1.5">
+                <BadgeCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
 
