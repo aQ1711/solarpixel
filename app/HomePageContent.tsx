@@ -3230,7 +3230,9 @@ function CalculatorCard() {
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {sizeMode ? (
-                  <SystemSizeField id="targetKwDesktop" value={targetKwInput} onChange={setTargetKwInput} />
+                  <div className="sm:col-span-2">
+                    <SystemSizeField id="targetKwDesktop" value={targetKwInput} onChange={setTargetKwInput} />
+                  </div>
                 ) : (
                 <div>
                   <label htmlFor="billAmount" className="mb-1.5 block text-sm font-semibold text-slate-700">
@@ -3263,7 +3265,7 @@ function CalculatorCard() {
                   )}
                 </div>
                 )}
-                <div>
+                <div className={sizeMode ? (sector === "INDUSTRIAL" ? "hidden" : "sm:col-span-2 sm:max-w-sm") : ""}>
                   {/* Target Budget (2026-08-20) — auto-selects the
                       inverter/battery strategy (see the Calculation
                       Transparency dropdown below for what each tier
@@ -6288,7 +6290,7 @@ function SystemSizeField({
         className={
           dark
             ? "w-full rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-3 font-mono text-lg font-semibold text-white placeholder:text-[#5E6E82] outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
-            : "w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-base font-medium text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
+            : "w-full sm:max-w-sm rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-base font-medium text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
         }
       />
       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -6315,7 +6317,7 @@ function SystemSizeField({
           );
         })}
       </div>
-      <p className={`mt-2 text-[11px] leading-relaxed ${dark ? "text-[#8FA0B4]" : "text-slate-500"}`}>
+      <p className={`mt-2 max-w-xl text-[11px] leading-relaxed ${dark ? "text-[#8FA0B4]" : "text-slate-500"}`}>
         Sized to the kW you choose, not to your usage. Savings are estimated from Lahore sunshine this month. Share your bill later and we will check the size fits.
       </p>
     </div>
