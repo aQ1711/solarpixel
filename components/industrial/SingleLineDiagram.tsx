@@ -1,13 +1,13 @@
 import type { ReactNode } from "react";
 
 /**
- * Indicative electrical single line diagram for an industrial quotation:
- * PV array, DC isolation, inverter(s), AC protection, main LT busbar, the
- * LESCO/WAPDA incomer (with the HT transformer when the site has an HT
- * connection), an optional generator behind an ATS, the factory feeder and
- * earthing / lightning protection. Everything drawn comes from the quote or
- * from what the customer entered; ratings are computed, never invented, and
- * the title block says the drawing is indicative.
+ * Indicative electrical single line diagram for an industrial quotation.
+ * Laid out in zones (solar field, control room, utility grid, standby power,
+ * site loads) with colour-coded conductors, but every device is a standard
+ * single line symbol: PV array, isolator, SPD, inverter, MCCB / ACB, HT VCB,
+ * transformer, kWh meter, ATS, generator, motor, earth. Everything drawn
+ * comes from the quote or from what the customer entered; ratings are
+ * computed, never invented, and the title block says it is indicative.
  */
 
 export interface SingleLineDiagramProps {
@@ -33,55 +33,94 @@ const nextBreaker = (amps: number) => BREAKER_SIZES.find((s) => s >= amps) ?? Ma
 const trim = (n: number, digits = 1) => String(Number(n.toFixed(digits)));
 
 const INK = "#0F172A";
-const DC = "#B45309";
-const MUTED = "#64748B";
+const SUB = "#475569";
+const DC = "#D97706";
+const AC = "#1E293B";
+const HV = "#6D28D9";
+const W = 1000;
 
-function Breaker({ x, y, cb = true }: { x: number; y: number; cb?: boolean }) {
+/** White disc a symbol sits on, so the conductor passes "behind" the device. */
+function Disc({ x, y, r = 17 }: { x: number; y: number; r?: number }) {
+  return <circle cx={x} cy={y} r={r} fill="#fff" stroke="#CBD5E1" strokeWidth="1" />;
+}
+
+/** Circuit breaker on a vertical conductor: slanted blade with the breaking cross. */
+function Breaker({ x, y }: { x: number; y: number }) {
   return (
-    <g stroke={INK} strokeWidth="1.6" fill="none">
-      <line x1={x} y1={y - 22} x2={x} y2={y - 9} />
-      <line x1={x} y1={y + 9} x2={x} y2={y + 22} />
-      <line x1={x} y1={y + 9} x2={x - 9} y2={y - 9} />
-      {cb && (
-        <>
-          <line x1={x - 4} y1={y - 13} x2={x + 4} y2={y - 5} />
-          <line x1={x + 4} y1={y - 13} x2={x - 4} y2={y - 5} />
-        </>
-      )}
+    <g>
+      <Disc x={x} y={y} />
+      <g stroke={INK} strokeWidth="2" fill="none" strokeLinecap="round">
+        <line x1={x} y1={y + 11} x2={x - 8} y2={y - 6} />
+        <line x1={x - 4} y1={y - 12} x2={x + 4} y2={y - 4} />
+        <line x1={x + 4} y1={y - 12} x2={x - 4} y2={y - 4} />
+      </g>
     </g>
   );
 }
 
-function Isolator({ x, y, horizontal, color = INK }: { x: number; y: number; horizontal?: boolean; color?: string }) {
+/** Isolator / switch-disconnector on a horizontal conductor. */
+function IsolatorH({ x, y, color }: { x: number; y: number; color: string }) {
   return (
-    <g stroke={color} strokeWidth="1.6" fill="none" transform={horizontal ? `rotate(-90 ${x} ${y})` : undefined}>
-      <line x1={x} y1={y - 22} x2={x} y2={y - 9} />
-      <line x1={x} y1={y + 9} x2={x} y2={y + 22} />
-      <line x1={x} y1={y + 9} x2={x - 9} y2={y - 9} />
+    <g>
+      <Disc x={x} y={y} />
+      <g stroke={color} strokeWidth="2" fill="none" strokeLinecap="round">
+        <line x1={x - 11} y1={y} x2={x - 5} y2={y} />
+        <line x1={x - 5} y1={y} x2={x + 7} y2={y - 8} />
+        <line x1={x + 9} y1={y} x2={x + 11} y2={y} />
+      </g>
     </g>
   );
 }
 
-function Earth({ x, y }: { x: number; y: number }) {
+function Earth({ x, y, color = INK }: { x: number; y: number; color?: string }) {
   return (
-    <g stroke={INK} strokeWidth="1.6">
-      <line x1={x} y1={y} x2={x} y2={y + 12} />
-      <line x1={x - 11} y1={y + 12} x2={x + 11} y2={y + 12} />
-      <line x1={x - 7} y1={y + 17} x2={x + 7} y2={y + 17} />
-      <line x1={x - 3} y1={y + 22} x2={x + 3} y2={y + 22} />
+    <g stroke={color} strokeWidth="2" strokeLinecap="round">
+      <line x1={x} y1={y} x2={x} y2={y + 9} />
+      <line x1={x - 11} y1={y + 9} x2={x + 11} y2={y + 9} />
+      <line x1={x - 7} y1={y + 14} x2={x + 7} y2={y + 14} />
+      <line x1={x - 3} y1={y + 19} x2={x + 3} y2={y + 19} />
     </g>
   );
 }
 
-function Label({ x, y, lines, anchor = "start", bold }: { x: number; y: number; lines: ReactNode[]; anchor?: "start" | "middle" | "end"; bold?: boolean }) {
+function Txt({
+  x,
+  y,
+  lines,
+  anchor = "start",
+  size = 13,
+  color = INK,
+  bold,
+}: {
+  x: number;
+  y: number;
+  lines: ReactNode[];
+  anchor?: "start" | "middle" | "end";
+  size?: number;
+  color?: string;
+  bold?: boolean;
+}) {
   return (
-    <text x={x} y={y} textAnchor={anchor} fontSize="12.5" fill={INK} fontWeight={bold ? 700 : 400}>
+    <text x={x} y={y} textAnchor={anchor} fontSize={size} fill={color} fontWeight={bold ? 700 : 500}>
       {lines.map((line, i) => (
-        <tspan key={i} x={x} dy={i === 0 ? 0 : 14} fill={i === 0 || !bold ? INK : MUTED} fontWeight={i === 0 && bold ? 700 : 400}>
+        <tspan key={i} x={x} dy={i === 0 ? 0 : size + 3} fill={i === 0 ? color : SUB} fontWeight={i === 0 && bold ? 700 : 500}>
           {line}
         </tspan>
       ))}
     </text>
+  );
+}
+
+/** Small tag naming a zone, drawn on its top edge. */
+function ZoneTag({ x, y, text, fill, color }: { x: number; y: number; text: string; fill: string; color: string }) {
+  const w = text.length * 7.4 + 22;
+  return (
+    <g>
+      <rect x={x} y={y - 12} width={w} height="24" rx="12" fill={fill} />
+      <text x={x + w / 2} y={y + 4.5} textAnchor="middle" fontSize="11.5" fontWeight="800" letterSpacing="1.2" fill={color}>
+        {text}
+      </text>
+    </g>
   );
 }
 
@@ -95,214 +134,240 @@ export function SingleLineDiagram(p: SingleLineDiagramProps) {
   const incomerAmps = p.sanctionedLoadKw ? (p.sanctionedLoadKw * 1000) / (Math.sqrt(3) * 400 * 0.9) : null;
   const incomer = incomerAmps ? nextBreaker(incomerAmps * 1.1) : null;
   const gen = p.generator;
-  const genLabel = gen ? `${gen.fuel === "GAS" ? "Gas" : gen.fuel === "DIESEL" ? "Diesel" : ""} generator`.trim() : "";
+  const fuel = gen?.fuel === "GAS" ? "Gas" : gen?.fuel === "DIESEL" ? "Diesel" : "";
 
-  // Vertical positions of the grid incomer chain, which is longer with an HT transformer.
-  const busY = 330;
-  const gridX = 860;
+  const busY = 340;
+  const chainX = 770;
+  const feederX = 650;
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white print:overflow-visible print:border-slate-400">
+    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm print:overflow-visible print:shadow-none">
       <svg
-        viewBox="0 0 1000 640"
+        viewBox={`0 0 ${W} 720`}
         role="img"
         aria-label="Electrical single line diagram of the proposed solar plant"
-        className="h-auto w-full min-w-[700px] print:min-w-0"
+        className="h-auto w-full min-w-[720px] print:min-w-0"
         fontFamily="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
       >
-        <rect x="6" y="6" width="988" height="628" fill="none" stroke={INK} strokeWidth="1.5" />
+        <defs>
+          <pattern id="sldDots" width="20" height="20" patternUnits="userSpaceOnUse">
+            <circle cx="2" cy="2" r="1" fill="#E2E8F0" />
+          </pattern>
+          <linearGradient id="sldBus" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#64748B" />
+            <stop offset="100%" stopColor="#1E293B" />
+          </linearGradient>
+          <linearGradient id="sldInverter" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#1E3A5F" />
+            <stop offset="100%" stopColor="#0F172A" />
+          </linearGradient>
+        </defs>
 
-        {/* ---------- PV array ---------- */}
-        <g>
-          <rect x="36" y="64" width="170" height="92" fill="#FFFBEB" stroke={DC} strokeWidth="1.8" />
-          {[0, 1, 2, 3].map((c) =>
-            [0, 1].map((r) => (
-              <rect key={`${c}-${r}`} x={46 + c * 40} y={74 + r * 36} width="34" height="30" fill="none" stroke={DC} strokeWidth="1" />
-            )),
-          )}
-          <Label x={121} y={50} anchor="middle" bold lines={["PV ARRAY"]} />
-          <Label
-            x={121}
-            y={176}
-            anchor="middle"
-            lines={[
-              `${p.panelCount} x ${p.panelWatt ? `${p.panelWatt} Wp` : p.panelLabel}`,
-              arrayKwp ? `${trim(arrayKwp, 1)} kWp` : "",
-            ]}
-          />
-          <Label x={121} y={206} anchor="middle" lines={[p.panelLabel]} />
-        </g>
+        <rect width={W} height="720" fill="#fff" />
+        <rect width={W} height="720" fill="url(#sldDots)" />
 
-        {/* DC run to the inverter: DC isolator + DC SPD */}
-        <line x1="206" y1="110" x2="248" y2="110" stroke={DC} strokeWidth="2" />
-        <Isolator x={278} y={110} horizontal color={DC} />
-        <line x1="300" y1="110" x2="338" y2="110" stroke={DC} strokeWidth="2" />
-        <Label x={278} y={80} anchor="middle" lines={["DC isolator"]} />
-        <Label x={278} y={146} anchor="middle" lines={["+ DC SPD"]} />
-        <g stroke={DC} strokeWidth="1.6">
-          <line x1="316" y1="110" x2="316" y2="130" />
-          <rect x="310" y="130" width="12" height="16" fill="none" />
-          <line x1="316" y1="146" x2="316" y2="154" />
-        </g>
-        <Earth x={316} y={154} />
-        <Label x={272} y={118} anchor="middle" lines={[""]} />
-        <text x="222" y="102" fontSize="10.5" fill={DC} textAnchor="middle">DC +/-</text>
+        {/* ======================= ZONES ======================= */}
+        <rect x="24" y="30" width="290" height="262" rx="18" fill="#FFFBEB" stroke="#FCD34D" strokeWidth="1.5" />
+        <rect x="334" y="30" width="270" height="262" rx="18" fill="#F1F5F9" stroke="#CBD5E1" strokeWidth="1.5" />
+        <rect x="684" y="30" width="292" height="262" rx="18" fill="#FCE8E9" stroke="#F7BBBD" strokeWidth="1.5" />
+        <ZoneTag x={42} y={30} text="SOLAR FIELD" fill="#D97706" color="#fff" />
+        <ZoneTag x={352} y={30} text="CONTROL ROOM" fill="#334155" color="#fff" />
+        <ZoneTag x={702} y={30} text="UTILITY SUPPLY" fill="#C2474C" color="#fff" />
+        {gen && (
+          <>
+            <rect x="24" y="420" width="290" height="236" rx="18" fill="#FFF7ED" stroke="#FDBA74" strokeWidth="1.5" />
+            <ZoneTag x={42} y={420} text="STANDBY POWER" fill="#EA580C" color="#fff" />
+          </>
+        )}
+        <rect x="334" y="420" width="642" height="236" rx="18" fill="#F0FDF4" stroke="#86EFAC" strokeWidth="1.5" />
+        <ZoneTag x={352} y={420} text="SITE LOADS" fill="#15803D" color="#fff" />
 
-        {/* ---------- Inverter ---------- */}
-        <g>
-          <rect x="338" y="64" width="150" height="92" fill="#F0FDF4" stroke={INK} strokeWidth="1.8" />
-          <line x1="338" y1="156" x2="488" y2="64" stroke={INK} strokeWidth="1.4" />
-          <text x="354" y="90" fontSize="20" fill={INK}>=</text>
-          <text x="458" y="142" fontSize="20" fill={INK}>~</text>
-          <Label x={413} y={50} anchor="middle" bold lines={["INVERTER"]} />
-          <Label
-            x={413}
-            y={176}
-            anchor="middle"
-            lines={[
-              `${p.inverterQuantity > 1 ? `${p.inverterQuantity} x ` : ""}${p.inverterKwEach ? `${trim(p.inverterKwEach)} kW` : ""}`,
-              acKw ? `${trim(acKw)} kW AC, ${singlePhase ? "1" : "3"}Ph ${volts} V` : "",
-            ]}
-          />
-          <Label x={413} y={206} anchor="middle" lines={[p.inverterLabel]} />
-        </g>
-
-        {/* AC out of the inverter, breaker, down to the main bus */}
-        <polyline points="488,110 560,110 560,330" fill="none" stroke={INK} strokeWidth="2" />
-        <Breaker x={560} y={215} />
-        <Label
-          x={576}
-          y={205}
+        {/* ======================= SOLAR FIELD ======================= */}
+        <rect x="52" y="64" width="234" height="96" rx="10" fill="#fff" stroke={DC} strokeWidth="2" />
+        {[0, 1, 2, 3].map((c) =>
+          [0, 1].map((r) => (
+            <rect key={`${c}-${r}`} x={62 + c * 55} y={74 + r * 38} width="49" height="32" rx="3" fill="#FEF3C7" stroke={DC} strokeWidth="1.2" />
+          )),
+        )}
+        <Txt
+          x={169}
+          y={184}
+          anchor="middle"
+          bold
+          size={15}
           lines={[
-            "AC MCCB",
-            inverterBreaker ? `${inverterBreaker} A (indicative)` : "rated to inverter output",
+            `${p.panelCount} x ${p.panelWatt ? `${p.panelWatt} Wp` : "panels"}${arrayKwp ? `  =  ${trim(arrayKwp, 1)} kWp` : ""}`,
+            p.panelLabel,
           ]}
         />
-        <Label x={576} y={252} lines={["Solar feed-in"]} />
 
-        {/* ---------- Main LT busbar ---------- */}
-        <line x1="90" y1={busY} x2="930" y2={busY} stroke={INK} strokeWidth="6" strokeLinecap="round" />
-        <Label x={96} y={busY - 12} bold lines={["MAIN LT DISTRIBUTION BOARD  |  400 V, 3Ph, 4W, 50 Hz"]} />
-        <Earth x={110} y={busY + 3} />
-        <Label x={128} y={busY + 22} lines={["Earth bar"]} />
+        {/* DC run: PV -> isolator -> inverter, with the SPD to earth */}
+        <path d="M169 160 V 242 H 380" fill="none" stroke={DC} strokeWidth="3.5" strokeLinejoin="round" strokeLinecap="round" />
+        <IsolatorH x={230} y={242} color={DC} />
+        <Txt x={230} y={272} anchor="middle" size={11.5} lines={["DC isolator"]} />
+        <line x1="290" y1="242" x2="290" y2="251" stroke={DC} strokeWidth="2.5" />
+        <rect x="284" y="251" width="12" height="11" fill="#fff" stroke={DC} strokeWidth="2" />
+        <Txt x={140} y={236} anchor="middle" size={11.5} color={DC} bold lines={["DC +/-"]} />
 
-        {/* ---------- Grid incomer ---------- */}
+        {/* Lightning protection tag */}
         <g>
-          <circle cx={gridX} cy="54" r="16" fill="none" stroke={INK} strokeWidth="1.8" />
-          <text x={gridX} y="59" fontSize="15" textAnchor="middle" fill={INK}>~</text>
-          <Label x={gridX - 28} y={48} anchor="end" bold lines={["LESCO / WAPDA"]} />
-          <Label x={gridX - 28} y={63} anchor="end" lines={[p.isHT ? "11 kV, 3Ph, 50 Hz" : "400 V, 3Ph, 50 Hz"]} />
-          <line x1={gridX} y1="70" x2={gridX} y2={p.isHT ? 86 : 140} stroke={INK} strokeWidth="2" />
-          {p.isHT ? (
-            <>
-              <Breaker x={gridX} y={108} />
-              <Label x={gridX - 24} y={104} anchor="end" lines={["HT VCB", "11 kV"]} />
-              <line x1={gridX} y1="130" x2={gridX} y2="150" stroke={INK} strokeWidth="2" />
-              <g fill="none" stroke={INK} strokeWidth="1.8">
-                <circle cx={gridX} cy="165" r="15" />
-                <circle cx={gridX} cy="183" r="15" />
-              </g>
-              <Label x={gridX - 28} y={162} anchor="end" lines={["Transformer", "11 / 0.4 kV"]} />
-              <line x1={gridX} y1="198" x2={gridX} y2="222" stroke={INK} strokeWidth="2" />
-              <circle cx={gridX} cy="240" r="15" fill="none" stroke={INK} strokeWidth="1.8" />
-              <text x={gridX} y="244" fontSize="10.5" textAnchor="middle" fill={INK}>kWh</text>
-              <Label x={gridX - 28} y={238} anchor="end" lines={["LESCO meter"]} />
-              <line x1={gridX} y1="255" x2={gridX} y2="280" stroke={INK} strokeWidth="2" />
-              <Breaker x={gridX} y={296} />
-              <Label x={gridX - 24} y={290} anchor="end" lines={["Main incomer", incomer ? `ACB ${incomer} A` : "ACB per sanctioned load"]} />
-              <line x1={gridX} y1="318" x2={gridX} y2={busY} stroke={INK} strokeWidth="2" />
-            </>
-          ) : (
-            <>
-              <circle cx={gridX} cy="162" r="15" fill="none" stroke={INK} strokeWidth="1.8" />
-              <text x={gridX} y="166" fontSize="10.5" textAnchor="middle" fill={INK}>kWh</text>
-              <Label x={gridX - 28} y={160} anchor="end" lines={["LESCO meter"]} />
-              <line x1={gridX} y1="140" x2={gridX} y2="147" stroke={INK} strokeWidth="2" />
-              <line x1={gridX} y1="177" x2={gridX} y2="250" stroke={INK} strokeWidth="2" />
-              <Breaker x={gridX} y={274} />
-              <Label x={gridX - 24} y={268} anchor="end" lines={["Main incomer", incomer ? `MCCB / ACB ${incomer} A` : "per sanctioned load"]} />
-              <line x1={gridX} y1="296" x2={gridX} y2={busY} stroke={INK} strokeWidth="2" />
-            </>
-          )}
+          <path d="M166 46 L172 34 L178 46 Z" fill="none" stroke={INK} strokeWidth="1.8" strokeLinejoin="round" />
+          <line x1="172" y1="46" x2="172" y2="58" stroke={INK} strokeWidth="1.8" />
         </g>
+        <Txt
+          x={186}
+          y={52}
+          size={11}
+          color={SUB}
+          lines={[p.lightningArresters > 0 ? `Lightning arrestor x ${p.lightningArresters}` : "Lightning protection"]}
+        />
 
-        {/* ---------- Generator behind an ATS (only if the customer has one) ---------- */}
+        {/* ======================= INVERTER ======================= */}
+        <rect x="380" y="82" width="170" height="190" rx="14" fill="url(#sldInverter)" />
+        <line x1="396" y1="256" x2="534" y2="104" stroke="#94A3B8" strokeWidth="2" />
+        <text x="404" y="128" fontSize="28" fontWeight="700" fill="#34D399">=</text>
+        <text x="508" y="246" fontSize="28" fontWeight="700" fill="#34D399">~</text>
+        <Txt
+          x={465}
+          y={306}
+          anchor="middle"
+          bold
+          size={15}
+          lines={[
+            p.inverterQuantity > 1 && p.inverterKwEach && acKw
+              ? `${p.inverterQuantity} x ${trim(p.inverterKwEach)} kW  =  ${trim(acKw)} kW AC`
+              : acKw
+                ? `${trim(acKw)} kW AC`
+                : "Inverter",
+          ]}
+        />
+        <Txt x={465} y={328} anchor="middle" size={11.5} color={SUB} lines={[`${singlePhase ? "1" : "3"}Ph ${volts} V  |  ${p.inverterLabel}`]} />
+        <Earth x={290} y={262} color={DC} />
+        <Txt x={310} y={284} size={11.5} color={SUB} lines={[p.earthingPits > 0 ? `Earth pits x ${p.earthingPits}` : "Earthing"]} />
+        <Txt x={304} y={262} size={11.5} color={DC} bold lines={["DC SPD"]} />
+
+        {/* AC out -> MCCB -> main LT bus */}
+        <path d={`M550 150 H 596 V ${busY}`} fill="none" stroke={AC} strokeWidth="3.5" strokeLinejoin="round" strokeLinecap="round" />
+        <Breaker x={596} y={290} />
+        <Txt
+          x={614}
+          y={282}
+          size={12.5}
+          bold
+          lines={["AC MCCB", inverterBreaker ? `${inverterBreaker} A (indicative)` : "to inverter rating"]}
+        />
+
+        {/* ======================= MAIN LT BUS ======================= */}
+        <line x1="60" y1={busY} x2="940" y2={busY} stroke="url(#sldBus)" strokeWidth="10" strokeLinecap="round" />
+        <circle cx="596" cy={busY} r="5" fill={AC} />
+        <rect x="100" y={busY + 14} width="300" height="24" rx="12" fill="#1E293B" />
+        <text x="250" y={busY + 30.5} textAnchor="middle" fontSize="12" fontWeight="700" fill="#fff" letterSpacing="0.6">
+          MAIN LT BOARD  |  400 V  3Ph  4W  50 Hz
+        </text>
+        <Earth x={76} y={busY + 5} />
+
+        {/* ======================= UTILITY SUPPLY ======================= */}
+        <circle cx={chainX} cy="78" r="20" fill="#fff" stroke={HV} strokeWidth="2.5" />
+        <text x={chainX} y="85" textAnchor="middle" fontSize="22" fill={HV}>~</text>
+        <Txt x={chainX + 34} y={74} bold size={14} lines={["LESCO / WAPDA", p.isHT ? "11 kV  3Ph  50 Hz" : "400 V  3Ph  50 Hz"]} />
+        {p.isHT ? (
+          <>
+            <path d={`M${chainX} 98 V 160`} fill="none" stroke={HV} strokeWidth="3.5" strokeLinecap="round" />
+            <path d={`M${chainX} 228 V ${busY}`} fill="none" stroke={AC} strokeWidth="3.5" strokeLinecap="round" />
+            <Breaker x={chainX} y={132} />
+            <Txt x={chainX + 28} y={128} size={12.5} bold lines={["HT VCB", "11 kV"]} />
+            <path d={`M${chainX} 160 V 173`} fill="none" stroke={HV} strokeWidth="3.5" strokeLinecap="round" />
+            <circle cx={chainX} cy="190" r="17" fill="#fff" stroke={INK} strokeWidth="2.2" />
+            <circle cx={chainX} cy="212" r="17" fill="#fff" stroke={INK} strokeWidth="2.2" />
+            <Txt x={chainX + 30} y={196} size={12.5} bold lines={["Transformer", "11 / 0.4 kV"]} />
+            <Disc x={chainX} y={256} r={18} />
+            <circle cx={chainX} cy="256" r="14" fill="#fff" stroke={INK} strokeWidth="2.2" />
+            <text x={chainX} y="261" textAnchor="middle" fontSize="12" fontWeight="700" fill={INK}>kWh</text>
+            <Txt x={chainX + 30} y={260} size={12.5} bold lines={["LESCO meter"]} />
+            <Breaker x={chainX} y={310} />
+            <Txt x={chainX + 28} y={306} size={12.5} bold lines={["Main incomer", incomer ? `ACB ${incomer} A` : "ACB per sanctioned load"]} />
+          </>
+        ) : (
+          <>
+            <path d={`M${chainX} 98 V ${busY}`} fill="none" stroke={AC} strokeWidth="3.5" strokeLinecap="round" />
+            <Disc x={chainX} y={170} r={18} />
+            <circle cx={chainX} cy="170" r="14" fill="#fff" stroke={INK} strokeWidth="2.2" />
+            <text x={chainX} y="175" textAnchor="middle" fontSize="12" fontWeight="700" fill={INK}>kWh</text>
+            <Txt x={chainX + 30} y={174} size={12.5} bold lines={["LESCO meter"]} />
+            <Breaker x={chainX} y={254} />
+            <Txt x={chainX + 28} y={250} size={12.5} bold lines={["Main incomer", incomer ? `MCCB / ACB ${incomer} A` : "per sanctioned load"]} />
+          </>
+        )}
+
+        {/* ======================= STANDBY GENERATOR ======================= */}
         {gen && (
           <g>
-            <circle cx="170" cy="560" r="20" fill="none" stroke={INK} strokeWidth="1.8" />
-            <text x="170" y="565" fontSize="15" fontWeight="700" textAnchor="middle" fill={INK}>G</text>
-            <Label x={170} y={604} anchor="middle" bold lines={[genLabel]} />
-            <Label x={170} y={618} anchor="middle" lines={[gen.capacityKw ? `${trim(gen.capacityKw)} kW standby` : "standby"]} />
-            <line x1="170" y1="540" x2="170" y2="478" stroke={INK} strokeWidth="2" />
-            <rect x="140" y="430" width="60" height="48" fill="#FFF7ED" stroke={INK} strokeWidth="1.8" />
-            <text x="170" y="458" fontSize="13" fontWeight="700" textAnchor="middle" fill={INK}>ATS</text>
-            <line x1="170" y1="430" x2="170" y2={busY} stroke={INK} strokeWidth="2" />
-            <Label x={210} y={448} lines={["Auto changeover", "generator interlocked with grid"]} />
+            <path d={`M169 ${busY} V 556`} fill="none" stroke={AC} strokeWidth="3.5" strokeLinecap="round" />
+            <rect x="124" y="456" width="90" height="56" rx="10" fill="#fff" stroke="#EA580C" strokeWidth="2.2" />
+            <text x="169" y="491" textAnchor="middle" fontSize="18" fontWeight="800" fill="#EA580C">ATS</text>
+            <Txt x={228} y={474} size={12.5} bold lines={["Auto changeover", "interlocked with grid"]} />
+            <circle cx="169" cy="580" r="24" fill="#fff" stroke={INK} strokeWidth="2.4" />
+            <text x="169" y="587" textAnchor="middle" fontSize="20" fontWeight="800" fill={INK}>G</text>
+            <Txt
+              x={204}
+              y={618}
+              size={13}
+              bold
+              anchor="middle"
+              lines={[`${fuel ? `${fuel} generator` : "Generator"}${gen.capacityKw ? `  ${trim(gen.capacityKw)} kW standby` : ""}`]}
+            />
           </g>
         )}
 
-        {/* ---------- Factory feeder and loads ---------- */}
-        <line x1="560" y1={busY} x2="560" y2="400" stroke={INK} strokeWidth="2" />
-        <Breaker x={560} y={420} />
-        <Label x={576} y={414} lines={["Feeder MCCB", "to factory loads"]} />
-        <line x1="560" y1="442" x2="560" y2="480" stroke={INK} strokeWidth="2" />
-        <rect x="380" y="480" width="360" height="100" fill="#FFF7ED" stroke={INK} strokeWidth="1.8" />
-        <Label x={560} y={500} anchor="middle" bold lines={["FACTORY LOADS"]} />
-        {[430, 500, 570, 640, 710].slice(0, 4).map((cx, i) => (
-          <g key={cx}>
-            <line x1={cx + 8} y1="512" x2={cx + 8} y2="524" stroke={INK} strokeWidth="1.4" />
-            <circle cx={cx + 8} cy="540" r="14" fill="#fff" stroke={INK} strokeWidth="1.6" />
-            <text x={cx + 8} y="545" fontSize="13" fontWeight="700" textAnchor="middle" fill={INK}>{i === 3 ? "L" : "M"}</text>
-          </g>
-        ))}
-        <Label
-          x={560}
-          y={572}
+        {/* ======================= SITE LOADS ======================= */}
+        <path d={`M${feederX} ${busY} V 480`} fill="none" stroke={AC} strokeWidth="3.5" strokeLinecap="round" />
+        <Breaker x={feederX} y={392} />
+        <Txt x={feederX + 22} y={388} size={12.5} bold lines={["Feeder MCCB", "to factory loads"]} />
+        <rect x="366" y="480" width="578" height="152" rx="14" fill="#fff" stroke="#86EFAC" strokeWidth="2" />
+        <Txt x={655} y={508} anchor="middle" bold size={15} color="#166534" lines={["FACTORY LOADS"]} />
+        {["M", "M", "M", "M", "L"].map((tag, i) => {
+          const cx = 440 + i * 108;
+          return (
+            <g key={i}>
+              <line x1={cx} y1="518" x2={cx} y2="548" stroke={AC} strokeWidth="2.5" />
+              <circle cx={cx} cy="570" r="22" fill="#fff" stroke={INK} strokeWidth="2.2" />
+              <text x={cx} y="577" textAnchor="middle" fontSize="19" fontWeight="800" fill={INK}>{tag}</text>
+            </g>
+          );
+        })}
+        <Txt
+          x={655}
+          y={620}
           anchor="middle"
-          lines={[
-            p.sanctionedLoadKw ? `Sanctioned load ${trim(p.sanctionedLoadKw, 0)} kW  |  motors, lighting, offices` : "Motors, lighting, offices",
-          ]}
+          size={12.5}
+          color={SUB}
+          lines={[p.sanctionedLoadKw ? `Sanctioned load ${trim(p.sanctionedLoadKw, 0)} kW  |  motors, lighting, offices` : "Motors, lighting, offices"]}
         />
 
-        {/* ---------- Earthing and lightning protection ---------- */}
-        <g>
-          <line x1="316" y1="154" x2="316" y2="154" />
-          <Label x={304} y={196} anchor="end" lines={[p.earthingPits > 0 ? `Earth pits x ${p.earthingPits}` : "Earthing per IEC 60364"]} />
+        {/* ======================= LEGEND + TITLE BLOCK ======================= */}
+        <rect x="24" y="672" width="952" height="38" rx="10" fill="#F8FAFC" stroke="#CBD5E1" />
+        <g fontSize="11.5" fill={INK} fontWeight="600">
+          <line x1="40" y1="691" x2="68" y2="691" stroke={DC} strokeWidth="3.5" strokeLinecap="round" />
+          <text x="76" y="695">DC</text>
+          <line x1="108" y1="691" x2="136" y2="691" stroke={AC} strokeWidth="3.5" strokeLinecap="round" />
+          <text x="144" y="695">AC 400 V</text>
+          <line x1="216" y1="691" x2="244" y2="691" stroke={HV} strokeWidth="3.5" strokeLinecap="round" />
+          <text x="252" y="695">HT 11 kV</text>
         </g>
-        <g>
-          <line x1="36" y1="44" x2="36" y2="30" stroke={INK} strokeWidth="1.8" />
-          <path d="M30 30 L36 18 L42 30 Z" fill="none" stroke={INK} strokeWidth="1.6" />
-          <text x="48" y="28" fontSize="10.5" fill={INK}>
-            {p.lightningArresters > 0 ? `Lightning arrestor x ${p.lightningArresters}` : "Lightning protection"}
-          </text>
-        </g>
-
-        {/* ---------- Legend ---------- */}
-        <g fontSize="10.5" fill={INK}>
-          <line x1="40" y1="276" x2="74" y2="276" stroke={DC} strokeWidth="2" />
-          <text x="82" y="280">DC circuit</text>
-          <line x1="40" y1="294" x2="74" y2="294" stroke={INK} strokeWidth="2" />
-          <text x="82" y="298">AC circuit</text>
-        </g>
-
-        {/* ---------- Title block ---------- */}
-        <g>
-          <rect x="770" y="500" width="214" height="128" fill="#fff" stroke={INK} strokeWidth="1.5" />
-          <line x1="770" y1="524" x2="984" y2="524" stroke={INK} strokeWidth="1" />
-          <text x="877" y="517" fontSize="12" fontWeight="700" textAnchor="middle" fill={INK}>SINGLE LINE DIAGRAM</text>
-          <text x="780" y="544" fontSize="10.5" fill={MUTED}>Client</text>
-          <text x="780" y="558" fontSize="12" fill={INK}>{p.customerName || "Customer"}</text>
-          <text x="780" y="578" fontSize="10.5" fill={MUTED}>Reference</text>
-          <text x="780" y="592" fontSize="11.5" fill={INK}>{p.reference}</text>
-          <text x="900" y="578" fontSize="10.5" fill={MUTED}>Date</text>
-          <text x="900" y="592" fontSize="11.5" fill={INK}>{p.dateLabel}</text>
-          <text x="877" y="615" fontSize="9.5" textAnchor="middle" fill={MUTED}>Indicative. Not for construction.</text>
+        <g fontSize="11.5" fill={INK}>
+          <text x="368" y="695" fontWeight="800">SINGLE LINE DIAGRAM</text>
+          <text x="530" y="695" fill={SUB}>Client</text>
+          <text x="570" y="695" fontWeight="700">{p.customerName || "Customer"}</text>
+          <text x="720" y="695" fill={SUB}>Ref</text>
+          <text x="745" y="695" fontWeight="700">{p.reference}</text>
+          <text x="850" y="695" fill={SUB}>Date</text>
+          <text x="880" y="695" fontWeight="700">{p.dateLabel}</text>
         </g>
       </svg>
-      <p className="border-t border-slate-200 px-3 py-2 text-[10px] leading-relaxed text-slate-500">
-        Breaker ratings are indicative: AC current from the inverter output at 400 V (230 V single phase), with the next standard frame at
-        1.25 times the current. Cable sizes, protection settings, transformer rating and earthing resistance are fixed in the final design after the
-        site survey, to NEPRA and IEC 60364 requirements.
+      <p className="border-t border-slate-200 px-4 py-2.5 text-[10.5px] leading-relaxed text-slate-500">
+        Indicative, not for construction. Breaker ratings are the next standard frame at 1.25 times the inverter&apos;s AC current (
+        {singlePhase ? "230 V single phase" : "400 V three phase"}); the incomer is sized from the sanctioned load if given. Cable sizes, protection
+        settings, transformer rating and earthing resistance are fixed in the final design after the site survey, to NEPRA and IEC 60364 requirements.
       </p>
     </div>
   );
