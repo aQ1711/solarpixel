@@ -6084,8 +6084,8 @@ function SavingsVsGridChart({ annualSavingsPKR, systemCostPKR }: { annualSavings
             <stop offset="100%" stopColor="#EF767A" />
           </linearGradient>
           <linearGradient id="netGain" x1="0" y1="1" x2="0" y2="0">
-            <stop offset="0%" stopColor="#5E9C86" />
-            <stop offset="100%" stopColor="#8FBFAC" />
+            <stop offset="0%" stopColor="#2FB994" />
+            <stop offset="100%" stopColor="#49DCB1" />
           </linearGradient>
         </defs>
         <line x1={m.l} x2={W - m.r} y1={zeroY} y2={zeroY} stroke="#94A3B8" strokeWidth="1.5" />
@@ -6110,7 +6110,7 @@ function SavingsVsGridChart({ annualSavingsPKR, systemCostPKR }: { annualSavings
                   textAnchor="middle"
                   fontSize="11"
                   fontWeight="700"
-                  fill={positive ? "#3F7D66" : "#C2474C"}
+                  fill={positive ? "#1F9B78" : "#C2474C"}
                 >
                   {positive ? "+" : "-"}
                   {formatCompactPKR(Math.abs(v)).replace("Rs ", "")}
@@ -6163,7 +6163,7 @@ function IndustrialSystemDiagram({
   const dateLabel = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
   return (
     <section className="mt-8 print:break-before-page print:mt-0">
-      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-[#94693F]">
+      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
         <Activity className="h-3.5 w-3.5" /> Electrical single line diagram
       </p>
       <h3 className="mt-1 text-lg font-extrabold leading-snug tracking-tight text-slate-900">How your plant connects to your site.</h3>
@@ -6212,7 +6212,7 @@ function IndustrialBenefitSection({ result, part }: { result: QuoteResult; part:
     return (
     <section className="mt-8 space-y-4">
       <div>
-        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-[#94693F]">
+        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
           <TrendingDown className="h-3.5 w-3.5" /> Your benefit against LESCO
         </p>
         <h3 className="mt-1 text-xl font-extrabold leading-snug tracking-tight text-slate-900">
@@ -6243,27 +6243,27 @@ function IndustrialBenefitSection({ result, part }: { result: QuoteResult; part:
             <p className="text-xl font-extrabold leading-tight text-[#C2474C] sm:text-2xl">{formatCompactPKR(annualSavingsPKR * 10)}</p>
             <p className="mt-auto pt-2 text-[11px] font-semibold leading-snug text-[#C2474C]">The bill never ends, and tariffs only go up.</p>
           </div>
-          <div className="flex flex-col rounded-2xl border border-[#CFE3D9] bg-[#EEF5F1] p-3.5 print:bg-white">
+          <div className="flex flex-col rounded-2xl border border-brand-teal/50 bg-brand-teal/10 p-3.5 print:bg-white">
             <div className="flex h-10 items-center gap-2.5">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center">
                 <BrandMark className="h-9 w-9" gradientId="benefitBrandMark" />
               </span>
               <div className="min-w-0">
-                <p className="text-sm font-extrabold leading-tight text-[#2F6652]">Solar Pixel</p>
-                <p className="mt-0.5 text-[10px] font-semibold uppercase leading-tight tracking-wide text-[#3F7D66]">You pay once</p>
+                <p className="text-sm font-extrabold leading-tight text-brand-teal-ink">Solar Pixel</p>
+                <p className="mt-0.5 text-[10px] font-semibold uppercase leading-tight tracking-wide text-brand-teal-deep">You pay once</p>
               </div>
             </div>
             <p className="mt-3 text-[10px] uppercase leading-tight tracking-wide text-slate-500">Every month after</p>
-            <p className="text-xl font-extrabold leading-tight text-[#3F7D66] sm:text-2xl">Rs 0</p>
+            <p className="text-xl font-extrabold leading-tight text-brand-teal-deep sm:text-2xl">Rs 0</p>
             <p className="mt-2 text-[10px] uppercase leading-tight tracking-wide text-slate-500">Whole system, one time</p>
-            <p className="text-xl font-extrabold leading-tight text-[#3F7D66] sm:text-2xl">{formatCompactPKR(systemCost)}</p>
-            <p className="mt-auto pt-2 text-[11px] font-semibold leading-snug text-[#3F7D66]">Paid back in {formatTrim(paybackYears, 1)} years, then it is free power.</p>
+            <p className="text-xl font-extrabold leading-tight text-brand-teal-deep sm:text-2xl">{formatCompactPKR(systemCost)}</p>
+            <p className="mt-auto pt-2 text-[11px] font-semibold leading-snug text-brand-teal-deep">Paid back in {formatTrim(paybackYears, 1)} years, then it is free power.</p>
           </div>
         </div>
         {tenYearGain > 0 && (
-          <div className="mt-2.5 rounded-2xl bg-slate-900 px-4 py-3 text-center text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
+          <div className="mt-2.5 rounded-2xl bg-brand-navy px-4 py-3 text-center text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
             <p className="text-[11px] text-slate-300">With Solar Pixel, in 10 years you keep</p>
-            <p className="text-2xl font-extrabold leading-tight text-[#8FBFAC]">{formatCompactPKR(tenYearGain)}</p>
+            <p className="text-2xl font-extrabold leading-tight text-brand-teal">{formatCompactPKR(tenYearGain)}</p>
             <p className="text-[11px] text-slate-300">that would have gone to LESCO</p>
           </div>
         )}
@@ -6279,7 +6279,7 @@ function IndustrialBenefitSection({ result, part }: { result: QuoteResult; part:
               `Installed and live in ${result.deploymentLabel ?? `${result.daysToDeploy} days`}`,
             ].map((line) => (
               <li key={line} className="flex items-start gap-1.5">
-                <BadgeCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#4E8E76]" />
+                <BadgeCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-teal-deep" />
                 <span>{line}</span>
               </li>
             ))}
@@ -6301,8 +6301,8 @@ function IndustrialBenefitSection({ result, part }: { result: QuoteResult; part:
           <span className="flex items-center gap-1.5 text-[#C2474C]">
             <span className="h-2.5 w-2.5 rounded-sm bg-brand-coral" /> Still recovering the system cost
           </span>
-          <span className="flex items-center gap-1.5 text-[#3F7D66]">
-            <span className="h-2.5 w-2.5 rounded-sm bg-[#5E9C86]" /> Profit after paying for the system
+          <span className="flex items-center gap-1.5 text-brand-teal-deep">
+            <span className="h-2.5 w-2.5 rounded-sm bg-brand-teal-deep" /> Profit after paying for the system
           </span>
         </div>
         <SavingsVsGridChart annualSavingsPKR={annualSavingsPKR} systemCostPKR={systemCost} />
@@ -6317,14 +6317,14 @@ function IndustrialBenefitSection({ result, part }: { result: QuoteResult; part:
               const current = i === currentMonthIndex;
               return (
                 <div key={MONTH_SHORT[i]} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
-                  <span className={`text-[9px] font-semibold tabular-nums ${current ? "text-[#94693F]" : "text-slate-500"}`}>
+                  <span className={`text-[9px] font-semibold tabular-nums ${current ? "text-orange-700" : "text-slate-500"}`}>
                     {formatCompactPKR(v).replace("Rs ", "")}
                   </span>
                   <div
-                    className={`w-full rounded-t-md print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact] ${current ? "bg-[#C9A27E]" : "bg-[#7FB5A0]"}`}
+                    className={`w-full rounded-t-md print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact] ${current ? "bg-brand-gold" : "bg-brand-teal"}`}
                     style={{ height: `${Math.max(6, (v / maxMonth) * 100)}%` }}
                   />
-                  <span className={`text-[10px] ${current ? "font-bold text-[#94693F]" : "text-slate-500"}`}>{MONTH_SHORT[i]}</span>
+                  <span className={`text-[10px] ${current ? "font-bold text-orange-700" : "text-slate-500"}`}>{MONTH_SHORT[i]}</span>
                 </div>
               );
             })}
@@ -6359,7 +6359,7 @@ function IndustrialBenefitSection({ result, part }: { result: QuoteResult; part:
               },
             ].map((step) => (
               <li key={step.n} className="rounded-xl border border-slate-200 bg-white p-3">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-navy text-[10px] font-bold text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
                   {step.n}
                 </span>
                 <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{step.title}</p>
