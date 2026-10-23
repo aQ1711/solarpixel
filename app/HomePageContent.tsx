@@ -197,6 +197,11 @@ interface ResolvedEquipment {
   battery: (ResolvedEquipmentItem & { capacityKwh: number }) | null;
 }
 
+interface GenerationEstimate {
+  monthlyGenerationKwh: number;
+  generationMonth: string;
+}
+
 interface QuoteResult {
   quoteId: string;
   systemKw: number;
@@ -204,6 +209,8 @@ interface QuoteResult {
   totalClientPricePKR: number;
   estimatedMonthlySavingsPKR: number;
   paybackYears: number | null;
+  /** Size mode only: estimated Lahore output this month. */
+  generation?: GenerationEstimate | null;
   offsetPct: number;
   daysToDeploy: number;
   billSource: BillSource | "NOT_PROVIDED";
@@ -235,6 +242,7 @@ interface SolarPreviewResult {
   totalClientPricePKR: number;
   estimatedMonthlySavingsPKR: number;
   paybackYears: number | null;
+  generation?: GenerationEstimate | null;
   daysToDeploy: number;
   breakdown: ItemizedBreakdown;
   equipment: ResolvedEquipment;
@@ -4678,6 +4686,7 @@ function CalculatorCard() {
                       </p>
                     </div>
                   </div>
+                  <GenerationNote generation={livePreview.generation} />
 
                   {/* "What's included" (2026-09-04, LOCKED spec's Quote
                       screen, mobile only) — ONLY real, already-priced
@@ -5942,6 +5951,19 @@ function CustomRequirementNotice() {
 // is best-effort, and we'd rather admit uncertainty than guess.
 // ============================================================================
 
+/** Explains where the savings figure comes from when the customer sized by
+ *  kW instead of giving a bill. */
+function GenerationNote({ generation, className }: { generation?: GenerationEstimate | null; className?: string }) {
+  if (!generation) return null;
+  return (
+    <p className={className ?? "mt-2 text-[11px] leading-relaxed text-slate-500"}>
+      Estimate for Lahore in {generation.generationMonth}: about {generation.monthlyGenerationKwh.toLocaleString("en-PK")} units
+      generated this month, valued at the grid tariff. Output changes with the season, and payback is based on the full year.
+      Savings assume you use the power you generate.
+    </p>
+  );
+}
+
 const SIZE_PRESETS_KW = [3, 5, 8, 10, 15, 20];
 
 /** Bill / system-size switch for the Complete Solar inputs. `dark` is the
@@ -6028,7 +6050,7 @@ function SystemSizeField({
         })}
       </div>
       <p className={`mt-2 text-[11px] leading-relaxed ${dark ? "text-[#8FA0B4]" : "text-slate-500"}`}>
-        Sized to the kW you choose, not to your usage. Savings and payback need a bill, so they show as N/A. Share your bill later and we will check the size fits.
+        Sized to the kW you choose, not to your usage. Savings are estimated from Lahore sunshine this month. Share your bill later and we will check the size fits.
       </p>
     </div>
   );
@@ -6582,6 +6604,7 @@ function ResultSummary({
           <p className="mt-0.5 text-sm font-bold text-slate-900">{result.daysToDeploy} Days</p>
         </div>
       </div>
+      <GenerationNote generation={result.generation} className="mx-4 mt-2 text-[11px] leading-relaxed text-slate-500 sm:mx-6 print:mx-0" />
 
       {/* ---- Warnings ---- */}
       {(isInverterBottleneck || result.hasCustomRequirements) && (

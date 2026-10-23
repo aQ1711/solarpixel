@@ -303,6 +303,28 @@ function calculateSystemSize(monthlyBillPKR: number, daytimeUsagePct: number) {
   return { requiredDailyDaytimeUnits, rawKwRequired, systemKw };
 }
 
+// Size mode has no bill, so savings come from what the array should generate
+// in Lahore instead. Typical delivered kWh per installed kWp per day for each
+// month (after normal system losses), Jan..Dec. An estimate, labelled as such
+// in the UI, not a guarantee.
+const LAHORE_KWH_PER_KWP_PER_DAY = [3.0, 3.6, 4.4, 5.0, 5.4, 5.2, 4.5, 4.4, 4.6, 4.3, 3.5, 2.9];
+
+function lahoreGenerationEstimate(systemKw: number, totalClientPricePKR: number) {
+  // Pakistan time, so the month does not flip early on a server running in UTC.
+  const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Karachi" }));
+  const month = now.getMonth();
+  const daysInMonth = new Date(now.getFullYear(), month + 1, 0).getDate();
+  const monthlyGenerationKwh = Math.round(systemKw * LAHORE_KWH_PER_KWP_PER_DAY[month] * daysInMonth);
+  const estimatedMonthlySavingsPKR = Math.round(monthlyGenerationKwh * BLENDED_TARIFF_PKR_PER_UNIT);
+  const annualKwh =
+    systemKw * LAHORE_KWH_PER_KWP_PER_DAY.reduce((sum, perDay, m) => sum + perDay * new Date(now.getFullYear(), m + 1, 0).getDate(), 0);
+  // Payback uses the whole year, not this month, so winter does not look slow.
+  const annualSavingsPKR = annualKwh * BLENDED_TARIFF_PKR_PER_UNIT;
+  const paybackYears = annualSavingsPKR > 0 ? Math.round((totalClientPricePKR / annualSavingsPKR) * 10) / 10 : null;
+  const generationMonth = now.toLocaleString("en-US", { month: "long" });
+  return { monthlyGenerationKwh, estimatedMonthlySavingsPKR, paybackYears, generationMonth };
+}
+
 function calculateSavingsAndPayback(requiredDailyDaytimeUnits: number, totalClientPricePKR: number) {
   // Zero-export offsets — never exports — so realistic monthly savings is
   // the daytime units offset × the blended tariff. (Algebraically this
@@ -334,6 +356,8 @@ interface PricedTier {
   totalClientPricePKR: number;
   estimatedMonthlySavingsPKR: number;
   paybackYears: number | null;
+  /** Size mode only: estimated Lahore output for the current month. */
+  generation: { monthlyGenerationKwh: number; generationMonth: string } | null;
   hasCustomRequirements: boolean;
   breakdown: ItemizedBreakdown;
   resolvedEquipment: ResolvedEquipment;
@@ -369,10 +393,10 @@ async function priceTier(
   const { requiredDailyDaytimeUnits, rawKwRequired, systemKw: targetSystemKw } = sized;
   const { totalClientPricePKR, resolvedSystemKw, hasCustomRequirements, breakdown, resolvedEquipment, siteWorks, panelWashing } =
     await calculateSystemPricing(targetSystemKw, sector, serviceType, selections, targetBudgetTier);
-  const { estimatedMonthlySavingsPKR, paybackYears } =
-    "targetSystemKw" in sizing
-      ? { estimatedMonthlySavingsPKR: 0, paybackYears: null }
-      : calculateSavingsAndPayback(requiredDailyDaytimeUnits, totalClientPricePKR);
+  const generation = "targetSystemKw" in sizing ? lahoreGenerationEstimate(resolvedSystemKw, totalClientPricePKR) : null;
+  const { estimatedMonthlySavingsPKR, paybackYears } = generation
+    ? generation
+    : calculateSavingsAndPayback(requiredDailyDaytimeUnits, totalClientPricePKR);
   return {
     offsetPct,
     // resolvedSystemKw, not targetSystemKw — see PricedTier.systemKw's
@@ -382,6 +406,7 @@ async function priceTier(
     totalClientPricePKR,
     estimatedMonthlySavingsPKR,
     paybackYears,
+    generation: generation && { monthlyGenerationKwh: generation.monthlyGenerationKwh, generationMonth: generation.generationMonth },
     hasCustomRequirements,
     breakdown,
     resolvedEquipment,
@@ -624,6 +649,7 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
     totalClientPricePKR: recommended.totalClientPricePKR,
     estimatedMonthlySavingsPKR: recommended.estimatedMonthlySavingsPKR,
     paybackYears: recommended.paybackYears,
+    generation: recommended.generation,
     offsetPct: daytimeUsagePct,
     daysToDeploy: DAYS_TO_DEPLOY_DEFAULT,
     billSource,
