@@ -6059,8 +6059,8 @@ function SavingsVsGridChart({ annualSavingsPKR, systemCostPKR }: { annualSavings
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Bar chart of your position each year after paying for the system" className="h-auto w-full">
         <defs>
           <linearGradient id="netLoss" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#FB7185" />
-            <stop offset="100%" stopColor="#E11D48" />
+            <stop offset="0%" stopColor="#FECDD3" />
+            <stop offset="100%" stopColor="#FB7185" />
           </linearGradient>
           <linearGradient id="netGain" x1="0" y1="1" x2="0" y2="0">
             <stop offset="0%" stopColor="#10B981" />
@@ -6089,7 +6089,7 @@ function SavingsVsGridChart({ annualSavingsPKR, systemCostPKR }: { annualSavings
                   textAnchor="middle"
                   fontSize="11"
                   fontWeight="700"
-                  fill={positive ? "#047857" : "#BE123C"}
+                  fill={positive ? "#047857" : "#E11D48"}
                 >
                   {positive ? "+" : "-"}
                   {formatCompactPKR(Math.abs(v)).replace("Rs ", "")}
@@ -6156,21 +6156,21 @@ function IndustrialBenefitSection({ result }: { result: QuoteResult }) {
           what Solar Pixel costs, then what the customer actually gets. */}
       <div className={`${keepAvoid}`}>
         <div className="grid grid-cols-2 gap-2.5">
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3.5 print:bg-white">
+          <div className="rounded-2xl border border-rose-100 bg-rose-50/60 p-3.5 print:bg-white">
             <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-600 text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-400 text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
                 <Zap className="h-4 w-4" />
               </span>
               <div>
-                <p className="text-sm font-extrabold leading-tight text-rose-800">LESCO / WAPDA</p>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-600">You keep paying</p>
+                <p className="text-sm font-extrabold leading-tight text-rose-700">LESCO / WAPDA</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-500">You keep paying</p>
               </div>
             </div>
             <p className="mt-3 text-[10px] uppercase tracking-wide text-slate-500">Every month</p>
-            <p className="text-xl font-extrabold leading-tight text-rose-700 sm:text-2xl">{formatCompactPKR(Math.round(annualSavingsPKR / 12))}</p>
+            <p className="text-xl font-extrabold leading-tight text-rose-600 sm:text-2xl">{formatCompactPKR(Math.round(annualSavingsPKR / 12))}</p>
             <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-500">Over 10 years</p>
-            <p className="text-xl font-extrabold leading-tight text-rose-700 sm:text-2xl">{formatCompactPKR(annualSavingsPKR * 10)}</p>
-            <p className="mt-2 text-[11px] font-semibold text-rose-700">The bill never ends, and tariffs only go up.</p>
+            <p className="text-xl font-extrabold leading-tight text-rose-600 sm:text-2xl">{formatCompactPKR(annualSavingsPKR * 10)}</p>
+            <p className="mt-2 text-[11px] font-semibold text-rose-600">The bill never ends, and tariffs only go up.</p>
           </div>
           <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5 print:bg-white">
             <div className="flex items-center gap-2">
@@ -6222,8 +6222,8 @@ function IndustrialBenefitSection({ result }: { result: QuoteResult }) {
           Each bar is your position after paying for the system and counting the LESCO bills it avoids. About {formatCompactPKR(annualSavingsPKR)} a year.
         </p>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-semibold">
-          <span className="flex items-center gap-1.5 text-rose-700">
-            <span className="h-2.5 w-2.5 rounded-sm bg-rose-500" /> Still recovering the system cost
+          <span className="flex items-center gap-1.5 text-rose-600">
+            <span className="h-2.5 w-2.5 rounded-sm bg-rose-400" /> Still recovering the system cost
           </span>
           <span className="flex items-center gap-1.5 text-emerald-700">
             <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Profit after paying for the system
