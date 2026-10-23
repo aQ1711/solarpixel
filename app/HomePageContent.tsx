@@ -6030,66 +6030,93 @@ function formatCompactPKR(n: number): string {
   return formatPKR(n);
 }
 
-/** Plain-language picture of the saving for industrial customers: what they
- *  keep paying the grid (LESCO) for the units the system would generate,
- *  against the one-time system cost. Where the lines cross is the payback.
- *  Uses today's tariff with no increases, so it understates the benefit. */
+/** Plain-language picture of the saving for industrial customers: year by
+ *  year, where they stand after paying for the system and counting the LESCO
+ *  bills it avoids. Red bars are still recovering the cost, green bars are
+ *  profit. Uses today's tariff with no increases, so it understates the
+ *  benefit. */
 function SavingsVsGridChart({ annualSavingsPKR, systemCostPKR }: { annualSavingsPKR: number; systemCostPKR: number }) {
   if (annualSavingsPKR <= 0 || systemCostPKR <= 0) return null;
   const paybackYears = systemCostPKR / annualSavingsPKR;
-  const horizon = Math.min(25, Math.max(10, Math.ceil(paybackYears) + 3));
-  const gridAt = (years: number) => annualSavingsPKR * years;
-  const maxY = Math.max(gridAt(horizon), systemCostPKR) * 1.08;
+  const horizon = Math.min(15, Math.max(10, Math.ceil(paybackYears) + 4));
+  const net = (years: number) => annualSavingsPKR * years - systemCostPKR;
+  const years = Array.from({ length: horizon + 1 }, (_, i) => i);
+  const maxPos = Math.max(net(horizon), 1);
+  const maxNeg = systemCostPKR;
   const W = 640;
-  const H = 300;
-  const m = { l: 74, r: 24, t: 20, b: 40 };
-  const x = (years: number) => m.l + (years / horizon) * (W - m.l - m.r);
-  const y = (v: number) => H - m.b - (v / maxY) * (H - m.t - m.b);
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => maxY * f);
-  const xStep = horizon > 12 ? 5 : 2;
-  const xTicks = Array.from({ length: Math.floor(horizon / xStep) + 1 }, (_, i) => i * xStep);
-  const crossX = x(paybackYears);
-  const crossY = y(systemCostPKR);
+  const H = 320;
+  const m = { l: 12, r: 12, t: 34, b: 52 };
+  const plotH = H - m.t - m.b;
+  const scale = plotH / (maxPos + maxNeg);
+  const zeroY = m.t + maxPos * scale;
+  const slot = (W - m.l - m.r) / years.length;
+  const barW = Math.min(34, slot * 0.64);
+  const cx = (i: number) => m.l + slot * (i + 0.5);
+  const breakEvenX = m.l + slot * (paybackYears + 0.5);
+  const show = (i: number) => i === 0 || i === horizon || i % (horizon > 10 ? 3 : 2) === 0 || i === Math.ceil(paybackYears);
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Chart of cumulative LESCO cost against the one time system cost" className="h-auto w-full">
-        {yTicks.map((v) => (
-          <g key={v}>
-            <line x1={m.l} x2={W - m.r} y1={y(v)} y2={y(v)} stroke="#E2E8F0" strokeWidth="1" />
-            <text x={m.l - 8} y={y(v) + 4} textAnchor="end" fontSize="11" fill="#64748B">
-              {v === 0 ? "0" : formatCompactPKR(v).replace("Rs ", "")}
-            </text>
-          </g>
-        ))}
-        {xTicks.map((t) => (
-          <text key={t} x={x(t)} y={H - m.b + 18} textAnchor="middle" fontSize="11" fill="#64748B">
-            {t === 0 ? "Today" : `Year ${t}`}
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Bar chart of your position each year after paying for the system" className="h-auto w-full">
+        <defs>
+          <linearGradient id="netLoss" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#FB7185" />
+            <stop offset="100%" stopColor="#E11D48" />
+          </linearGradient>
+          <linearGradient id="netGain" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%" stopColor="#10B981" />
+            <stop offset="100%" stopColor="#34D399" />
+          </linearGradient>
+        </defs>
+        <line x1={m.l} x2={W - m.r} y1={zeroY} y2={zeroY} stroke="#94A3B8" strokeWidth="1.5" />
+        {years.map((i) => {
+          const v = net(i);
+          const h = Math.max(2, Math.abs(v) * scale);
+          const positive = v >= 0;
+          return (
+            <g key={i}>
+              <rect
+                x={cx(i) - barW / 2}
+                y={positive ? zeroY - h : zeroY}
+                width={barW}
+                height={h}
+                rx="5"
+                fill={positive ? "url(#netGain)" : "url(#netLoss)"}
+              />
+              {show(i) && (
+                <text
+                  x={cx(i)}
+                  y={positive ? zeroY - h - 7 : zeroY + h + 15}
+                  textAnchor="middle"
+                  fontSize="11"
+                  fontWeight="700"
+                  fill={positive ? "#047857" : "#BE123C"}
+                >
+                  {positive ? "+" : "-"}
+                  {formatCompactPKR(Math.abs(v)).replace("Rs ", "")}
+                </text>
+              )}
+              <text x={cx(i)} y={H - 10} textAnchor="middle" fontSize="10.5" fill="#64748B">
+                {i === 0 ? "Today" : i}
+              </text>
+            </g>
+          );
+        })}
+        <g>
+          <line x1={breakEvenX} x2={breakEvenX} y1={m.t - 6} y2={zeroY} stroke="#0F172A" strokeWidth="1.5" strokeDasharray="4 4" />
+          <rect x={Math.min(Math.max(breakEvenX - 76, m.l), W - m.r - 152)} y={2} width="152" height="22" rx="11" fill="#0F172A" />
+          <text
+            x={Math.min(Math.max(breakEvenX - 76, m.l), W - m.r - 152) + 76}
+            y={17}
+            textAnchor="middle"
+            fontSize="11"
+            fontWeight="700"
+            fill="#FFFFFF"
+          >
+            Paid back in {formatTrim(paybackYears, 1)} years
           </text>
-        ))}
-        {paybackYears <= horizon && (
-          <path
-            d={`M ${x(0)} ${y(systemCostPKR)} L ${crossX} ${crossY} L ${x(horizon)} ${y(gridAt(horizon))} L ${x(horizon)} ${y(systemCostPKR)} Z`}
-            fill="#10B981"
-            fillOpacity="0.14"
-          />
-        )}
-        <line x1={x(0)} y1={y(0)} x2={x(horizon)} y2={y(gridAt(horizon))} stroke="#E11D48" strokeWidth="3" strokeLinecap="round" />
-        <line x1={x(0)} y1={y(systemCostPKR)} x2={x(horizon)} y2={y(systemCostPKR)} stroke="#059669" strokeWidth="3" strokeLinecap="round" />
-        {paybackYears <= horizon && (
-          <g>
-            <circle cx={crossX} cy={crossY} r="6" fill="#fff" stroke="#0F172A" strokeWidth="2.5" />
-            <text x={Math.max(crossX - 12, m.l + 170)} y={crossY - 12} textAnchor="end" fontSize="12" fontWeight="700" fill="#0F172A">
-              Pays for itself in {formatTrim(paybackYears, 1)} years
-            </text>
-          </g>
-        )}
-        <text x={x(horizon) - 6} y={y(gridAt(horizon)) - 8} textAnchor="end" fontSize="12" fontWeight="700" fill="#BE123C">
-          Keep paying LESCO
-        </text>
-        <text x={x(horizon) - 6} y={y(systemCostPKR) + 18} textAnchor="end" fontSize="12" fontWeight="700" fill="#047857">
-          Solar Pixel system (paid once)
-        </text>
+        </g>
       </svg>
+      <p className="mt-1 text-center text-[10px] text-slate-500">Years after installation</p>
     </div>
   );
 }
@@ -6146,16 +6173,16 @@ function IndustrialBenefitSection({ result }: { result: QuoteResult }) {
       </div>
 
       <div className={`rounded-2xl border border-slate-200 bg-white p-4 ${keepAvoid}`}>
-        <p className="text-sm font-bold text-slate-900">What you spend over the years</p>
+        <p className="text-sm font-bold text-slate-900">Where you stand, year by year</p>
         <p className="text-[11px] text-slate-500">
-          Where the red line passes the green line, the system has paid for itself.
+          Each bar is your position after paying for the system and counting the LESCO bills it avoids. About {formatCompactPKR(annualSavingsPKR)} a year.
         </p>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-semibold">
           <span className="flex items-center gap-1.5 text-rose-700">
-            <span className="h-1 w-4 rounded-full bg-rose-600" /> Keep paying LESCO
+            <span className="h-2.5 w-2.5 rounded-sm bg-rose-500" /> Still recovering the system cost
           </span>
           <span className="flex items-center gap-1.5 text-emerald-700">
-            <span className="h-1 w-4 rounded-full bg-emerald-600" /> Solar Pixel system, paid once
+            <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Profit after paying for the system
           </span>
         </div>
         <SavingsVsGridChart annualSavingsPKR={annualSavingsPKR} systemCostPKR={systemCost} />
