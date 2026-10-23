@@ -6156,35 +6156,37 @@ function IndustrialBenefitSection({ result }: { result: QuoteResult }) {
           what Solar Pixel costs, then what the customer actually gets. */}
       <div className={`${keepAvoid}`}>
         <div className="grid grid-cols-2 gap-2.5">
-          <div className="rounded-2xl border border-brand-coral-200 bg-brand-coral-50 p-3.5 print:bg-white">
-            <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-coral text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
-                <Zap className="h-4 w-4" />
+          <div className="flex flex-col rounded-2xl border border-brand-coral-200 bg-brand-coral-50 p-3.5 print:bg-white">
+            <div className="flex h-10 items-center gap-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-coral text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
+                <Zap className="h-5 w-5" />
               </span>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-extrabold leading-tight text-brand-coral-ink">LESCO / WAPDA</p>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-[#C2474C]">You keep paying</p>
+                <p className="mt-0.5 text-[10px] font-semibold uppercase leading-tight tracking-wide text-[#C2474C]">You keep paying</p>
               </div>
             </div>
-            <p className="mt-3 text-[10px] uppercase tracking-wide text-slate-500">Every month</p>
+            <p className="mt-3 text-[10px] uppercase leading-tight tracking-wide text-slate-500">Every month</p>
             <p className="text-xl font-extrabold leading-tight text-[#C2474C] sm:text-2xl">{formatCompactPKR(Math.round(annualSavingsPKR / 12))}</p>
-            <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-500">Over 10 years</p>
+            <p className="mt-2 text-[10px] uppercase leading-tight tracking-wide text-slate-500">Over 10 years</p>
             <p className="text-xl font-extrabold leading-tight text-[#C2474C] sm:text-2xl">{formatCompactPKR(annualSavingsPKR * 10)}</p>
-            <p className="mt-2 text-[11px] font-semibold text-[#C2474C]">The bill never ends, and tariffs only go up.</p>
+            <p className="mt-auto pt-2 text-[11px] font-semibold leading-snug text-[#C2474C]">The bill never ends, and tariffs only go up.</p>
           </div>
-          <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5 print:bg-white">
-            <div className="flex items-center gap-2">
-              <BrandMark className="h-8 w-8 shrink-0" gradientId="benefitBrandMark" />
-              <div>
+          <div className="flex flex-col rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5 print:bg-white">
+            <div className="flex h-10 items-center gap-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center">
+                <BrandMark className="h-9 w-9" gradientId="benefitBrandMark" />
+              </span>
+              <div className="min-w-0">
                 <p className="text-sm font-extrabold leading-tight text-emerald-800">Solar Pixel</p>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">You pay once</p>
+                <p className="mt-0.5 text-[10px] font-semibold uppercase leading-tight tracking-wide text-emerald-700">You pay once</p>
               </div>
             </div>
-            <p className="mt-3 text-[10px] uppercase tracking-wide text-slate-500">Every month after</p>
+            <p className="mt-3 text-[10px] uppercase leading-tight tracking-wide text-slate-500">Every month after</p>
             <p className="text-xl font-extrabold leading-tight text-emerald-700 sm:text-2xl">Rs 0</p>
-            <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-500">Whole system, one time</p>
+            <p className="mt-2 text-[10px] uppercase leading-tight tracking-wide text-slate-500">Whole system, one time</p>
             <p className="text-xl font-extrabold leading-tight text-emerald-700 sm:text-2xl">{formatCompactPKR(systemCost)}</p>
-            <p className="mt-2 text-[11px] font-semibold text-emerald-700">Paid back in {formatTrim(paybackYears, 1)} years, then it is free power.</p>
+            <p className="mt-auto pt-2 text-[11px] font-semibold leading-snug text-emerald-700">Paid back in {formatTrim(paybackYears, 1)} years, then it is free power.</p>
           </div>
         </div>
         {tenYearGain > 0 && (
