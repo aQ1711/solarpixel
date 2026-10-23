@@ -2524,6 +2524,7 @@ function CalculatorCard() {
         connectionPhase={connectionPhase}
         installationArea={installationArea}
         customerName={fullName}
+        isIndustrial={sector === "INDUSTRIAL"}
       />
     );
   }
@@ -5965,24 +5966,19 @@ function GenerationNote({
   generation,
   systemKw,
   className,
+  printWorking,
 }: {
   generation?: GenerationEstimate | null;
   systemKw: number;
   className?: string;
+  /** Industrial PDF: show the working as a plain section on paper instead
+   *  of a collapsed dropdown (closed details do not print). */
+  printWorking?: boolean;
 }) {
   if (!generation) return null;
   const g = generation;
   const monthlySavings = Math.round(g.usedKwh * g.tariffPKR);
-  return (
-    <div className={className ?? "mt-2"}>
-      <p className="text-[11px] leading-relaxed text-slate-500">
-        Estimate for Lahore in {g.generationMonth}, based on the system size you chose rather than your usage.
-      </p>
-      <details className="group mt-1 text-[11px] text-slate-600">
-        <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1 font-semibold text-orange-700 [&::-webkit-details-marker]:hidden">
-          <ChevronDown className="h-3.5 w-3.5 transition-transform duration-200 group-open:rotate-180" />
-          How we calculated this
-        </summary>
+  const workingList = (
         <ol className="mt-1 space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-3 leading-relaxed print:bg-white">
           <li>
             <span className="font-semibold text-slate-800">1. Sunshine:</span> a typical Lahore system delivers about{" "}
@@ -6011,7 +6007,116 @@ function GenerationNote({
             and we will refine it.
           </li>
         </ol>
+  );
+  return (
+    <div className={className ?? "mt-2"}>
+      <p className="text-[11px] leading-relaxed text-slate-500">
+        Estimate for Lahore in {g.generationMonth}, based on the system size you chose rather than your usage.
+      </p>
+      <details className={`group mt-1 text-[11px] text-slate-600 ${printWorking ? "print:hidden" : ""}`}>
+        <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1 font-semibold text-orange-700 [&::-webkit-details-marker]:hidden">
+          <ChevronDown className="h-3.5 w-3.5 transition-transform duration-200 group-open:rotate-180" />
+          How we calculated this
+        </summary>
+        {workingList}
       </details>
+      {printWorking && (
+        <div className="hidden text-[11px] text-slate-600 print:block">
+          <p className="mt-1 font-semibold text-slate-800">How we calculated this</p>
+          {workingList}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Compact PKR for a chart: Lac and Crore, the units customers think in. */
+function formatCompactPKR(n: number): string {
+  if (n >= 10_000_000) return `Rs ${formatTrim(n / 10_000_000, 2)} Cr`;
+  if (n >= 100_000) return `Rs ${formatTrim(n / 100_000, 1)} Lac`;
+  return formatPKR(n);
+}
+
+/** Plain-language picture of the saving for industrial customers: what they
+ *  keep paying the grid (LESCO) for the units the system would generate,
+ *  against the one-time system cost. Where the lines cross is the payback.
+ *  Uses today's tariff with no increases, so it understates the benefit. */
+function SavingsVsGridChart({ annualSavingsPKR, systemCostPKR }: { annualSavingsPKR: number; systemCostPKR: number }) {
+  if (annualSavingsPKR <= 0 || systemCostPKR <= 0) return null;
+  const paybackYears = systemCostPKR / annualSavingsPKR;
+  const horizon = Math.min(25, Math.max(10, Math.ceil(paybackYears) + 3));
+  const gridAt = (years: number) => annualSavingsPKR * years;
+  const maxY = Math.max(gridAt(horizon), systemCostPKR) * 1.08;
+  const W = 640;
+  const H = 300;
+  const m = { l: 74, r: 24, t: 20, b: 40 };
+  const x = (years: number) => m.l + (years / horizon) * (W - m.l - m.r);
+  const y = (v: number) => H - m.b - (v / maxY) * (H - m.t - m.b);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => maxY * f);
+  const xStep = horizon > 12 ? 5 : 2;
+  const xTicks = Array.from({ length: Math.floor(horizon / xStep) + 1 }, (_, i) => i * xStep);
+  const tenYearGain = gridAt(10) - systemCostPKR;
+  const crossX = x(paybackYears);
+  const crossY = y(systemCostPKR);
+  return (
+    <div className="mt-3">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Chart of cumulative LESCO cost against the one time system cost" className="h-auto w-full">
+        {yTicks.map((v) => (
+          <g key={v}>
+            <line x1={m.l} x2={W - m.r} y1={y(v)} y2={y(v)} stroke="#E2E8F0" strokeWidth="1" />
+            <text x={m.l - 8} y={y(v) + 4} textAnchor="end" fontSize="11" fill="#64748B">
+              {v === 0 ? "0" : formatCompactPKR(v).replace("Rs ", "")}
+            </text>
+          </g>
+        ))}
+        {xTicks.map((t) => (
+          <text key={t} x={x(t)} y={H - m.b + 18} textAnchor="middle" fontSize="11" fill="#64748B">
+            {t === 0 ? "Today" : `Year ${t}`}
+          </text>
+        ))}
+        {paybackYears <= horizon && (
+          <path
+            d={`M ${x(0)} ${y(systemCostPKR)} L ${crossX} ${crossY} L ${x(horizon)} ${y(gridAt(horizon))} L ${x(horizon)} ${y(systemCostPKR)} Z`}
+            fill="#10B981"
+            fillOpacity="0.14"
+          />
+        )}
+        <line x1={x(0)} y1={y(0)} x2={x(horizon)} y2={y(gridAt(horizon))} stroke="#E11D48" strokeWidth="3" strokeLinecap="round" />
+        <line x1={x(0)} y1={y(systemCostPKR)} x2={x(horizon)} y2={y(systemCostPKR)} stroke="#059669" strokeWidth="3" strokeLinecap="round" />
+        {paybackYears <= horizon && (
+          <g>
+            <circle cx={crossX} cy={crossY} r="6" fill="#fff" stroke="#0F172A" strokeWidth="2.5" />
+            <text x={Math.max(crossX - 12, m.l + 170)} y={crossY - 12} textAnchor="end" fontSize="12" fontWeight="700" fill="#0F172A">
+              Pays for itself in {formatTrim(paybackYears, 1)} years
+            </text>
+          </g>
+        )}
+        <text x={x(horizon) - 6} y={y(gridAt(horizon)) - 8} textAnchor="end" fontSize="12" fontWeight="700" fill="#BE123C">
+          Keep paying LESCO
+        </text>
+        <text x={x(horizon) - 6} y={y(systemCostPKR) + 18} textAnchor="end" fontSize="12" fontWeight="700" fill="#047857">
+          Solar Pixel system (paid once)
+        </text>
+      </svg>
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 print:bg-white">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-700">Keep paying LESCO for 10 years</p>
+          <p className="mt-0.5 text-base font-bold text-rose-700">{formatCompactPKR(gridAt(10))}</p>
+        </div>
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 print:bg-white">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Solar Pixel system, paid once</p>
+          <p className="mt-0.5 text-base font-bold text-emerald-700">{formatCompactPKR(systemCostPKR)}</p>
+        </div>
+      </div>
+      {tenYearGain > 0 && (
+        <p className="mt-2 text-sm font-semibold text-slate-900">
+          In 10 years you keep about <span className="text-emerald-700">{formatCompactPKR(tenYearGain)}</span> that would have gone to LESCO.
+        </p>
+      )}
+      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+        Uses today&apos;s tariff with no yearly increase, so real grid bills are likely to be higher. Only the units your system generates are
+        counted.
+      </p>
     </div>
   );
 }
@@ -6335,9 +6440,13 @@ function ResultSummary({
   connectionPhase,
   installationArea,
   customerName,
+  isIndustrial,
 }: {
   result: QuoteResult;
   onEdit: () => void;
+  /** Industrial quotations print the priced quotation on page one and the
+   *  cost breakdown, savings chart and working on the following pages. */
+  isIndustrial?: boolean;
   /** "Refine your details" (2026-09-04, mobile Live Estimate panel) —
    *  capture-only, no pricing effect (see that field's own doc comment
    *  in CalculatorCard). Optional/undefined for the EV Charger/Panel
@@ -6661,7 +6770,7 @@ function ResultSummary({
           <p className="mt-0.5 text-sm font-bold text-slate-900">{result.deploymentLabel ?? `${result.daysToDeploy} Days`}</p>
         </div>
       </div>
-      <GenerationNote generation={result.generation} systemKw={result.systemKw} className="mx-4 mt-2 sm:mx-6 print:mx-0" />
+      <GenerationNote generation={result.generation} systemKw={result.systemKw} className={`mx-4 mt-2 sm:mx-6 print:mx-0 ${isIndustrial ? "print:hidden" : ""}`} />
 
       {/* ---- Warnings ---- */}
       {(isInverterBottleneck || result.hasCustomRequirements) && (
@@ -6722,6 +6831,11 @@ function ResultSummary({
           </table>
         </div>
 
+      </div>
+
+      {/* ---- Page 2 for industrial PDFs: cost breakdown, the saving against
+          LESCO as a chart, and the working. Everyone else keeps one flow. */}
+      <div className={`px-6 sm:px-8 ${isIndustrial ? "pt-6 print:break-before-page print:pt-0" : ""}`}>
         {/* ---- Detailed Cost Breakdown — one row per priced category ---- */}
         <p className="mb-1.5 mt-5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
           <Receipt className="h-3.5 w-3.5" /> Cost Breakdown
@@ -6749,6 +6863,19 @@ function ResultSummary({
             </tbody>
           </table>
         </div>
+
+        {isIndustrial && (
+          <section className="mt-6 print:break-inside-avoid">
+            <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
+              <TrendingDown className="h-3.5 w-3.5" /> Your saving against LESCO
+            </p>
+            <SavingsVsGridChart
+              annualSavingsPKR={result.generation ? result.generation.annualSavingsPKR : result.estimatedMonthlySavingsPKR * 12}
+              systemCostPKR={result.totalClientPricePKR}
+            />
+            <GenerationNote generation={result.generation} systemKw={result.systemKw} className="mt-3" printWorking />
+          </section>
+        )}
       </div>
 
       {/* ---- Footer — the repeated "Total Price" card that used to sit
