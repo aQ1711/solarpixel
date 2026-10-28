@@ -1644,9 +1644,31 @@ function CalculatorCard() {
   const [targetKwInput, setTargetKwInput] = useState("");
   const resolvedTargetKw = targetKwInput.trim() === "" ? null : Number(targetKwInput);
   const targetKwValid = resolvedTargetKw !== null && Number.isFinite(resolvedTargetKw) && resolvedTargetKw > 0 && resolvedTargetKw <= 1000;
-  const billValid = resolvedBillPKR !== null && !Number.isNaN(resolvedBillPKR) && resolvedBillPKR > 0;
+  // The phone hero shows a sample bill (Rs 45,000 Residential, Rs 100,000
+  // Commercial) until the customer touches it. That amount is what they see,
+  // so it is what the quote must use: without this, entering a name and number
+  // and tapping Generate failed with "enter your bill" while a bill was shown.
+  // Desktop shows an empty field, so it still asks for a real number.
+  const [isPhone, setIsPhone] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1023px)");
+    const update = () => setIsPhone(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  const sampleBillPKR =
+    !sizeMode && resolvedBillPKR === null && !heroBillTouched && isPhone
+      ? sector === "RESIDENTIAL"
+        ? RESIDENTIAL_HERO_DEFAULT_BILL_PKR
+        : sector === "COMMERCIAL"
+          ? COMMERCIAL_DEFAULT_BILL_PKR
+          : null
+      : null;
+  const effectiveBillPKR = sampleBillPKR ?? resolvedBillPKR;
+  const billValid = effectiveBillPKR !== null && !Number.isNaN(effectiveBillPKR) && effectiveBillPKR > 0;
   const sizingReady = sizeMode ? targetKwValid : billValid;
-  const sizingPayload = sizeMode ? { targetSystemKw: resolvedTargetKw ?? undefined } : { monthlyBillPKR: resolvedBillPKR ?? undefined };
+  const sizingPayload = sizeMode ? { targetSystemKw: resolvedTargetKw ?? undefined } : { monthlyBillPKR: effectiveBillPKR ?? undefined };
 
   // A new system size invalidates picks made for the old one: 39 panels and a
   // 10 kW Huawei chosen for a small system make no sense at 125 kW (they
@@ -2030,6 +2052,7 @@ function CalculatorCard() {
   }, [
     masterService,
     resolvedBillPKR,
+    effectiveBillPKR,
     sizeMode,
     resolvedTargetKw,
     sector,
@@ -2089,7 +2112,7 @@ function CalculatorCard() {
     }, 250);
     return () => clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [masterService, resolvedBillPKR, sizeMode, resolvedTargetKw, sector, serviceType]);
+  }, [masterService, resolvedBillPKR, effectiveBillPKR, sizeMode, resolvedTargetKw, sector, serviceType]);
 
   // Mobile hero first-look figures (2026-10-05, "i want real figures no
   // fake or hardcode"): until the customer touches the bill field, the
@@ -3470,7 +3493,10 @@ function CalculatorCard() {
                       id="billAmount"
                       type="text"
                       inputMode="numeric"
-                      required
+                      // Not `required`: this desktop field is hidden on a phone, where the
+                      // browser cannot focus a hidden required field and silently refuses
+                      // to submit the whole form. handleSolarSubmit checks the amount and
+                      // shows a proper message instead.
                       value={billAmountInput}
                       onChange={(e) => handleBillAmountChange(e.target.value.replace(/[^\d]/g, ""))}
                       onBlur={handleBillAmountCommit}
