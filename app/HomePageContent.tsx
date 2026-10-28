@@ -2222,6 +2222,16 @@ function CalculatorCard() {
     return () => clearTimeout(timeoutId);
   }, [autoRouteNotice]);
 
+  // Opening Build Your Own with nothing entered yet: the phone hero already
+  // shows a sample bill, so the builder works from that same amount instead of
+  // sitting empty with no panel counts. Industrial has no sample, so it asks.
+  function handleCustomizationPathChange(next: CustomizationPath) {
+    setCustomizationPath(next);
+    if (next !== "CUSTOM" || sizeMode || billValid) return;
+    if (sector === "RESIDENTIAL") handleBillAmountChange(String(RESIDENTIAL_HERO_DEFAULT_BILL_PKR));
+    else if (sector === "COMMERCIAL") handleBillAmountChange(String(COMMERCIAL_DEFAULT_BILL_PKR));
+  }
+
   function handleBillAmountChange(raw: string) {
     setBillAmountInput(raw);
     // Editing the amount by hand after an upload means we can no longer
@@ -3822,7 +3832,7 @@ function CalculatorCard() {
                 bg-slate-50) — see StepHeader/Part 2. */}
             <div ref={configurationRef} className="@container rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
               <StepHeader step={3} title="Equipment Configurator" />
-              <PathToggle path={customizationPath} onChange={setCustomizationPath} />
+              <PathToggle path={customizationPath} onChange={handleCustomizationPathChange} />
 
               {/* animate-fade-up (2026-09-22, "make it professional and
                   smooth") — this block used to hard-appear with the
@@ -3842,6 +3852,11 @@ function CalculatorCard() {
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-600" />
                       Loading equipment options…
                     </div>
+                  )}
+                  {customizationPath === "CUSTOM" && !sizingReady && (
+                    <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs leading-relaxed text-amber-800">
+                      Enter your monthly bill or the system size above to see the panel count and the rest of your build.
+                    </p>
                   )}
                   {equipmentOptionsError && (
                     <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-red-500">
