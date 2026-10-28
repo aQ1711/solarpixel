@@ -2580,7 +2580,7 @@ function CalculatorCard() {
       // scrolls the user to (Part 3). lg: cancels it out entirely since
       // the bar itself is lg:hidden.
       className={`animate-fade-up mx-auto mb-8 w-full max-w-6xl rounded-3xl border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-xl md:p-8 print:hidden ${
-        masterService === "COMPLETE_SOLAR" ? "pb-24 lg:pb-8" : ""
+        masterService === "COMPLETE_SOLAR" ? "pb-14 lg:pb-8" : ""
       }`}
     >
       {/* Master Service — rich cards, icon + subtitle each so this never
@@ -2643,7 +2643,7 @@ function CalculatorCard() {
               <div className="lg:hidden">
                 <div
                   className={`rounded-[22px] p-5 ${
-                    sector === "INDUSTRIAL" ? "bg-[#0B132B]" : "bg-[#0F172A] shadow-[0_24px_50px_-26px_rgba(15,23,42,0.6)]"
+                    sector === "INDUSTRIAL" ? "bg-[#1B2E47]" : "bg-gradient-to-b from-[#2F4D70] to-[#1E3550] shadow-[0_24px_50px_-26px_rgba(30,53,80,0.7)]"
                   }`}
                 >
                   {/* Segmented control — shared across BOTH card states
@@ -4919,7 +4919,7 @@ function CalculatorCard() {
               <button
                 type="submit"
                 disabled={status === "loading"}
-                className="glow-cta-teal mt-4 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-brand-teal py-3.5 text-sm font-semibold text-brand-teal-ink transition-all duration-200 hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70"
+                className="glow-cta-teal mt-4 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-brand-teal-deep py-3.5 text-sm font-semibold text-white transition-all duration-200 hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {status === "loading" ? (
                   <>
@@ -5228,7 +5228,7 @@ function CalculatorCard() {
         <button
           type="button"
           onClick={() => document.getElementById("contact-and-submit")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-teal px-4 py-2.5 text-sm font-semibold text-brand-teal-ink transition-all duration-200 hover:brightness-95"
+          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-teal-deep px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:brightness-95"
         >
           Get Quotation <ArrowRight className="h-4 w-4" />
         </button>
@@ -5315,7 +5315,7 @@ function CalculatorCard() {
           from the sticky Mobile-Only Floating Bottom Bar (that one's
           persistent/quick-access while scrolling; this is the one-time
           closing CTA at the end of the page, matching Main.html). */}
-      <div className="mt-7 rounded-3xl bg-[#0F172A] p-6 lg:hidden">
+      <div className="mt-7 rounded-3xl bg-gradient-to-b from-[#2F4D70] to-[#1E3550] p-6 lg:hidden">
         <p className="text-xl font-extrabold tracking-tight text-white">Ready to cut your bill?</p>
         <div className="mt-3.5 flex gap-2.5">
           <button
@@ -5402,23 +5402,23 @@ function PathToggle({ path, onChange }: { path: CustomizationPath; onChange: (pa
           aria-pressed={path === "CUSTOM"}
           className={`relative flex min-h-[52px] items-center justify-center gap-2 rounded-xl border-2 px-3 py-3 text-sm font-bold leading-tight transition-all duration-200 ${
             path === "CUSTOM"
-              ? "border-violet-700 bg-violet-50 text-violet-900"
-              : "border-violet-200 bg-violet-50/60 text-violet-700 hover:border-violet-300 hover:bg-violet-100"
+              ? "border-brand-navy bg-brand-navy/10 text-brand-navy"
+              : "border-brand-navy/30 bg-brand-navy/5 text-brand-navy hover:border-brand-navy/60 hover:bg-brand-navy/10"
           }`}
         >
           {path !== "CUSTOM" && (
             <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-violet-500" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-navy opacity-60" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-brand-navy" />
             </span>
           )}
           <SlidersHorizontal className="h-4.5 w-4.5 shrink-0" />
           Build Your Own
-          {path === "CUSTOM" && <CheckCircle2 className="h-4.5 w-4.5 shrink-0 text-violet-700" />}
+          {path === "CUSTOM" && <CheckCircle2 className="h-4.5 w-4.5 shrink-0 text-brand-navy" />}
         </button>
       </div>
       {path === "RECOMMENDED" && (
-        <p className="mt-2 text-center text-xs text-violet-600">
+        <p className="mt-2 text-center text-xs text-brand-navy">
           Want to select your own inverter, panels, or batteries? Tap <span className="font-semibold">Build Your Own</span> above.
         </p>
       )}
@@ -5682,7 +5682,7 @@ function SwapOptionCard({
       ) : (
         Icon && (
           <Icon
-            className={`h-7 w-7 shrink-0 ${!inStock ? "text-slate-300" : active ? "text-orange-100" : "text-violet-400"}`}
+            className={`h-7 w-7 shrink-0 ${!inStock ? "text-slate-300" : active ? "text-orange-100" : "text-brand-navy/60"}`}
           />
         )
       )}
