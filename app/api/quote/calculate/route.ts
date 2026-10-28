@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import { Sector, ServiceType, BillSource, Prisma } from "@prisma/client";
 import { getDb } from "@/lib/db/client";
@@ -534,6 +534,44 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
 
   const serviceType = resolveServiceType(sector, input.serviceType);
 
+  // The lead row does not depend on the price, so for a real submission it is
+  // written WHILE the price is being worked out instead of after it. Each
+  // database round trip costs real time, and this removes one from the wait.
+  // If pricing then fails the lead is simply kept: we still have a customer
+  // who asked for a quote and left a number.
+  let leadPromise: Promise<{ id: string }> | null = null;
+  if (!isPreview) {
+    if (input.fullName === undefined || input.whatsappPhone === undefined) {
+      return NextResponse.json({ error: "Validation failed" }, { status: 400 });
+    }
+    const { fullName, whatsappPhone } = input;
+    // Best-effort, never blocking — see extractLeadIntelligence's own doc
+    // comment. A header-parsing failure degrades to "nothing captured,"
+    // not a failed quote submission.
+    let leadIntel: LeadIntelligence;
+    try {
+      leadIntel = extractLeadIntelligence(req);
+    } catch (err) {
+      console.error("[POST /api/quote/calculate] lead intelligence capture failed, continuing without it:", err);
+      leadIntel = EMPTY_LEAD_INTELLIGENCE;
+    }
+    leadPromise = prisma.lead.create({
+      data: {
+        fullName,
+        phone: whatsappPhone,
+        city: input.city,
+        sector,
+        source: "WEBSITE",
+        monthlyBillRs: monthlyBillPKR,
+        ...leadIntel,
+      },
+      select: { id: true },
+    });
+    // Handled where it is awaited below; this only stops an early rejection
+    // from being reported as unhandled while pricing is still running.
+    leadPromise.catch(() => undefined);
+  }
+
   // 1 & 2. Zero-export sizing + pricing for the recommended tier — routed
   //        entirely through the admin-only boundary. Raw vendor costs and
   //        margin % never enter this function's scope.
@@ -592,87 +630,64 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
   //    (no contact info yet — that's only collected right before the real
   //    "SOLAR" submit). This write path never touches vendor_private.
   let quoteId: string | null = null;
-  if (!isPreview) {
-    // superRefine guarantees these 2 are present for a real (non-preview)
-    // SOLAR submission.
-    if (input.fullName === undefined || input.whatsappPhone === undefined) {
-      return NextResponse.json({ error: "Validation failed" }, { status: 400 });
-    }
-    const { fullName, whatsappPhone } = input;
-    // Best-effort, never blocking — see extractLeadIntelligence's own doc
-    // comment. A header-parsing failure degrades to "nothing captured,"
-    // not a failed quote submission.
-    let leadIntel: LeadIntelligence;
+  if (leadPromise) {
     try {
-      leadIntel = extractLeadIntelligence(req);
-    } catch (err) {
-      console.error("[POST /api/quote/calculate] lead intelligence capture failed, continuing without it:", err);
-      leadIntel = EMPTY_LEAD_INTELLIGENCE;
-    }
-    try {
-      const quote = await prisma.$transaction(async (tx) => {
-        const lead = await tx.lead.create({
-          data: {
-            fullName,
-            phone: whatsappPhone,
-            city: input.city,
-            sector,
-            source: "WEBSITE",
-            monthlyBillRs: monthlyBillPKR,
-            ...leadIntel,
-          },
-        });
-
-        const quote = await tx.quote.create({
-          data: {
-            quoteNumber: generateQuoteNumber(),
-            leadId: lead.id,
-            sector,
-            serviceType,
-            status: "AUTOMATED_ESTIMATE",
-            monthlyBillRs: monthlyBillPKR,
-            blendedTariffRsPerUnit: BLENDED_TARIFF_PKR_PER_UNIT,
-            estimatedDaytimeLoadKw: recommended.rawKwRequired,
-            estimatedSystemSizeKw: recommended.systemKw,
-            automatedEstimatePriceRs: recommended.totalClientPricePKR,
-            billSource,
-            uploadedBillFileUrl: input.billFileUrl ?? undefined,
-            // Persisted as the EFFECTIVE tier ("no preference" -> the same
-            // "UNDER_1M" it was actually priced under, per
-            // calculateSystemPricing's targetBudgetTier doc comment) so
-            // the Checker's exact-BOQ pass (calculateAdminBoqPricing) can
-            // resolve the identical equipment default later, rather than
-            // silently re-adding a battery cost on approval — see
-            // Quote.targetBudgetTier's doc comment in schema.prisma.
-            targetBudgetTier: input.targetBudgetTier ?? "UNDER_1M",
-            equipmentSelections: input.equipmentSelections ?? undefined,
-            // Cost-free snapshots of exactly what was priced — see their
-            // doc comments in schema.prisma. `as unknown as Prisma.InputJsonValue`
-            // matches the cast Prisma's own Json columns need for a typed
-            // (not `any`) object — both DTOs are plain, JSON-serializable
-            // interfaces (numbers/strings/null only).
-            resolvedEquipmentSnapshot: recommended.resolvedEquipment as unknown as Prisma.InputJsonValue,
-            breakdownSnapshot: recommended.breakdown as unknown as Prisma.InputJsonValue,
-          },
-        });
-
-        // First entry on this lead's Activity Timeline — see
-        // LeadActivityType's doc comment in schema.prisma for every
-        // event type and where each is logged from.
-        await tx.leadActivity.create({
-          data: {
-            leadId: lead.id,
-            type: "QUOTE_GENERATED",
-            description: `Generated an automated web quote for a ${sector.toLowerCase()} ${
-              serviceType === "HYBRID_BATTERY" ? "Hybrid + Battery" : "On-Grid"
-            } system.`,
-            metadata: { quoteId: quote.id, quoteNumber: quote.quoteNumber } as unknown as Prisma.InputJsonValue,
-          },
-        });
-
-        return quote;
+      const lead = await leadPromise;
+      const quote = await prisma.quote.create({
+        data: {
+          quoteNumber: generateQuoteNumber(),
+          leadId: lead.id,
+          sector,
+          serviceType,
+          status: "AUTOMATED_ESTIMATE",
+          monthlyBillRs: monthlyBillPKR,
+          blendedTariffRsPerUnit: BLENDED_TARIFF_PKR_PER_UNIT,
+          estimatedDaytimeLoadKw: recommended.rawKwRequired,
+          estimatedSystemSizeKw: recommended.systemKw,
+          automatedEstimatePriceRs: recommended.totalClientPricePKR,
+          billSource,
+          uploadedBillFileUrl: input.billFileUrl ?? undefined,
+          // Persisted as the EFFECTIVE tier ("no preference" -> the same
+          // "UNDER_1M" it was actually priced under, per
+          // calculateSystemPricing's targetBudgetTier doc comment) so
+          // the Checker's exact-BOQ pass (calculateAdminBoqPricing) can
+          // resolve the identical equipment default later, rather than
+          // silently re-adding a battery cost on approval — see
+          // Quote.targetBudgetTier's doc comment in schema.prisma.
+          targetBudgetTier: input.targetBudgetTier ?? "UNDER_1M",
+          equipmentSelections: input.equipmentSelections ?? undefined,
+          // Cost-free snapshots of exactly what was priced — see their
+          // doc comments in schema.prisma. `as unknown as Prisma.InputJsonValue`
+          // matches the cast Prisma's own Json columns need for a typed
+          // (not `any`) object — both DTOs are plain, JSON-serializable
+          // interfaces (numbers/strings/null only).
+          resolvedEquipmentSnapshot: recommended.resolvedEquipment as unknown as Prisma.InputJsonValue,
+          breakdownSnapshot: recommended.breakdown as unknown as Prisma.InputJsonValue,
+        },
+        select: { id: true, quoteNumber: true },
       });
       quoteId = quote.id;
+
+      // First entry on this lead's Activity Timeline — see
+      // LeadActivityType's doc comment in schema.prisma for every event
+      // type and where each is logged from. Written after the response is
+      // sent so the customer is not kept waiting on a log line.
+      const sectorLabel = sector.toLowerCase();
+      const systemLabel = serviceType === "HYBRID_BATTERY" ? "Hybrid + Battery" : "On-Grid";
+      after(async () => {
+        try {
+          await prisma.leadActivity.create({
+            data: {
+              leadId: lead.id,
+              type: "QUOTE_GENERATED",
+              description: `Generated an automated web quote for a ${sectorLabel} ${systemLabel} system.`,
+              metadata: { quoteId: quote.id, quoteNumber: quote.quoteNumber } as unknown as Prisma.InputJsonValue,
+            },
+          });
+        } catch (err) {
+          console.error("[POST /api/quote/calculate] failed to log the lead activity:", err);
+        }
+      });
     } catch (err) {
       console.error("[POST /api/quote/calculate] failed to persist lead/quote:", err);
       return NextResponse.json({ error: "Could not save your quote. Please try again." }, { status: 500 });
