@@ -1582,6 +1582,8 @@ function CalculatorCard() {
   const [customizationPath, setCustomizationPath] = useState<CustomizationPath>("RECOMMENDED");
   const [equipmentOptions, setEquipmentOptions] = useState<EquipmentOptionsByType | null>(null);
   const [equipmentOptionsError, setEquipmentOptionsError] = useState<string | null>(null);
+  // Bumped by the "Try again" button to re-run the catalog load.
+  const [equipmentRetry, setEquipmentRetry] = useState(0);
   // Inverter + battery combo deals (rupee discount only) for the "add this
   // battery and save" suggestion in Build Your Own.
   const [bundleDeals, setBundleDeals] = useState<PublicBundleDealDTO[]>([]);
@@ -1705,23 +1707,32 @@ function CalculatorCard() {
   useEffect(() => {
     if (masterService !== "COMPLETE_SOLAR" && masterService !== "EV_CHARGER") return;
     let cancelled = false;
-    fetch(`/api/equipment-options?sector=${sector}`)
-      .then(async (res) => {
-        const data = (await res.json()) as ApiJson<{ options?: EquipmentOptionsByType; bundles?: PublicBundleDealDTO[] }>;
-        if (!res.ok) throw new Error(data?.error ?? "Failed to load equipment options");
-        if (!cancelled) {
-          setEquipmentOptions(data.options ?? {});
-          setBundleDeals(data.bundles ?? []);
-          setEquipmentOptionsError(null);
+    // The database connection occasionally drops for a moment, so a failed
+    // load is retried a couple of times before the customer sees an error.
+    const load = async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await fetch(`/api/equipment-options?sector=${sector}`);
+          const data = (await res.json()) as ApiJson<{ options?: EquipmentOptionsByType; bundles?: PublicBundleDealDTO[] }>;
+          if (!res.ok) throw new Error(data?.error ?? "Failed to load equipment options");
+          if (!cancelled) {
+            setEquipmentOptions(data.options ?? {});
+            setBundleDeals(data.bundles ?? []);
+            setEquipmentOptionsError(null);
+          }
+          return;
+        } catch {
+          if (cancelled) return;
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
         }
-      })
-      .catch(() => {
-        if (!cancelled) setEquipmentOptionsError("Couldn't load equipment options. Please try again.");
-      });
+      }
+      if (!cancelled) setEquipmentOptionsError("Couldn't load equipment options. Please try again.");
+    };
+    void load();
     return () => {
       cancelled = true;
     };
-  }, [masterService, sector]);
+  }, [masterService, sector, equipmentRetry]);
 
   /** Client mirror of lib/db/admin.ts's inverterQuantityFor (2026-08-29)
    *  — the auto-computed MINIMUM number of the resolved inverter SKU
@@ -3663,9 +3674,19 @@ function CalculatorCard() {
                     </div>
                   )}
                   {equipmentOptionsError && (
-                    <p role="alert" className="text-xs text-red-500">
-                      {equipmentOptionsError}
-                    </p>
+                    <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-red-500">
+                      <span>{equipmentOptionsError}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEquipmentOptionsError(null);
+                          setEquipmentRetry((n) => n + 1);
+                        }}
+                        className="min-h-9 rounded-full border border-red-200 bg-white px-3 font-semibold text-red-600 transition-colors duration-200 hover:bg-red-50"
+                      >
+                        Try again
+                      </button>
+                    </div>
                   )}
 
                   {equipmentOptions && (
