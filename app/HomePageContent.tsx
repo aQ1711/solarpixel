@@ -39,6 +39,8 @@ import {
   Clock,
   CalendarCheck,
   BadgePercent,
+  Home,
+  Factory,
 } from "lucide-react";
 
 // ============================================================================
@@ -1074,7 +1076,9 @@ function Hero() {
           conflict — the "What do you need?" fieldset is now the very
           next element on the page, exactly where the bill input READS
           as "step one" for the only flow that has one. */}
-      <div className="relative mx-auto max-w-2xl text-center print:hidden">
+      <div className="relative isolate mx-auto max-w-2xl text-center print:hidden">
+        {/* A soft sunrise glow behind the headline: warm, but nothing to read around. */}
+        <div aria-hidden className="pointer-events-none absolute -top-10 left-1/2 -z-10 h-44 w-[120%] -translate-x-1/2 bg-[radial-gradient(ellipse_at_50%_40%,rgba(238,184,104,0.28),rgba(224,122,71,0.10)_45%,transparent_70%)] lg:hidden print:hidden" />
         {/* Eyebrow + slider-flavored subhead (2026-09-04, Main.html
             baseline) — mobile only, since it specifically sets up the
             "slide in your bill" dark hero card right below, which only
@@ -2668,10 +2672,17 @@ function CalculatorCard() {
                             }
                           }}
                           aria-pressed={active}
-                          className={`flex-1 rounded-lg py-2.5 text-center text-xs font-bold transition-colors duration-200 ${
+                          className={`flex flex-1 flex-col items-center gap-1 rounded-lg py-2 text-center text-xs font-bold transition-colors duration-200 ${
                             active ? "bg-white text-[#0F172A]" : "text-[#9FB0C2] hover:text-white"
                           }`}
                         >
+                          {value === "RESIDENTIAL" ? (
+                            <Home className={`h-4 w-4 ${active ? "text-orange-700" : ""}`} />
+                          ) : value === "COMMERCIAL" ? (
+                            <Building2 className={`h-4 w-4 ${active ? "text-orange-700" : ""}`} />
+                          ) : (
+                            <Factory className={`h-4 w-4 ${active ? "text-orange-700" : ""}`} />
+                          )}
                           {label}
                         </button>
                       );
@@ -3105,7 +3116,11 @@ function CalculatorCard() {
                           typing and dragging always agree — whichever one
                           the customer touches last just wins, no separate
                           state to fall out of sync. */}
-                      <div className="mt-1.5 flex items-baseline gap-2">
+                      <div className="relative mt-1.5 flex items-baseline gap-2">
+                        <PixelGrid
+                          className="absolute right-0 top-1"
+                          lit={Math.max(1, Math.min(9, Math.round(((resolvedBillPKR ?? RESIDENTIAL_HERO_DEFAULT_BILL_PKR) / 250000) * 9)))}
+                        />
                         <span className="font-mono text-[22px] font-semibold text-[#E59166]">Rs</span>
                         <input
                           id="heroBillAmount"
@@ -3190,7 +3205,7 @@ function CalculatorCard() {
                                 "…" while it loads, "—" when there's no
                                 bill to size, never a made-up number. */}
                             {heroTilePreview
-                              ? `~${heroTilePreview.systemKw} kW`
+                              ? <CountUp value={heroTilePreview.systemKw} format={(n) => `~${formatTrim(n, 1)} kW`} />
                               : heroTilesPending
                                 ? <span className="animate-pulse text-[#5E6E82]" aria-label="Calculating">…</span>
                                 : "—"}
@@ -3201,7 +3216,7 @@ function CalculatorCard() {
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-emerald-400">
                             {heroTilePreview
                               ? heroTilePreview.estimatedMonthlySavingsPKR > 0
-                                ? `~${formatPKR(heroTilePreview.estimatedMonthlySavingsPKR)}`
+                                ? <CountUp value={heroTilePreview.estimatedMonthlySavingsPKR} format={(n) => `~${formatPKR(Math.round(n))}`} />
                                 : "N/A"
                               : heroTilesPending
                                 ? <span className="animate-pulse text-[#5E6E82]" aria-label="Calculating">…</span>
@@ -6377,6 +6392,54 @@ function IndustrialBenefitSection({ result, part }: { result: QuoteResult; part:
       </p>
     </section>
   );
+}
+
+/** The logo's 3 x 3 pixel grid as a live meter: cells light up in brand
+ *  orange as the system gets bigger, one gentle step at a time. */
+function PixelGrid({ lit, className }: { lit: number; className?: string }) {
+  return (
+    <div className={`grid grid-cols-3 gap-[3px] ${className ?? ""}`} aria-hidden>
+      {Array.from({ length: 9 }, (_, i) => (
+        <span
+          key={i}
+          className={`h-2.5 w-2.5 rounded-[3px] transition-colors duration-500 motion-reduce:transition-none ${
+            i < lit ? "bg-orange-700" : "bg-white/10"
+          } ${i === 2 && lit > 2 ? "!bg-brand-gold" : ""}`}
+          style={{ transitionDelay: `${i * 40}ms` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Rolls a number to its new value instead of snapping, so a changed quote
+ *  feels live. Falls straight to the value for reduced motion. */
+function CountUp({ value, format }: { value: number; format: (n: number) => string }) {
+  const [shown, setShown] = useState(value);
+  const fromRef = useRef(value);
+  useEffect(() => {
+    const reduce = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const from = fromRef.current;
+    if (reduce || from === value) {
+      fromRef.current = value;
+      const id = requestAnimationFrame(() => setShown(value));
+      return () => cancelAnimationFrame(id);
+    }
+    const start = performance.now();
+    const duration = 600;
+    let frame = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const current = from + (value - from) * eased;
+      fromRef.current = current;
+      setShown(current);
+      if (t < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
+  return <>{format(shown)}</>;
 }
 
 const SIZE_PRESETS_KW = [3, 5, 8, 10, 15, 20];
