@@ -6914,7 +6914,20 @@ function ResultSummary({
     { description: "Galvanized Iron Rust Proof Customized Elevated Structure", uom: "JOB", qty: "1" },
     { description: `${inverter.label} | WIFI Dongle`, uom: "PCS", qty: String(inverter.quantity) },
     ...(battery
-      ? [{ description: `Lithium Battery Backup ${formatTrim(battery.capacityKwh)}kWh`, uom: "PCS" as const, qty: "1" }]
+      ? [
+          {
+            // Named by brand and model (the catalog label already carries both
+            // and the module size); the total only shows when it differs from
+            // one module, so it never repeats itself.
+            description: `${battery.label} | Lithium Battery Backup${
+              battery.specValue !== null && Math.abs(battery.capacityKwh - battery.specValue) > 0.05
+                ? ` (${formatTrim(battery.capacityKwh)} kWh total)`
+                : ""
+            }`,
+            uom: "PCS" as const,
+            qty: "1",
+          },
+        ]
       : []),
     { description: "DC Cable 6mm Tin Coated Copper 8mm OD Double PVC Insulated", uom: "JOB", qty: "1" },
     { description: "AC Cables as per NEPRA Requirements", uom: "JOB", qty: "1" },
