@@ -264,7 +264,10 @@ export default function AdminProjectsPage() {
             <div className={selected ? "" : "hidden xl:block"}>
               {selected ? (
                 <ProjectReview
-                  key={selected.id}
+                  // Rebuild the editable lines whenever the labour head's
+                  // quotation or the status changes (a resubmit replaces the
+                  // material rows with new ids).
+                  key={`${selected.id}:${selected.status}:${selected.materials.map((m) => m.id).join(",")}`}
                   project={selected}
                   onBack={() => setSelectedId(null)}
                   onEdit={() => openForm(selected)}
