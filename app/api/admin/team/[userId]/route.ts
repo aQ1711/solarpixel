@@ -8,7 +8,7 @@ const updateAdminSchema = z.object({
   /** Replaces the FULL set of granted modules — omit to leave grants
    *  untouched, `[]` to revoke everything without deactivating the
    *  account (e.g. "on hold" vs. "gone"). */
-  modules: z.array(z.enum(["LEADS", "CHECKER"])).optional(),
+  modules: z.array(z.enum(["LEADS", "CHECKER", "QUOTES"])).optional(),
 });
 
 /**

@@ -1,4 +1,4 @@
-import { Users, ClipboardCheck, DollarSign, TrendingUp, UserCog, HardHat, type LucideIcon } from "lucide-react";
+import { Users, ClipboardCheck, FilePlus2, DollarSign, TrendingUp, UserCog, HardHat, type LucideIcon } from "lucide-react";
 
 /**
  * Single source of truth for "who can see which /admin/* page," shared
@@ -18,7 +18,7 @@ import { Users, ClipboardCheck, DollarSign, TrendingUp, UserCog, HardHat, type L
  * this codebase yet — see lib/auth/internal-guard.ts's own warning).
  */
 
-export type AdminModule = "LEADS" | "CHECKER";
+export type AdminModule = "LEADS" | "CHECKER" | "QUOTES";
 
 export interface AdminViewer {
   kind: "SUPER_ADMIN" | "ADMIN";
@@ -58,6 +58,14 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     label: "Site Projects",
     icon: HardHat,
     allowed: (v) => v.kind === "SUPER_ADMIN",
+  },
+  {
+    // Custom Quotation creator: catalog items at locked prices (QUOTES
+    // permission, grantable to a delegated Admin, never shows cost/margin).
+    href: "/admin/custom-quotes",
+    label: "Custom Quotes",
+    icon: FilePlus2,
+    allowed: (v) => v.kind === "SUPER_ADMIN" || v.modules.includes("QUOTES"),
   },
   {
     href: "/admin/pricing",

@@ -4,6 +4,7 @@ import { Suspense, memo, useEffect, useRef, useState, type ChangeEvent, type For
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { trackWhatsAppClick } from "@/lib/analytics";
 import { BrandMark } from "@/components/BrandMark";
+import { SingleLineDiagram } from "@/components/industrial/SingleLineDiagram";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { WHATSAPP_BUSINESS_NUMBER, GENERAL_INQUIRY_WA_MESSAGE } from "@/lib/constants/contact";
@@ -37,6 +38,9 @@ import {
   TrendingDown,
   Clock,
   CalendarCheck,
+  BadgePercent,
+  Home,
+  Factory,
 } from "lucide-react";
 
 // ============================================================================
@@ -128,6 +132,9 @@ interface QuoteTier {
  *  client-facing PKR lines (never raw vendor cost) that sum to exactly
  *  `totalClientPricePKR`. */
 interface ItemizedBreakdown {
+  /** Vendor inverter + battery bundle saving: a NEGATIVE amount, absent or 0
+   *  when no bundle applies (see lib/db/admin.ts bundleSavings). */
+  bundleDiscountPKR?: number;
   panelsPKR: number;
   inverterPKR: number;
   batteryPKR: number;
@@ -193,6 +200,19 @@ interface ResolvedEquipment {
   battery: (ResolvedEquipmentItem & { capacityKwh: number }) | null;
 }
 
+interface GenerationEstimate {
+  monthlyGenerationKwh: number;
+  generationMonth: string;
+  kwhPerKwpPerDay: number;
+  daysInMonth: number;
+  dustDerate: number;
+  selfUseShare: number;
+  usedKwh: number;
+  tariffPKR: number;
+  annualSavingsPKR: number;
+  monthlySavingsPKR: number[];
+}
+
 interface QuoteResult {
   quoteId: string;
   systemKw: number;
@@ -200,9 +220,14 @@ interface QuoteResult {
   totalClientPricePKR: number;
   estimatedMonthlySavingsPKR: number;
   paybackYears: number | null;
+  /** Size mode only: estimated Lahore output this month. */
+  generation?: GenerationEstimate | null;
   offsetPct: number;
   daysToDeploy: number;
-  billSource: BillSource;
+  deploymentLabel?: string;
+  billSource: BillSource | "NOT_PROVIDED";
+  /** "SIZE" when the customer chose a kW instead of giving a bill. */
+  sizingMode?: "BILL" | "SIZE";
   monthlyBillPKR: number;
   nearZeroBillTier: QuoteTier | null;
   breakdown: ItemizedBreakdown;
@@ -229,6 +254,7 @@ interface SolarPreviewResult {
   totalClientPricePKR: number;
   estimatedMonthlySavingsPKR: number;
   paybackYears: number | null;
+  generation?: GenerationEstimate | null;
   daysToDeploy: number;
   breakdown: ItemizedBreakdown;
   equipment: ResolvedEquipment;
@@ -255,6 +281,16 @@ type ComponentType =
   | "BREAKERS"
   | "MOUNTING_STRUCTURE"
   | "EV_CHARGER";
+
+/** Mirrors GET /api/equipment-options's `bundles` rows: a rupee discount for
+ *  pairing this inverter with this battery (never the vendor combo cost). */
+interface PublicBundleDealDTO {
+  inverterCode: string;
+  batteryCode: string;
+  batteryLabel: string;
+  discountPKR: number;
+  note: string | null;
+}
 
 /** Mirrors GET /api/equipment-options's per-row shape. Cost-free by
  *  design — this is the public catalog, never the confidential
@@ -555,11 +591,6 @@ const PANEL_WASHING_SERVICE_VISIBLE = false;
 const VISIBLE_MASTER_SERVICES = MASTER_SERVICES.filter(
   (s) => s.value !== "SYSTEM_UPGRADES" || PANEL_WASHING_SERVICE_VISIBLE,
 );
-const MASTER_SERVICE_DESCRIPTION: Record<MasterService, string> = {
-  COMPLETE_SOLAR: "Get a turnkey solar + battery solution. Sized instantly from your bill.",
-  EV_CHARGER: "Tell us about your vehicle and charging needs. We'll follow up on WhatsApp with options and pricing.",
-  SYSTEM_UPGRADES: "Panel washing, inverter servicing, capacity upgrades, and more. Describe what you need below.",
-};
 
 const pkr = new Intl.NumberFormat("en-PK", {
   style: "currency",
@@ -1045,7 +1076,9 @@ function Hero() {
           conflict — the "What do you need?" fieldset is now the very
           next element on the page, exactly where the bill input READS
           as "step one" for the only flow that has one. */}
-      <div className="relative mx-auto max-w-2xl text-center print:hidden">
+      <div className="relative isolate mx-auto max-w-2xl text-center print:hidden">
+        {/* A soft sunrise glow behind the headline: warm, but nothing to read around. */}
+        <div aria-hidden className="pointer-events-none absolute -top-10 left-1/2 -z-10 h-44 w-[120%] -translate-x-1/2 bg-[radial-gradient(ellipse_at_50%_40%,rgba(238,184,104,0.28),rgba(224,122,71,0.10)_45%,transparent_70%)] lg:hidden print:hidden" />
         {/* Eyebrow + slider-flavored subhead (2026-09-04, Main.html
             baseline) — mobile only, since it specifically sets up the
             "slide in your bill" dark hero card right below, which only
@@ -1358,7 +1391,7 @@ function CalculatorCard() {
   // below (see that onClick handler): whichever section isn't the
   // active masterService simply isn't in the DOM, so its ref stays
   // null and scrollToStep's optional chaining no-ops safely for it.
-  const serviceSelectionRef = useRef<HTMLFieldSetElement>(null);
+  const serviceSelectionRef = useRef<HTMLDivElement>(null);
   const energyProfileRef = useRef<HTMLDivElement>(null);
   const configurationRef = useRef<HTMLDivElement>(null);
   const evChargerRef = useRef<HTMLDivElement>(null);
@@ -1549,6 +1582,11 @@ function CalculatorCard() {
   const [customizationPath, setCustomizationPath] = useState<CustomizationPath>("RECOMMENDED");
   const [equipmentOptions, setEquipmentOptions] = useState<EquipmentOptionsByType | null>(null);
   const [equipmentOptionsError, setEquipmentOptionsError] = useState<string | null>(null);
+  // Bumped by the "Try again" button to re-run the catalog load.
+  const [equipmentRetry, setEquipmentRetry] = useState(0);
+  // Inverter + battery combo deals (rupee discount only) for the "add this
+  // battery and save" suggestion in Build Your Own.
+  const [bundleDeals, setBundleDeals] = useState<PublicBundleDealDTO[]>([]);
   // Loading is derived, not tracked separately: it's true exactly while
   // we're on the Custom path with neither a result nor an error yet.
   const equipmentOptionsLoading = customizationPath === "CUSTOM" && !equipmentOptions && !equipmentOptionsError;
@@ -1598,6 +1636,58 @@ function CalculatorCard() {
   const serviceType: ServiceType =
     LOCKED_SERVICE_TYPE_BY_SECTOR[sector] ?? (sector === "RESIDENTIAL" ? residentialServiceType : commercialServiceType);
   const resolvedBillPKR = billAmountInput.trim() === "" ? null : Number(billAmountInput);
+  // "Build by system size" mode: the customer knows the kW they want and
+  // skips the bill. The server takes exactly one of monthlyBillPKR /
+  // targetSystemKw, so everything that used to be gated on a valid bill is
+  // gated on `sizingReady` and sends `sizingPayload` instead.
+  const [sizeMode, setSizeMode] = useState(false);
+  const [targetKwInput, setTargetKwInput] = useState("");
+  const resolvedTargetKw = targetKwInput.trim() === "" ? null : Number(targetKwInput);
+  const targetKwValid = resolvedTargetKw !== null && Number.isFinite(resolvedTargetKw) && resolvedTargetKw > 0 && resolvedTargetKw <= 1000;
+  // The phone hero shows a sample bill (Rs 45,000 Residential, Rs 100,000
+  // Commercial) until the customer touches it. That amount is what they see,
+  // so it is what the quote must use: without this, entering a name and number
+  // and tapping Generate failed with "enter your bill" while a bill was shown.
+  // Desktop shows an empty field, so it still asks for a real number.
+  const [isPhone, setIsPhone] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1023px)");
+    const update = () => setIsPhone(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  const sampleBillPKR =
+    !sizeMode && resolvedBillPKR === null && !heroBillTouched && isPhone
+      ? sector === "RESIDENTIAL"
+        ? RESIDENTIAL_HERO_DEFAULT_BILL_PKR
+        : sector === "COMMERCIAL"
+          ? COMMERCIAL_DEFAULT_BILL_PKR
+          : null
+      : null;
+  const effectiveBillPKR = sampleBillPKR ?? resolvedBillPKR;
+  const billValid = effectiveBillPKR !== null && !Number.isNaN(effectiveBillPKR) && effectiveBillPKR > 0;
+  const sizingReady = sizeMode ? targetKwValid : billValid;
+  const sizingPayload = sizeMode ? { targetSystemKw: resolvedTargetKw ?? undefined } : { monthlyBillPKR: effectiveBillPKR ?? undefined };
+
+  // A new system size invalidates picks made for the old one: 39 panels and a
+  // 10 kW Huawei chosen for a small system make no sense at 125 kW (they
+  // priced as 13 x 10 kW inverters). Quantity overrides are always cleared,
+  // and in size mode the inverter/battery models too so the engine re-picks
+  // what fits the new kW. Skips the first render so nothing resets on load.
+  const sizingKey = sizeMode ? `kw:${resolvedTargetKw}` : `bill:${resolvedBillPKR}`;
+  const previousSizingKey = useRef(sizingKey);
+  useEffect(() => {
+    if (previousSizingKey.current === sizingKey) return;
+    const wasSizeMode = previousSizingKey.current.startsWith("kw:");
+    previousSizingKey.current = sizingKey;
+    setPanelQtyOverride(null);
+    setInverterQuantityOverride(null);
+    if (sizeMode || wasSizeMode) {
+      setInverterCode(null);
+      setBatteryCode(null);
+    }
+  }, [sizingKey, sizeMode]);
 
   // Detailed Load Calculator's generator cost figure (2026-09-05) — real
   // arithmetic from the customer's own inputs (fuel cost/liter × their
@@ -1639,22 +1729,32 @@ function CalculatorCard() {
   useEffect(() => {
     if (masterService !== "COMPLETE_SOLAR" && masterService !== "EV_CHARGER") return;
     let cancelled = false;
-    fetch(`/api/equipment-options?sector=${sector}`)
-      .then(async (res) => {
-        const data = (await res.json()) as ApiJson<{ options?: EquipmentOptionsByType }>;
-        if (!res.ok) throw new Error(data?.error ?? "Failed to load equipment options");
-        if (!cancelled) {
-          setEquipmentOptions(data.options ?? {});
-          setEquipmentOptionsError(null);
+    // The database connection occasionally drops for a moment, so a failed
+    // load is retried a couple of times before the customer sees an error.
+    const load = async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await fetch(`/api/equipment-options?sector=${sector}`);
+          const data = (await res.json()) as ApiJson<{ options?: EquipmentOptionsByType; bundles?: PublicBundleDealDTO[] }>;
+          if (!res.ok) throw new Error(data?.error ?? "Failed to load equipment options");
+          if (!cancelled) {
+            setEquipmentOptions(data.options ?? {});
+            setBundleDeals(data.bundles ?? []);
+            setEquipmentOptionsError(null);
+          }
+          return;
+        } catch {
+          if (cancelled) return;
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
         }
-      })
-      .catch(() => {
-        if (!cancelled) setEquipmentOptionsError("Couldn't load equipment options. Please try again.");
-      });
+      }
+      if (!cancelled) setEquipmentOptionsError("Couldn't load equipment options. Please try again.");
+    };
+    void load();
     return () => {
       cancelled = true;
     };
-  }, [masterService, sector]);
+  }, [masterService, sector, equipmentRetry]);
 
   /** Client mirror of lib/db/admin.ts's inverterQuantityFor (2026-08-29)
    *  — the auto-computed MINIMUM number of the resolved inverter SKU
@@ -1799,6 +1899,18 @@ function CalculatorCard() {
   // "+ Rs X" cost of adding that battery back, instead of a generic
   // "Enter your bill to see pricing" placeholder.
   const currentBatteryUnitPricePKR = effectiveBatteryCode === NONE_CODE ? 0 : (currentBatteryOption?.unitPricePKR ?? null);
+  // "Add this battery and save" suggestion (shared by the phone and desktop
+  // Build Your Own layouts). Null unless the chosen inverter has a bundle deal.
+  const bundleSuggestion = (
+    <BundleSuggestion
+      bundles={bundleDeals}
+      inverterCode={effectiveInverterCode ?? null}
+      batteryCode={effectiveBatteryCode ?? null}
+      inverterQuantity={livePreview?.equipment.inverter.quantity ?? 1}
+      isHybrid={serviceType === "HYBRID_BATTERY"}
+      onPick={(code) => setBatteryCode(code)}
+    />
+  );
 
   // Battery — Company then Capacity cascading picker (2026-08-22), same
   // two-step pattern as Inverter's Company -> Model picker (see its doc
@@ -1849,7 +1961,12 @@ function CalculatorCard() {
     customizationPath === "CUSTOM"
       ? {
           panelCode: effectivePanelCode ?? undefined,
-          inverterCode: effectiveInverterCode ?? undefined,
+          // Only an explicit pick is sent. The displayed default
+          // (effectiveInverterCode) falls back to the previous preview's
+          // server-resolved model; sending that back froze a 10 kW Huawei
+          // onto a 125 kW system (13 units) after the size changed. Left
+          // unset, the server re-resolves the right unit for the new size.
+          inverterCode: inverterCode && inverterCode === effectiveInverterCode ? inverterCode : undefined,
           // Manual inverter "clubbing" override (2026-08-29) — see the
           // inverterQuantityOverride state's own doc comment. Clamped
           // server-side to never go below the auto-computed minimum, same
@@ -1891,7 +2008,7 @@ function CalculatorCard() {
   // doc comment.)
   useEffect(() => {
     if (masterService !== "COMPLETE_SOLAR") return;
-    if (resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0) return;
+    if (!sizingReady) return;
 
     const timeoutId = setTimeout(async () => {
       setLivePreviewLoading(true);
@@ -1902,7 +2019,7 @@ function CalculatorCard() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             requestKind: "SOLAR_PREVIEW",
-            monthlyBillPKR: resolvedBillPKR,
+            ...sizingPayload,
             sector,
             serviceType: sector === "INDUSTRIAL" ? undefined : serviceType,
             daytimeUsagePct: DAYTIME_USAGE_PCT_BY_SECTOR[sector],
@@ -1935,11 +2052,15 @@ function CalculatorCard() {
   }, [
     masterService,
     resolvedBillPKR,
+    effectiveBillPKR,
+    sizeMode,
+    resolvedTargetKw,
     sector,
     serviceType,
     customizationPath,
     effectivePanelCode,
     effectiveInverterCode,
+    inverterCode,
     inverterQuantityOverride,
     effectiveBatteryCode,
     effectiveCableCode,
@@ -1964,7 +2085,7 @@ function CalculatorCard() {
 
   useEffect(() => {
     if (masterService !== "COMPLETE_SOLAR") return;
-    if (resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0) return;
+    if (!sizingReady) return;
 
     const timeoutId = setTimeout(async () => {
       try {
@@ -1973,7 +2094,7 @@ function CalculatorCard() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             requestKind: "SOLAR_PREVIEW",
-            monthlyBillPKR: resolvedBillPKR,
+            ...sizingPayload,
             sector,
             serviceType: sector === "INDUSTRIAL" ? undefined : serviceType,
             daytimeUsagePct: DAYTIME_USAGE_PCT_BY_SECTOR[sector],
@@ -1990,7 +2111,8 @@ function CalculatorCard() {
       }
     }, 250);
     return () => clearTimeout(timeoutId);
-  }, [masterService, resolvedBillPKR, sector, serviceType]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [masterService, resolvedBillPKR, effectiveBillPKR, sizeMode, resolvedTargetKw, sector, serviceType]);
 
   // Mobile hero first-look figures (2026-10-05, "i want real figures no
   // fake or hardcode"): until the customer touches the bill field, the
@@ -2122,6 +2244,16 @@ function CalculatorCard() {
     const timeoutId = setTimeout(() => setAutoRouteNotice(null), 5000);
     return () => clearTimeout(timeoutId);
   }, [autoRouteNotice]);
+
+  // Opening Build Your Own with nothing entered yet: the phone hero already
+  // shows a sample bill, so the builder works from that same amount instead of
+  // sitting empty with no panel counts. Industrial has no sample, so it asks.
+  function handleCustomizationPathChange(next: CustomizationPath) {
+    setCustomizationPath(next);
+    if (next !== "CUSTOM" || sizeMode || billValid) return;
+    if (sector === "RESIDENTIAL") handleBillAmountChange(String(RESIDENTIAL_HERO_DEFAULT_BILL_PKR));
+    else if (sector === "COMMERCIAL") handleBillAmountChange(String(COMMERCIAL_DEFAULT_BILL_PKR));
+  }
 
   function handleBillAmountChange(raw: string) {
     setBillAmountInput(raw);
@@ -2277,8 +2409,8 @@ function CalculatorCard() {
   async function handleSolarSubmit() {
     setErrorMessage(null);
 
-    if (resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0) {
-      setErrorMessage("Enter your monthly electricity bill amount.");
+    if (!sizingReady) {
+      setErrorMessage(sizeMode ? "Enter the system size you want in kW." : "Enter your monthly electricity bill amount.");
       return;
     }
 
@@ -2288,7 +2420,7 @@ function CalculatorCard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          monthlyBillPKR: resolvedBillPKR,
+          ...sizingPayload,
           sector,
           // Industrial is server-forced regardless — omit rather than send
           // a value that would just be ignored. See resolveServiceType().
@@ -2442,6 +2574,18 @@ function CalculatorCard() {
         connectionPhase={connectionPhase}
         installationArea={installationArea}
         customerName={fullName}
+        isIndustrial={sector === "INDUSTRIAL"}
+        siteDetails={{
+          connectionType,
+          sanctionedLoadKw: Number(sanctionedLoadKwInput) > 0 ? Number(sanctionedLoadKwInput) : null,
+          generator:
+            generatorFuelType || Number(generatorCapacityKwInput) > 0
+              ? {
+                  fuel: generatorFuelType,
+                  capacityKw: Number(generatorCapacityKwInput) > 0 ? Number(generatorCapacityKwInput) : null,
+                }
+              : null,
+        }}
       />
     );
   }
@@ -2463,8 +2607,8 @@ function CalculatorCard() {
   //   untouched first look -> heroSamplePreview (real call, sample bill)
   //   cleared/0 by user    -> nothing ("—"; a result for the old number
   //                           would describe a bill no longer in the field)
-  const heroBillEmpty = resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0;
-  const heroTilePreview = heroBillEmpty ? (heroBillTouched ? null : heroSamplePreview) : livePreview;
+  const heroBillEmpty = sizeMode ? !targetKwValid : resolvedBillPKR === null || Number.isNaN(resolvedBillPKR) || resolvedBillPKR <= 0;
+  const heroTilePreview = heroBillEmpty ? (heroBillTouched || sizeMode ? null : heroSamplePreview) : livePreview;
   // true = a real figure is still on its way (show a quiet placeholder);
   // false with no preview = nothing to show ("—").
   const heroTilesPending = heroBillEmpty
@@ -2473,6 +2617,176 @@ function CalculatorCard() {
   // The active battery's real capacity, straight off the resolved
   // catalog row — for the Battery row's "5.12kWh" display label only.
   const activeBatteryCapacityKwh = currentBatteryOption?.specValue ?? 0;
+
+  // Cabling, Protection, Mounting Structure, Site Works and Services rows:
+  // one definition shared by the desktop accordion and the mobile builder so
+  // the two can never offer different specs.
+  const extraBuildRows = equipmentOptions ? (
+    <>
+                      {/* Cabling & Protection, and Mounting Structure —
+                          Default & Swap rows (Part 5, 2026-08-20), matching
+                          Panel/Inverter/Battery exactly instead of the old
+                          numbered "4. Cables, Protection, and Mounting"
+                          accordion (dropped the "4." — none of the other
+                          rows are numbered, so it never matched the rest
+                          of the flow). Cable/Breakers have no individually
+                          split breakdown field (the backend combines them
+                          into one `cablingAndProtectionPKR` line), so
+                          their current-price label uses the same
+                          unitPricePKR × systemWatts math the alternative
+                          cards' deltaLabel already computes — the exact
+                          per-line figure the backend itself derives from
+                          before summing the two together. Structure DOES
+                          have its own dedicated `structurePKR` breakdown
+                          field, so that one uses the real backend total
+                          directly, same as Panel/Inverter/Battery. */}
+                      <EquipmentSwapRow
+                        title="DC/AC Cabling"
+                        icon={ShieldWireIcon}
+                        currentLabel={currentCableOption?.label ?? "Select a cable"}
+                        currentPriceLabel={equipmentUnitCostLabel(currentCableOption?.unitPricePKR ?? null, systemWatts)}
+                        isOpen={openEquipmentSection === "CABLE"}
+                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "CABLE" ? null : "CABLE"))}
+                      >
+                        <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
+                          {(equipmentOptions.DC_CABLE ?? []).map((o) => (
+                            <SwapOptionCard
+                              key={o.code}
+                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
+                              imageUrl={o.logoUrl}
+                              active={effectiveCableCode === o.code}
+                              inStock={o.inStock}
+                              onClick={() => setCableCode(o.code)}
+                              deltaLabel={swapDeltaLabel(
+                                o.unitPricePKR,
+                                currentCableOption?.unitPricePKR ?? null,
+                                systemWatts,
+                                effectiveCableCode === o.code
+                              )}
+                            />
+                          ))}
+                        </div>
+                      </EquipmentSwapRow>
+
+                      <EquipmentSwapRow
+                        title="Protection & Breakers"
+                        icon={ShieldWireIcon}
+                        currentLabel={currentBreakersOption?.label ?? "Select protection"}
+                        currentPriceLabel={equipmentUnitCostLabel(currentBreakersOption?.unitPricePKR ?? null, systemWatts)}
+                        isOpen={openEquipmentSection === "BREAKERS"}
+                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "BREAKERS" ? null : "BREAKERS"))}
+                      >
+                        <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
+                          {(equipmentOptions.BREAKERS ?? []).map((o) => (
+                            <SwapOptionCard
+                              key={o.code}
+                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
+                              imageUrl={o.logoUrl}
+                              active={effectiveBreakersCode === o.code}
+                              inStock={o.inStock}
+                              onClick={() => setBreakersCode(o.code)}
+                              deltaLabel={swapDeltaLabel(
+                                o.unitPricePKR,
+                                currentBreakersOption?.unitPricePKR ?? null,
+                                systemWatts,
+                                effectiveBreakersCode === o.code
+                              )}
+                            />
+                          ))}
+                        </div>
+                      </EquipmentSwapRow>
+
+                      <EquipmentSwapRow
+                        title="Mounting Structure"
+                        icon={ShieldWireIcon}
+                        currentLabel={currentStructureOption?.label ?? "Select a structure"}
+                        currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.structurePKR) : null}
+                        isOpen={openEquipmentSection === "STRUCTURE"}
+                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "STRUCTURE" ? null : "STRUCTURE"))}
+                      >
+                        <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
+                          {(equipmentOptions.MOUNTING_STRUCTURE ?? []).map((o) => (
+                            <SwapOptionCard
+                              key={o.code}
+                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
+                              imageUrl={o.logoUrl}
+                              icon={STRUCTURE_ICON_BY_CODE[o.code]}
+                              active={effectiveStructureCode === o.code}
+                              inStock={o.inStock}
+                              onClick={() => setStructureCode(o.code)}
+                              deltaLabel={swapDeltaLabel(
+                                o.unitPricePKR,
+                                currentStructureOption?.unitPricePKR ?? null,
+                                systemWatts,
+                                effectiveStructureCode === o.code
+                              )}
+                            />
+                          ))}
+                        </div>
+                      </EquipmentSwapRow>
+
+                      {/* Site Works (2026-08-20) — civil blocks, earthing
+                          & boring, and lightning arrestor. Not a
+                          brand/model swap like every row above: Earthing/
+                          Lightning are customer-adjustable counts against
+                          a flat admin rate (GlobalPricingSettings);
+                          Civil Blocks is READ-ONLY as of this update —
+                          always auto-computed server-side as
+                          Math.ceil(panelCount × 1.5), never customer-set
+                          (see EquipmentSelections.civilBlockQty's doc
+                          comment). Collapsed by default (not important
+                          for the client to fuss over, but the option's
+                          here) — same EquipmentSwapRow shell as every
+                          other row for visual consistency. */}
+                      <EquipmentSwapRow
+                        title="Site Works"
+                        icon={Wrench}
+                        currentLabel={(() => {
+                          const civilBlockQty = livePreview?.siteWorks.civilBlockQty ?? 0;
+                          const total = civilBlockQty + earthingBoreQty + lightningArrestorQty;
+                          return total > 0 ? `${total} item${total === 1 ? "" : "s"} selected` : "No site works selected";
+                        })()}
+                        currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.siteWorksPKR) : null}
+                        isOpen={openEquipmentSection === "SITE_WORKS"}
+                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "SITE_WORKS" ? null : "SITE_WORKS"))}
+                      >
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">Civil Blocks</p>
+                              <p className="text-[11px] text-slate-500">Auto-calculated: {formatTrim(1.5)}× your panel count</p>
+                            </div>
+                            <span className="text-sm font-bold text-slate-900">{livePreview?.siteWorks.civilBlockQty ?? "N/A"}</span>
+                          </div>
+                          <QuantityStepper label="Earthing & Boring" value={earthingBoreQty} onChange={setEarthingBoreQty} />
+                          <QuantityStepper
+                            label="Lightning Arrestor"
+                            value={lightningArrestorQty}
+                            onChange={setLightningArrestorQty}
+                          />
+                        </div>
+                      </EquipmentSwapRow>
+
+                      {/* Services (2026-08-21) — a toggleable add-on, not
+                          a brand/model pick or a quantity, so a plain
+                          on/off switch rather than EquipmentSwapRow's
+                          expand-to-swap or QuantityStepper's +/- shell.
+                          Dynamically recalculates with the Panel Quantity
+                          Adjuster above — same effectivePanelCount the
+                          backend already resolved for Civil Blocks. */}
+                      <div>
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Services</p>
+                        <ServiceToggleCard
+                          title="One Time Panel Washing Visit"
+                          icon={WaterDropIcon}
+                          description="A single professional cleaning visit after installation, not a recurring plan."
+                          active={includePanelWashing}
+                          onToggle={() => setIncludePanelWashing((s) => !s)}
+                          priceLabel={livePreview?.panelWashing ? formatPKR(livePreview.breakdown.panelWashingPKR) : null}
+                        />
+                      </div>
+    </>
+  ) : null;
 
   return (
     <>
@@ -2484,7 +2798,7 @@ function CalculatorCard() {
       // scrolls the user to (Part 3). lg: cancels it out entirely since
       // the bar itself is lg:hidden.
       className={`animate-fade-up mx-auto mb-8 w-full max-w-6xl rounded-3xl border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-xl md:p-8 print:hidden ${
-        masterService === "COMPLETE_SOLAR" ? "pb-24 lg:pb-8" : ""
+        masterService === "COMPLETE_SOLAR" ? "pb-14 lg:pb-8" : ""
       }`}
     >
       {/* Master Service — rich cards, icon + subtitle each so this never
@@ -2497,53 +2811,37 @@ function CalculatorCard() {
           real (if indirect) way back to it via the "More We Do" services
           row further down the page, which drives the exact same
           setMasterService/setSector state. */}
-      <fieldset ref={serviceSelectionRef} className="hidden lg:block">
-        <legend className="mb-3 text-sm font-semibold text-slate-700">What do you need?</legend>
-        <div className={`grid grid-cols-1 gap-4 ${VISIBLE_MASTER_SERVICES.length === 3 ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
-          {VISIBLE_MASTER_SERVICES.map(({ value, label, icon: Icon }) => {
-            const active = masterService === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                onClick={() => {
-                  setMasterService(value);
-                  // Each service's own input section only exists in the
-                  // DOM for that branch — switching INTO one from a
-                  // different service means its ref isn't attached yet
-                  // at the moment this handler runs, so the scroll has
-                  // to wait for React to actually commit that new DOM
-                  // before it can find something to scroll to. Double
-                  // rAF (not a fixed setTimeout) is the standard "wait
-                  // for the next real paint" pattern — one rAF alone can
-                  // still fire before layout has settled.
-                  const targetRef =
-                    value === "COMPLETE_SOLAR" ? energyProfileRef : value === "EV_CHARGER" ? evChargerRef : panelWashingRef;
-                  requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(targetRef)));
-                }}
-                aria-pressed={active}
-                className={`relative flex min-w-0 items-start gap-3 rounded-2xl p-4 text-left transition-all duration-200 ${
-                  active
-                    ? "border-2 border-orange-700 bg-orange-50"
-                    : "border border-slate-200 bg-slate-50 hover:border-orange-400 hover:shadow-md"
-                }`}
-              >
-                <span
-                  className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border ${
-                    active ? "border-orange-300 bg-white text-orange-700" : "border-slate-200 bg-white text-slate-400"
-                  }`}
-                >
-                  <Icon className="h-9 w-9" />
-                </span>
-                <span className="min-w-0">
-                  <span className={`block text-sm font-semibold ${active ? "text-orange-900" : "text-slate-900"}`}>{label}</span>
-                  <span className="mt-0.5 block text-xs leading-snug text-slate-500">{MASTER_SERVICE_DESCRIPTION[value]}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </fieldset>
+      {/* Visitors land straight on the solar calculator, so the big
+          "What do you need?" card picker is gone. EV Charger is a quiet
+          secondary link (desktop only, mobile keeps its "More We Do" row),
+          with a matching way back once it is open. */}
+      <div ref={serviceSelectionRef} className="hidden items-center justify-end text-sm lg:flex">
+        {masterService === "COMPLETE_SOLAR" ? (
+          VISIBLE_MASTER_SERVICES.some((s) => s.value === "EV_CHARGER") && (
+            <button
+              type="button"
+              onClick={() => {
+                setMasterService("EV_CHARGER");
+                requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(evChargerRef)));
+              }}
+              className="font-medium text-slate-500 underline-offset-4 transition-colors duration-200 hover:text-orange-700 hover:underline"
+            >
+              Looking for an EV charger instead?
+            </button>
+          )
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setMasterService("COMPLETE_SOLAR");
+              requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(energyProfileRef)));
+            }}
+            className="flex items-center gap-1 font-semibold text-orange-700 underline-offset-4 hover:underline"
+          >
+            <ChevronLeft className="h-4 w-4" /> Back to the solar quote
+          </button>
+        )}
+      </div>
 
       {masterService === "COMPLETE_SOLAR" ? (
         // ============ Tesla-style split dashboard ============
@@ -2563,7 +2861,7 @@ function CalculatorCard() {
               <div className="lg:hidden">
                 <div
                   className={`rounded-[22px] p-5 ${
-                    sector === "INDUSTRIAL" ? "bg-[#0B132B]" : "bg-[#0F172A] shadow-[0_24px_50px_-26px_rgba(15,23,42,0.6)]"
+                    sector === "INDUSTRIAL" ? "bg-[#1B2E47]" : "bg-gradient-to-b from-[#2F4D70] to-[#1E3550] shadow-[0_24px_50px_-26px_rgba(30,53,80,0.7)]"
                   }`}
                 >
                   {/* Segmented control — shared across BOTH card states
@@ -2588,10 +2886,17 @@ function CalculatorCard() {
                             }
                           }}
                           aria-pressed={active}
-                          className={`flex-1 rounded-lg py-2.5 text-center text-xs font-bold transition-colors duration-200 ${
+                          className={`flex flex-1 flex-col items-center gap-1 rounded-lg py-2 text-center text-xs font-bold transition-colors duration-200 ${
                             active ? "bg-white text-[#0F172A]" : "text-[#9FB0C2] hover:text-white"
                           }`}
                         >
+                          {value === "RESIDENTIAL" ? (
+                            <Home className={`h-4 w-4 ${active ? "text-orange-700" : ""}`} />
+                          ) : value === "COMMERCIAL" ? (
+                            <Building2 className={`h-4 w-4 ${active ? "text-orange-700" : ""}`} />
+                          ) : (
+                            <Factory className={`h-4 w-4 ${active ? "text-orange-700" : ""}`} />
+                          )}
                           {label}
                         </button>
                       );
@@ -2645,6 +2950,14 @@ function CalculatorCard() {
                           Industrial input, which is also a plain,
                           uncapped field. */}
                       <div className="mt-4">
+                        <SizingModeToggle sizeMode={sizeMode} onChange={setSizeMode} dark />
+                      </div>
+                      {sizeMode ? (
+                        <div className="mt-4">
+                          <SystemSizeField id="targetKwIndustrialMobile" value={targetKwInput} onChange={setTargetKwInput} dark presets={sector === "INDUSTRIAL" ? INDUSTRIAL_SIZE_PRESETS_KW : undefined} />
+                        </div>
+                      ) : (
+                      <div className="mt-4">
                         <label htmlFor="industrialBillAmount" className="mb-1.5 block text-xs font-semibold text-[#D4AF37]">
                           Average Monthly Bill (PKR)
                         </label>
@@ -2678,6 +2991,7 @@ function CalculatorCard() {
                           A rough figure is fine. Our engineer confirms exact pricing on site.
                         </p>
                       </div>
+                      )}
 
                       {/* Same real "You need/You save" tiles as
                           Residential/Commercial — same livePreview,
@@ -2692,7 +3006,7 @@ function CalculatorCard() {
                         <div className="rounded-[14px] border border-emerald-400/25 bg-emerald-400/10 p-3">
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-emerald-200/80">You save / mo</p>
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-emerald-400">
-                            {livePreview ? `~${formatPKR(livePreview.estimatedMonthlySavingsPKR)}` : "N/A"}
+                            {livePreview && livePreview.estimatedMonthlySavingsPKR > 0 ? `~${formatPKR(livePreview.estimatedMonthlySavingsPKR)}` : "N/A"}
                           </p>
                         </div>
                       </div>
@@ -2708,7 +3022,7 @@ function CalculatorCard() {
                           be this small, so this only suggests, exactly
                           like the mirror-image warning on the
                           Residential/Commercial card below. */}
-                      {resolvedBillPKR !== null && resolvedBillPKR < INDUSTRIAL_SECTOR_THRESHOLD_PKR && (
+                      {!sizeMode && resolvedBillPKR !== null && resolvedBillPKR < INDUSTRIAL_SECTOR_THRESHOLD_PKR && (
                         <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2.5">
                           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
                           <p className="text-xs leading-relaxed text-amber-200">
@@ -2992,6 +3306,15 @@ function CalculatorCard() {
                     </>
                   ) : (
                     <>
+                      <div className="mt-3">
+                        <SizingModeToggle sizeMode={sizeMode} onChange={setSizeMode} dark />
+                      </div>
+                      {sizeMode && (
+                        <div className="mt-3">
+                          <SystemSizeField id="targetKwHero" value={targetKwInput} onChange={setTargetKwInput} dark />
+                        </div>
+                      )}
+                      {!sizeMode && (<>
                       <div className="mt-3 flex items-center justify-between">
                         <label htmlFor="heroBillAmount" className="font-mono text-[10px] font-semibold uppercase tracking-widest text-[#8FA0B4]">
                           Your Monthly Bill
@@ -3007,7 +3330,11 @@ function CalculatorCard() {
                           typing and dragging always agree — whichever one
                           the customer touches last just wins, no separate
                           state to fall out of sync. */}
-                      <div className="mt-1.5 flex items-baseline gap-2">
+                      <div className="relative mt-1.5 flex items-baseline gap-2">
+                        <PixelGrid
+                          className="absolute right-0 top-1"
+                          lit={Math.max(1, Math.min(9, Math.round(((resolvedBillPKR ?? RESIDENTIAL_HERO_DEFAULT_BILL_PKR) / 250000) * 9)))}
+                        />
                         <span className="font-mono text-[22px] font-semibold text-[#E59166]">Rs</span>
                         <input
                           id="heroBillAmount"
@@ -3082,6 +3409,7 @@ function CalculatorCard() {
                           </p>
                         </div>
                       )}
+                      </>)}
                       <div className="mt-2 grid grid-cols-2 gap-2.5">
                         <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.06] p-3">
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-[#8FA0B4]">You need</p>
@@ -3091,7 +3419,7 @@ function CalculatorCard() {
                                 "…" while it loads, "—" when there's no
                                 bill to size, never a made-up number. */}
                             {heroTilePreview
-                              ? `~${heroTilePreview.systemKw} kW`
+                              ? <CountUp value={heroTilePreview.systemKw} format={(n) => `~${formatTrim(n, 1)} kW`} />
                               : heroTilesPending
                                 ? <span className="animate-pulse text-[#5E6E82]" aria-label="Calculating">…</span>
                                 : "—"}
@@ -3101,7 +3429,9 @@ function CalculatorCard() {
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-emerald-200/80">You save / mo</p>
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-emerald-400">
                             {heroTilePreview
-                              ? `~${formatPKR(heroTilePreview.estimatedMonthlySavingsPKR)}`
+                              ? heroTilePreview.estimatedMonthlySavingsPKR > 0
+                                ? <CountUp value={heroTilePreview.estimatedMonthlySavingsPKR} format={(n) => `~${formatPKR(Math.round(n))}`} />
+                                : "N/A"
                               : heroTilesPending
                                 ? <span className="animate-pulse text-[#5E6E82]" aria-label="Calculating">…</span>
                                 : "—"}
@@ -3145,7 +3475,15 @@ function CalculatorCard() {
                 of identical cards" look (Part 2) — see StepHeader. */}
             <div ref={energyProfileRef} className="hidden rounded-2xl border border-slate-200 bg-white p-4 lg:block">
               <StepHeader step={1} title="Energy Profile" />
+              <div className="mb-3">
+                <SizingModeToggle sizeMode={sizeMode} onChange={setSizeMode} />
+              </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {sizeMode ? (
+                  <div className="sm:col-span-2">
+                    <SystemSizeField id="targetKwDesktop" value={targetKwInput} onChange={setTargetKwInput} presets={sector === "INDUSTRIAL" ? INDUSTRIAL_SIZE_PRESETS_KW : undefined} />
+                  </div>
+                ) : (
                 <div>
                   <label htmlFor="billAmount" className="mb-1.5 block text-sm font-semibold text-slate-700">
                     Average Monthly Bill (PKR)
@@ -3155,7 +3493,10 @@ function CalculatorCard() {
                       id="billAmount"
                       type="text"
                       inputMode="numeric"
-                      required
+                      // Not `required`: this desktop field is hidden on a phone, where the
+                      // browser cannot focus a hidden required field and silently refuses
+                      // to submit the whole form. handleSolarSubmit checks the amount and
+                      // shows a proper message instead.
                       value={billAmountInput}
                       onChange={(e) => handleBillAmountChange(e.target.value.replace(/[^\d]/g, ""))}
                       onBlur={handleBillAmountCommit}
@@ -3176,7 +3517,8 @@ function CalculatorCard() {
                     <p className="mt-1.5 text-xs font-medium text-slate-500">= {formatBillInWords(resolvedBillPKR)}</p>
                   )}
                 </div>
-                <div>
+                )}
+                <div className={sizeMode ? (sector === "INDUSTRIAL" ? "hidden" : "sm:col-span-2 sm:max-w-sm") : ""}>
                   {/* Target Budget (2026-08-20) — auto-selects the
                       inverter/battery strategy (see the Calculation
                       Transparency dropdown below for what each tier
@@ -3227,11 +3569,11 @@ function CalculatorCard() {
                 </div>
               </div>
 
-              {resolvedBillPKR !== null && resolvedBillPKR > 0 && (
+              {(sizeMode ? targetKwValid : resolvedBillPKR !== null && resolvedBillPKR > 0) && (
                 <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-orange-700">
                   <Zap className="h-4 w-4 shrink-0" />
                   {livePreview ? (
-                    <>Recommended System: {livePreview.systemKw} kW</>
+                    <>{sizeMode ? "Your System" : "Recommended System"}: {livePreview.systemKw} kW</>
                   ) : (
                     <>Calculating recommended system size…</>
                   )}
@@ -3248,7 +3590,7 @@ function CalculatorCard() {
                   Industrial-scale bill silently carries over and
                   produces a nonsense "Recommended System: 100 kW" for a
                   Residential/Commercial property. */}
-              {sector !== "INDUSTRIAL" && resolvedBillPKR !== null && resolvedBillPKR >= INDUSTRIAL_SECTOR_THRESHOLD_PKR && (
+              {!sizeMode && sector !== "INDUSTRIAL" && resolvedBillPKR !== null && resolvedBillPKR >= INDUSTRIAL_SECTOR_THRESHOLD_PKR && (
                 <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
                   <p className="text-xs leading-relaxed text-amber-800">
@@ -3265,7 +3607,7 @@ function CalculatorCard() {
                   selected above — see the dedicated baselinePreview
                   effect, a separate live-preview call that always forces
                   targetBudgetTier: "UNDER_1M". */}
-              {resolvedBillPKR !== null && resolvedBillPKR > 0 && baselinePreview && (
+              {(sizeMode ? targetKwValid : resolvedBillPKR !== null && resolvedBillPKR > 0) && baselinePreview && (
                 <p className="mt-1.5 text-sm text-slate-500">
                   Starting from: <span className="font-semibold text-slate-700">{formatPKR(baselinePreview.totalClientPricePKR)}</span>{" "}
                   (panels + inverter only, no battery)
@@ -3279,7 +3621,7 @@ function CalculatorCard() {
                   app deliberately sizes for daytime usage only (the "no
                   grid export" business model), so the dropdown says so
                   honestly rather than promising 100% bill offset. */}
-              {resolvedBillPKR !== null && resolvedBillPKR > 0 && livePreview && (
+              {!sizeMode && resolvedBillPKR !== null && resolvedBillPKR > 0 && livePreview && (
                 <div className="mt-1.5">
                   <button
                     type="button"
@@ -3514,9 +3856,9 @@ function CalculatorCard() {
                 above for why that matters inside the dashboard's narrower
                 left column. bg-white (alternating back from Step 2's
                 bg-slate-50) — see StepHeader/Part 2. */}
-            <div ref={configurationRef} className="@container rounded-2xl border border-slate-200 bg-white p-4">
+            <div ref={configurationRef} className="@container rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
               <StepHeader step={3} title="Equipment Configurator" />
-              <PathToggle path={customizationPath} onChange={setCustomizationPath} />
+              <PathToggle path={customizationPath} onChange={handleCustomizationPathChange} />
 
               {/* animate-fade-up (2026-09-22, "make it professional and
                   smooth") — this block used to hard-appear with the
@@ -3537,10 +3879,25 @@ function CalculatorCard() {
                       Loading equipment options…
                     </div>
                   )}
-                  {equipmentOptionsError && (
-                    <p role="alert" className="text-xs text-red-500">
-                      {equipmentOptionsError}
+                  {customizationPath === "CUSTOM" && !sizingReady && (
+                    <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs leading-relaxed text-amber-800">
+                      Enter your monthly bill or the system size above to see the panel count and the rest of your build.
                     </p>
+                  )}
+                  {equipmentOptionsError && (
+                    <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-red-500">
+                      <span>{equipmentOptionsError}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEquipmentOptionsError(null);
+                          setEquipmentRetry((n) => n + 1);
+                        }}
+                        className="min-h-9 rounded-full border border-red-200 bg-white px-3 font-semibold text-red-600 transition-colors duration-200 hover:bg-red-50"
+                      >
+                        Try again
+                      </button>
+                    </div>
                   )}
 
                   {equipmentOptions && (
@@ -3946,168 +4303,9 @@ function CalculatorCard() {
                         </EquipmentSwapRow>
                       )}
 
-                      {/* Cabling & Protection, and Mounting Structure —
-                          Default & Swap rows (Part 5, 2026-08-20), matching
-                          Panel/Inverter/Battery exactly instead of the old
-                          numbered "4. Cables, Protection, and Mounting"
-                          accordion (dropped the "4." — none of the other
-                          rows are numbered, so it never matched the rest
-                          of the flow). Cable/Breakers have no individually
-                          split breakdown field (the backend combines them
-                          into one `cablingAndProtectionPKR` line), so
-                          their current-price label uses the same
-                          unitPricePKR × systemWatts math the alternative
-                          cards' deltaLabel already computes — the exact
-                          per-line figure the backend itself derives from
-                          before summing the two together. Structure DOES
-                          have its own dedicated `structurePKR` breakdown
-                          field, so that one uses the real backend total
-                          directly, same as Panel/Inverter/Battery. */}
-                      <EquipmentSwapRow
-                        title="DC/AC Cabling"
-                        icon={ShieldWireIcon}
-                        currentLabel={currentCableOption?.label ?? "Select a cable"}
-                        currentPriceLabel={equipmentUnitCostLabel(currentCableOption?.unitPricePKR ?? null, systemWatts)}
-                        isOpen={openEquipmentSection === "CABLE"}
-                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "CABLE" ? null : "CABLE"))}
-                      >
-                        <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
-                          {(equipmentOptions.DC_CABLE ?? []).map((o) => (
-                            <SwapOptionCard
-                              key={o.code}
-                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
-                              imageUrl={o.logoUrl}
-                              active={effectiveCableCode === o.code}
-                              inStock={o.inStock}
-                              onClick={() => setCableCode(o.code)}
-                              deltaLabel={swapDeltaLabel(
-                                o.unitPricePKR,
-                                currentCableOption?.unitPricePKR ?? null,
-                                systemWatts,
-                                effectiveCableCode === o.code
-                              )}
-                            />
-                          ))}
-                        </div>
-                      </EquipmentSwapRow>
+                      {bundleSuggestion}
 
-                      <EquipmentSwapRow
-                        title="Protection & Breakers"
-                        icon={ShieldWireIcon}
-                        currentLabel={currentBreakersOption?.label ?? "Select protection"}
-                        currentPriceLabel={equipmentUnitCostLabel(currentBreakersOption?.unitPricePKR ?? null, systemWatts)}
-                        isOpen={openEquipmentSection === "BREAKERS"}
-                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "BREAKERS" ? null : "BREAKERS"))}
-                      >
-                        <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
-                          {(equipmentOptions.BREAKERS ?? []).map((o) => (
-                            <SwapOptionCard
-                              key={o.code}
-                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
-                              imageUrl={o.logoUrl}
-                              active={effectiveBreakersCode === o.code}
-                              inStock={o.inStock}
-                              onClick={() => setBreakersCode(o.code)}
-                              deltaLabel={swapDeltaLabel(
-                                o.unitPricePKR,
-                                currentBreakersOption?.unitPricePKR ?? null,
-                                systemWatts,
-                                effectiveBreakersCode === o.code
-                              )}
-                            />
-                          ))}
-                        </div>
-                      </EquipmentSwapRow>
-
-                      <EquipmentSwapRow
-                        title="Mounting Structure"
-                        icon={ShieldWireIcon}
-                        currentLabel={currentStructureOption?.label ?? "Select a structure"}
-                        currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.structurePKR) : null}
-                        isOpen={openEquipmentSection === "STRUCTURE"}
-                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "STRUCTURE" ? null : "STRUCTURE"))}
-                      >
-                        <div className="grid grid-cols-1 gap-2.5 @sm:grid-cols-2">
-                          {(equipmentOptions.MOUNTING_STRUCTURE ?? []).map((o) => (
-                            <SwapOptionCard
-                              key={o.code}
-                              label={o.isOtherOption ? "Other / Specific Requirement" : o.label}
-                              imageUrl={o.logoUrl}
-                              icon={STRUCTURE_ICON_BY_CODE[o.code]}
-                              active={effectiveStructureCode === o.code}
-                              inStock={o.inStock}
-                              onClick={() => setStructureCode(o.code)}
-                              deltaLabel={swapDeltaLabel(
-                                o.unitPricePKR,
-                                currentStructureOption?.unitPricePKR ?? null,
-                                systemWatts,
-                                effectiveStructureCode === o.code
-                              )}
-                            />
-                          ))}
-                        </div>
-                      </EquipmentSwapRow>
-
-                      {/* Site Works (2026-08-20) — civil blocks, earthing
-                          & boring, and lightning arrestor. Not a
-                          brand/model swap like every row above: Earthing/
-                          Lightning are customer-adjustable counts against
-                          a flat admin rate (GlobalPricingSettings);
-                          Civil Blocks is READ-ONLY as of this update —
-                          always auto-computed server-side as
-                          Math.ceil(panelCount × 1.5), never customer-set
-                          (see EquipmentSelections.civilBlockQty's doc
-                          comment). Collapsed by default (not important
-                          for the client to fuss over, but the option's
-                          here) — same EquipmentSwapRow shell as every
-                          other row for visual consistency. */}
-                      <EquipmentSwapRow
-                        title="Site Works"
-                        icon={Wrench}
-                        currentLabel={(() => {
-                          const civilBlockQty = livePreview?.siteWorks.civilBlockQty ?? 0;
-                          const total = civilBlockQty + earthingBoreQty + lightningArrestorQty;
-                          return total > 0 ? `${total} item${total === 1 ? "" : "s"} selected` : "No site works selected";
-                        })()}
-                        currentPriceLabel={livePreview ? formatPKR(livePreview.breakdown.siteWorksPKR) : null}
-                        isOpen={openEquipmentSection === "SITE_WORKS"}
-                        onToggleOpen={() => setOpenEquipmentSection((s) => (s === "SITE_WORKS" ? null : "SITE_WORKS"))}
-                      >
-                        <div className="space-y-2.5">
-                          <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3">
-                            <div>
-                              <p className="text-sm font-semibold text-slate-900">Civil Blocks</p>
-                              <p className="text-[11px] text-slate-500">Auto-calculated: {formatTrim(1.5)}× your panel count</p>
-                            </div>
-                            <span className="text-sm font-bold text-slate-900">{livePreview?.siteWorks.civilBlockQty ?? "N/A"}</span>
-                          </div>
-                          <QuantityStepper label="Earthing & Boring" value={earthingBoreQty} onChange={setEarthingBoreQty} />
-                          <QuantityStepper
-                            label="Lightning Arrestor"
-                            value={lightningArrestorQty}
-                            onChange={setLightningArrestorQty}
-                          />
-                        </div>
-                      </EquipmentSwapRow>
-
-                      {/* Services (2026-08-21) — a toggleable add-on, not
-                          a brand/model pick or a quantity, so a plain
-                          on/off switch rather than EquipmentSwapRow's
-                          expand-to-swap or QuantityStepper's +/- shell.
-                          Dynamically recalculates with the Panel Quantity
-                          Adjuster above — same effectivePanelCount the
-                          backend already resolved for Civil Blocks. */}
-                      <div>
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Services</p>
-                        <ServiceToggleCard
-                          title="One Time Panel Washing Visit"
-                          icon={WaterDropIcon}
-                          description="A single professional cleaning visit after installation, not a recurring plan."
-                          active={includePanelWashing}
-                          onToggle={() => setIncludePanelWashing((s) => !s)}
-                          priceLabel={livePreview?.panelWashing ? formatPKR(livePreview.breakdown.panelWashingPKR) : null}
-                        />
-                      </div>
+                      {extraBuildRows}
                     </div>
 
                     {/* Mobile: Build.html's simpler 3-card layout
@@ -4127,7 +4325,7 @@ function CalculatorCard() {
                         second bespoke picker UI. */}
                     <div className="space-y-3 lg:hidden">
                       {/* Panels */}
-                      <div className="rounded-[18px] border border-slate-200 bg-white p-4">
+                      <div className="rounded-[18px] border border-slate-200 bg-white p-3.5">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-extrabold text-slate-900">Panels</span>
                           <span className="font-mono text-xs font-semibold text-emerald-700">
@@ -4155,6 +4353,30 @@ function CalculatorCard() {
                             );
                           })}
                         </div>
+                        {currentPanelBrand && panelSkusForBrand(currentPanelBrand).length > 1 && (
+                          <>
+                            <p className="mb-1.5 mt-3 text-xs font-medium text-slate-600">Wattage</p>
+                            <div className="flex flex-wrap gap-2">
+                              {panelSkusForBrand(currentPanelBrand).map((o) => (
+                                <button
+                                  key={o.code}
+                                  type="button"
+                                  disabled={!o.inStock}
+                                  onClick={() => setPanelCode(o.code)}
+                                  aria-pressed={effectivePanelCode === o.code}
+                                  className={`rounded-full px-3.5 py-2 text-xs font-semibold transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
+                                    effectivePanelCode === o.code
+                                      ? "bg-orange-600 text-white"
+                                      : "border border-slate-200 bg-white text-slate-900 hover:border-orange-300"
+                                  }`}
+                                >
+                                  {o.specValue ? `${o.specValue} W` : o.label}
+                                  {!o.inStock ? " (out of stock)" : ""}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
                         {livePreview &&
                           (() => {
                             const panelFloor = Math.min(PANEL_COUNT_ABSOLUTE_MINIMUM, livePreview.equipment.panel.maxCount ?? Infinity);
@@ -4175,9 +4397,9 @@ function CalculatorCard() {
                               // inline to the right on a wide-enough
                               // container (@xs:justify-between).
                               <>
-                              <div className="mt-3 flex flex-col gap-2 @xs:flex-row @xs:items-center @xs:justify-between">
+                              <div className="mt-3 flex items-center justify-between gap-3">
                                 <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-slate-900">
+                                  <p className="text-sm font-semibold leading-snug text-slate-900">
                                     {currentPanelOption?.specValue ? `${currentPanelOption.specValue} W` : currentPanelOption?.label}
                                     {currentPanelOption?.specValue ? " · " : ""}
                                     {currentPanelOption?.brand ?? ""}
@@ -4193,7 +4415,7 @@ function CalculatorCard() {
                                     shell was too wide to sit beside the
                                     spec text on a 390px card without
                                     squeezing it to nothing. */}
-                                <div className="flex shrink-0 items-center gap-3.5 self-start rounded-xl bg-[#F5F1EB] px-2 py-1.5 @xs:self-auto">
+                                <div className="flex shrink-0 items-center gap-2.5 rounded-xl bg-[#F5F1EB] px-2 py-1.5">
                                   <button
                                     type="button"
                                     onClick={() => setPanelQtyOverride(Math.max(panelFloor, panelQty - 1))}
@@ -4203,9 +4425,14 @@ function CalculatorCard() {
                                   >
                                     −
                                   </button>
-                                  <span className="min-w-[22px] text-center font-mono text-base font-semibold text-slate-900">
-                                    {panelQty}
-                                  </span>
+                                  <StepperNumberInput
+                                    value={panelQty}
+                                    onChange={(v) => setPanelQtyOverride(v)}
+                                    min={panelFloor}
+                                    max={Number.isFinite(panelMax) ? panelMax : undefined}
+                                    label="Panels"
+                                    className="w-12 rounded-md border border-transparent bg-transparent text-center font-mono text-base font-semibold text-slate-900 outline-none focus:border-orange-400 focus:bg-white"
+                                  />
                                   <button
                                     type="button"
                                     onClick={() => setPanelQtyOverride(Math.min(panelMax, panelQty + 1))}
@@ -4238,7 +4465,7 @@ function CalculatorCard() {
                       </div>
 
                       {/* Inverter */}
-                      <div className="rounded-[18px] border border-slate-200 bg-white p-4">
+                      <div className="rounded-[18px] border border-slate-200 bg-white p-3.5">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-extrabold text-slate-900">Inverter</span>
                           <span className="font-mono text-xs font-semibold text-emerald-700">
@@ -4335,7 +4562,7 @@ function CalculatorCard() {
                             const totalCapacityKw = specKw * displayQuantity;
                             return (
                               <div className="mt-3">
-                                <div className="flex flex-col gap-2 @xs:flex-row @xs:items-center @xs:justify-between">
+                                <div className="flex items-center justify-between gap-3">
                                   <div className="min-w-0">
                                     <p className="text-sm font-semibold text-slate-900">Number of Units</p>
                                     <p className="text-xs text-slate-500">
@@ -4344,7 +4571,7 @@ function CalculatorCard() {
                                       {!isFullyManual ? `min ${autoQuantity}` : ""}
                                     </p>
                                   </div>
-                                  <div className="flex shrink-0 items-center gap-3.5 self-start rounded-xl bg-[#F5F1EB] px-2 py-1.5 @xs:self-auto">
+                                  <div className="flex shrink-0 items-center gap-2.5 rounded-xl bg-[#F5F1EB] px-2 py-1.5">
                                     <button
                                       type="button"
                                       onClick={() => setInverterQuantityOverride(Math.max(minQuantity, displayQuantity - 1))}
@@ -4354,9 +4581,14 @@ function CalculatorCard() {
                                     >
                                       −
                                     </button>
-                                    <span className="min-w-[22px] text-center font-mono text-base font-semibold text-slate-900">
-                                      {displayQuantity}
-                                    </span>
+                                    <StepperNumberInput
+                                      value={displayQuantity}
+                                      onChange={(v) => setInverterQuantityOverride(v)}
+                                      min={minQuantity}
+                                      max={MAX_INVERTER_UNITS}
+                                      label="Inverter units"
+                                      className="w-12 rounded-md border border-transparent bg-transparent text-center font-mono text-base font-semibold text-slate-900 outline-none focus:border-orange-400 focus:bg-white"
+                                    />
                                     <button
                                       type="button"
                                       onClick={() => setInverterQuantityOverride(Math.min(MAX_INVERTER_UNITS, displayQuantity + 1))}
@@ -4460,6 +4692,10 @@ function CalculatorCard() {
                           )}
                         </div>
                       )}
+
+                      {bundleSuggestion}
+
+                      {extraBuildRows}
 
                       {/* Total + CTA — Build.html's sticky total bar,
                           rendered inline (not fixed) since Complete
@@ -4591,7 +4827,7 @@ function CalculatorCard() {
                     </div>
                     <div>
                       <p className="text-[10px] text-slate-500">Savings/mo</p>
-                      <p className="text-sm font-bold text-emerald-600">{formatPKR(livePreview.estimatedMonthlySavingsPKR)}</p>
+                      <p className="text-sm font-bold text-emerald-600">{livePreview.estimatedMonthlySavingsPKR > 0 ? formatPKR(livePreview.estimatedMonthlySavingsPKR) : "N/A"}</p>
                     </div>
                     <div>
                       <p className="text-[10px] text-slate-500">Payback</p>
@@ -4600,6 +4836,7 @@ function CalculatorCard() {
                       </p>
                     </div>
                   </div>
+                  <GenerationNote generation={livePreview.generation} systemKw={livePreview.systemKw} />
 
                   {/* "What's included" (2026-09-04, LOCKED spec's Quote
                       screen, mobile only) — ONLY real, already-priced
@@ -4799,7 +5036,7 @@ function CalculatorCard() {
               <button
                 type="submit"
                 disabled={status === "loading"}
-                className="glow-cta-teal mt-4 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-brand-teal py-3.5 text-sm font-semibold text-brand-teal-ink transition-all duration-200 hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70"
+                className="glow-cta-teal mt-4 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-brand-teal-deep py-3.5 text-sm font-semibold text-white transition-all duration-200 hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {status === "loading" ? (
                   <>
@@ -5102,13 +5339,13 @@ function CalculatorCard() {
               : ""}
           </p>
           <p className="truncate text-base font-bold">
-            {livePreview ? formatPKR(livePreview.totalClientPricePKR) : "Enter your bill above"}
+            {livePreview ? formatPKR(livePreview.totalClientPricePKR) : sizeMode ? "Enter your system size above" : "Enter your bill above"}
           </p>
         </div>
         <button
           type="button"
           onClick={() => document.getElementById("contact-and-submit")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-teal px-4 py-2.5 text-sm font-semibold text-brand-teal-ink transition-all duration-200 hover:brightness-95"
+          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-teal-deep px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:brightness-95"
         >
           Get Quotation <ArrowRight className="h-4 w-4" />
         </button>
@@ -5195,7 +5432,7 @@ function CalculatorCard() {
           from the sticky Mobile-Only Floating Bottom Bar (that one's
           persistent/quick-access while scrolling; this is the one-time
           closing CTA at the end of the page, matching Main.html). */}
-      <div className="mt-7 rounded-3xl bg-[#0F172A] p-6 lg:hidden">
+      <div className="mt-7 rounded-3xl bg-gradient-to-b from-[#2F4D70] to-[#1E3550] p-6 lg:hidden">
         <p className="text-xl font-extrabold tracking-tight text-white">Ready to cut your bill?</p>
         <div className="mt-3.5 flex gap-2.5">
           <button
@@ -5282,23 +5519,23 @@ function PathToggle({ path, onChange }: { path: CustomizationPath; onChange: (pa
           aria-pressed={path === "CUSTOM"}
           className={`relative flex min-h-[52px] items-center justify-center gap-2 rounded-xl border-2 px-3 py-3 text-sm font-bold leading-tight transition-all duration-200 ${
             path === "CUSTOM"
-              ? "border-violet-700 bg-violet-50 text-violet-900"
-              : "border-violet-200 bg-violet-50/60 text-violet-700 hover:border-violet-300 hover:bg-violet-100"
+              ? "border-brand-navy bg-brand-navy/10 text-brand-navy"
+              : "border-brand-navy/30 bg-brand-navy/5 text-brand-navy hover:border-brand-navy/60 hover:bg-brand-navy/10"
           }`}
         >
           {path !== "CUSTOM" && (
             <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-violet-500" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-navy opacity-60" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-brand-navy" />
             </span>
           )}
           <SlidersHorizontal className="h-4.5 w-4.5 shrink-0" />
           Build Your Own
-          {path === "CUSTOM" && <CheckCircle2 className="h-4.5 w-4.5 shrink-0 text-violet-700" />}
+          {path === "CUSTOM" && <CheckCircle2 className="h-4.5 w-4.5 shrink-0 text-brand-navy" />}
         </button>
       </div>
       {path === "RECOMMENDED" && (
-        <p className="mt-2 text-center text-xs text-violet-600">
+        <p className="mt-2 text-center text-xs text-brand-navy">
           Want to select your own inverter, panels, or batteries? Tap <span className="font-semibold">Build Your Own</span> above.
         </p>
       )}
@@ -5562,7 +5799,7 @@ function SwapOptionCard({
       ) : (
         Icon && (
           <Icon
-            className={`h-7 w-7 shrink-0 ${!inStock ? "text-slate-300" : active ? "text-orange-100" : "text-violet-400"}`}
+            className={`h-7 w-7 shrink-0 ${!inStock ? "text-slate-300" : active ? "text-orange-100" : "text-brand-navy/60"}`}
           />
         )
       )}
@@ -5674,6 +5911,55 @@ function RangeSlider({
  *  these 3 items aren't a brand pick, just a customer-adjustable count
  *  against a flat admin rate. 0 is a valid, reachable value ("I don't
  *  need this item"), never negative. */
+/** The number between a stepper's +/- buttons, typeable so a large change
+ *  (203 panels to 300 on an industrial system) is one entry, not ~100 taps.
+ *  Keeps its own draft while typing and commits, clamped to min/max, on blur
+ *  or Enter, so a half-typed number never reprices the quote. */
+function StepperNumberInput({
+  value,
+  onChange,
+  min,
+  max,
+  label,
+  className,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max?: number;
+  label: string;
+  className: string;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const n = Math.round(Number(draft));
+    setDraft(null);
+    if (draft.trim() === "" || !Number.isFinite(n)) return;
+    const clamped = Math.min(max ?? Infinity, Math.max(min, n));
+    if (clamped !== value) onChange(clamped);
+  };
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      aria-label={`${label} quantity`}
+      value={draft ?? String(value)}
+      onChange={(e) => setDraft(e.target.value.replace(/[^\d]/g, ""))}
+      onFocus={(e) => e.target.select()}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+          e.currentTarget.blur();
+        }
+      }}
+      className={className}
+    />
+  );
+}
+
 /** min defaults to 0 (Site Works' Earthing/Lightning — "I don't need
  *  this item" is valid); the Panel Quantity Adjuster passes a real
  *  min/max (see its caller) so this same component enforces the
@@ -5705,7 +5991,14 @@ function QuantityStepper({
         >
           −
         </button>
-        <span className="w-4 text-center text-sm font-bold text-slate-900">{value}</span>
+        <StepperNumberInput
+          value={value}
+          onChange={onChange}
+          min={min}
+          max={max}
+          label={label}
+          className="w-14 rounded-md border border-transparent bg-transparent text-center text-sm font-bold text-slate-900 outline-none focus:border-orange-400 focus:bg-white"
+        />
         <button
           type="button"
           onClick={() => onChange(Math.min(max ?? Infinity, value + 1))}
@@ -5807,6 +6100,544 @@ function CustomRequirementNotice() {
 // upload. Nulls render as "N/A", never fabricated: OCR/PDF-text extraction
 // is best-effort, and we'd rather admit uncertainty than guess.
 // ============================================================================
+
+/** Explains where the savings figure comes from when the customer sized by
+ *  kW instead of giving a bill: one line, plus the full working on demand. */
+function GenerationNote({
+  generation,
+  systemKw,
+  className,
+}: {
+  generation?: GenerationEstimate | null;
+  systemKw: number;
+  className?: string;
+}) {
+  if (!generation) return null;
+  const g = generation;
+  const monthlySavings = Math.round(g.usedKwh * g.tariffPKR);
+  const workingList = (
+        <ol className="mt-1 space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-3 leading-relaxed print:bg-white">
+          <li>
+            <span className="font-semibold text-slate-800">1. Sunshine:</span> a typical Lahore system delivers about{" "}
+            {g.kwhPerKwpPerDay} units per kW per day in {g.generationMonth}, after normal inverter and cable losses.
+          </li>
+          <li>
+            <span className="font-semibold text-slate-800">2. Units generated:</span> {formatTrim(systemKw, 1)} kW × {g.kwhPerKwpPerDay} ×{" "}
+            {g.daysInMonth} days × {Math.round(g.dustDerate * 100)}% (dust between cleanings) ≈{" "}
+            {g.monthlyGenerationKwh.toLocaleString("en-PK")} units.
+          </li>
+          <li>
+            <span className="font-semibold text-slate-800">3. Units you use:</span> about {Math.round(g.selfUseShare * 100)}% of those,{" "}
+            {g.usedKwh.toLocaleString("en-PK")} units, are used on site. There is no export credit, so anything you do not use earns
+            nothing.
+          </li>
+          <li>
+            <span className="font-semibold text-slate-800">4. Savings:</span> {g.usedKwh.toLocaleString("en-PK")} units × Rs {g.tariffPKR} per
+            unit ≈ {formatPKR(monthlySavings)} this month.
+          </li>
+          <li>
+            <span className="font-semibold text-slate-800">5. Payback:</span> uses the whole year (summer produces more than winter), about{" "}
+            {formatPKR(g.annualSavingsPKR)} a year.
+          </li>
+          <li className="border-t border-slate-200 pt-1.5 text-slate-500">
+            An estimate, not a guarantee. Your real bill, tariff slab and how much you use during the day will change it. Share your bill
+            and we will refine it.
+          </li>
+        </ol>
+  );
+  return (
+    <div className={className ?? "mt-2"}>
+      <p className="text-[11px] leading-relaxed text-slate-500">
+        Estimate for Lahore in {g.generationMonth}, based on the system size you chose rather than your usage.
+      </p>
+      <details className={`group mt-1 text-[11px] text-slate-600`}>
+        <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1 font-semibold text-orange-700 [&::-webkit-details-marker]:hidden">
+          <ChevronDown className="h-3.5 w-3.5 transition-transform duration-200 group-open:rotate-180" />
+          How we calculated this
+        </summary>
+        {workingList}
+      </details>
+    </div>
+  );
+}
+
+/** Compact PKR for a chart: Lac and Crore, the units customers think in. */
+function formatCompactPKR(n: number): string {
+  if (n >= 10_000_000) return `Rs ${formatTrim(n / 10_000_000, 2)} Cr`;
+  if (n >= 100_000) return `Rs ${formatTrim(n / 100_000, 1)} Lac`;
+  return formatPKR(n);
+}
+
+/** Plain-language picture of the saving for industrial customers: year by
+ *  year, where they stand after paying for the system and counting the LESCO
+ *  bills it avoids. Red bars are still recovering the cost, green bars are
+ *  profit. Uses today's tariff with no increases, so it understates the
+ *  benefit. */
+function SavingsVsGridChart({ annualSavingsPKR, systemCostPKR }: { annualSavingsPKR: number; systemCostPKR: number }) {
+  if (annualSavingsPKR <= 0 || systemCostPKR <= 0) return null;
+  const paybackYears = systemCostPKR / annualSavingsPKR;
+  const horizon = Math.min(15, Math.max(10, Math.ceil(paybackYears) + 4));
+  const net = (years: number) => annualSavingsPKR * years - systemCostPKR;
+  const years = Array.from({ length: horizon + 1 }, (_, i) => i);
+  const maxPos = Math.max(net(horizon), 1);
+  const maxNeg = systemCostPKR;
+  const W = 640;
+  const H = 320;
+  const m = { l: 12, r: 12, t: 34, b: 52 };
+  const plotH = H - m.t - m.b;
+  const scale = plotH / (maxPos + maxNeg);
+  const zeroY = m.t + maxPos * scale;
+  const slot = (W - m.l - m.r) / years.length;
+  const barW = Math.min(34, slot * 0.64);
+  const cx = (i: number) => m.l + slot * (i + 0.5);
+  const breakEvenX = m.l + slot * (paybackYears + 0.5);
+  const show = (i: number) => i === 0 || i === horizon || i % (horizon > 10 ? 3 : 2) === 0 || i === Math.ceil(paybackYears);
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Bar chart of your position each year after paying for the system" className="h-auto w-full print:mx-auto print:w-[84%]">
+        <defs>
+          <linearGradient id="netLoss" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#F7BBBD" />
+            <stop offset="100%" stopColor="#EF767A" />
+          </linearGradient>
+          <linearGradient id="netGain" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%" stopColor="#2FB994" />
+            <stop offset="100%" stopColor="#49DCB1" />
+          </linearGradient>
+        </defs>
+        <line x1={m.l} x2={W - m.r} y1={zeroY} y2={zeroY} stroke="#94A3B8" strokeWidth="1.5" />
+        {years.map((i) => {
+          const v = net(i);
+          const h = Math.max(2, Math.abs(v) * scale);
+          const positive = v >= 0;
+          return (
+            <g key={i}>
+              <rect
+                x={cx(i) - barW / 2}
+                y={positive ? zeroY - h : zeroY}
+                width={barW}
+                height={h}
+                rx="5"
+                fill={positive ? "url(#netGain)" : "url(#netLoss)"}
+              />
+              {show(i) && (
+                <text
+                  x={cx(i)}
+                  y={positive ? zeroY - h - 7 : zeroY + h + 15}
+                  textAnchor="middle"
+                  fontSize="11"
+                  fontWeight="700"
+                  fill={positive ? "#1F9B78" : "#C2474C"}
+                >
+                  {positive ? "+" : "-"}
+                  {formatCompactPKR(Math.abs(v)).replace("Rs ", "")}
+                </text>
+              )}
+              <text x={cx(i)} y={H - 10} textAnchor="middle" fontSize="10.5" fill="#64748B">
+                {i === 0 ? "Today" : i}
+              </text>
+            </g>
+          );
+        })}
+        <g>
+          <line x1={breakEvenX} x2={breakEvenX} y1={m.t - 6} y2={zeroY} stroke="#0F172A" strokeWidth="1.5" strokeDasharray="4 4" />
+          <rect x={Math.min(Math.max(breakEvenX - 76, m.l), W - m.r - 152)} y={2} width="152" height="22" rx="11" fill="#0F172A" />
+          <text
+            x={Math.min(Math.max(breakEvenX - 76, m.l), W - m.r - 152) + 76}
+            y={17}
+            textAnchor="middle"
+            fontSize="11"
+            fontWeight="700"
+            fill="#FFFFFF"
+          >
+            Paid back in {formatTrim(paybackYears, 1)} years
+          </text>
+        </g>
+      </svg>
+      <p className="mt-1 text-center text-[10px] text-slate-500">Years after installation</p>
+    </div>
+  );
+}
+
+interface IndustrialSiteDetails {
+  connectionType: "HT" | "LT" | null;
+  sanctionedLoadKw: number | null;
+  generator: { fuel: "DIESEL" | "GAS" | null; capacityKw: number | null } | null;
+}
+
+/** Industrial quotation: the electrical single line diagram, built from the
+ *  customer's chosen equipment and what they told us about the site. */
+function IndustrialSystemDiagram({
+  result,
+  siteDetails,
+  customerName,
+}: {
+  result: QuoteResult;
+  siteDetails?: IndustrialSiteDetails;
+  customerName: string;
+}) {
+  const { panel, inverter } = result.equipment;
+  const dateLabel = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return (
+    <section className="mt-8 print:break-before-page print:mt-0">
+      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
+        <Activity className="h-3.5 w-3.5" /> Electrical single line diagram
+      </p>
+      <h3 className="mt-1 text-lg font-extrabold leading-snug tracking-tight text-slate-900">How your plant connects to your site.</h3>
+      <p className="mb-2 mt-1 text-[11px] leading-relaxed text-slate-500">
+        From the PV array through the inverters and protection to your LT board, with the LESCO / WAPDA supply
+        {siteDetails?.generator ? " and your generator" : ""}.<span className="print:hidden"> Scroll sideways on a phone.</span>
+      </p>
+      <SingleLineDiagram
+        panelCount={panel.count}
+        panelWatt={panel.specValue}
+        panelLabel={panel.label}
+        inverterLabel={inverter.label}
+        inverterQuantity={inverter.quantity}
+        inverterKwEach={inverter.specValue}
+        isHT={siteDetails?.connectionType === "HT"}
+        sanctionedLoadKw={siteDetails?.sanctionedLoadKw ?? null}
+        generator={siteDetails?.generator ?? null}
+        earthingPits={result.siteWorks.earthingBoreQty}
+        lightningArresters={result.siteWorks.lightningArrestorQty}
+        customerName={customerName}
+        reference={`#${result.quoteId.slice(0, 10).toUpperCase()}`}
+        dateLabel={dateLabel}
+      />
+    </section>
+  );
+}
+
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Industrial quotation, second page: the saving against the grid explained
+ *  for someone who has never read a solar proposal. Headline numbers first,
+ *  then the picture, the seasons, and finally how the numbers were reached. */
+function IndustrialBenefitSection({ result, part }: { result: QuoteResult; part: "summary" | "evidence" }) {
+  const g = result.generation ?? null;
+  const annualSavingsPKR = g ? g.annualSavingsPKR : result.estimatedMonthlySavingsPKR * 12;
+  const systemCost = result.totalClientPricePKR;
+  if (annualSavingsPKR <= 0) return null;
+  const paybackYears = systemCost / annualSavingsPKR;
+  const tenYearGain = annualSavingsPKR * 10 - systemCost;
+  const monthly = g?.monthlySavingsPKR ?? null;
+  const maxMonth = monthly ? Math.max(...monthly) : 0;
+  const currentMonthIndex = g ? MONTH_SHORT.findIndex((m) => g.generationMonth.startsWith(m)) : -1;
+  const keepAvoid = "print:break-inside-avoid";
+
+  if (part === "summary") {
+    return (
+    <section className="mt-8 space-y-4">
+      <div>
+        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
+          <TrendingDown className="h-3.5 w-3.5" /> Your benefit against LESCO
+        </p>
+        <h3 className="mt-1 text-xl font-extrabold leading-snug tracking-tight text-slate-900">
+          Every unit your plant makes is a unit you do not buy from the grid.
+        </h3>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">
+          Below is what that is worth to you, in plain numbers. All figures are estimates for Lahore.
+        </p>
+      </div>
+
+      {/* Side by side, readable in a glance: what the grid costs against
+          what Solar Pixel costs, then what the customer actually gets. */}
+      <div className={`${keepAvoid}`}>
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="flex flex-col rounded-2xl border border-brand-coral-200 bg-brand-coral-50 p-3.5 print:bg-white">
+            <div className="flex h-10 items-center gap-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-coral text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
+                <Zap className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-extrabold leading-tight text-brand-coral-ink">LESCO / WAPDA</p>
+                <p className="mt-0.5 text-[10px] font-semibold uppercase leading-tight tracking-wide text-[#C2474C]">You keep paying</p>
+              </div>
+            </div>
+            <p className="mt-3 text-[10px] uppercase leading-tight tracking-wide text-slate-500">Every month</p>
+            <p className="text-xl font-extrabold leading-tight text-[#C2474C] sm:text-2xl">{formatCompactPKR(Math.round(annualSavingsPKR / 12))}</p>
+            <p className="mt-2 text-[10px] uppercase leading-tight tracking-wide text-slate-500">Over 10 years</p>
+            <p className="text-xl font-extrabold leading-tight text-[#C2474C] sm:text-2xl">{formatCompactPKR(annualSavingsPKR * 10)}</p>
+            <p className="mt-auto pt-2 text-[11px] font-semibold leading-snug text-[#C2474C]">The bill never ends, and tariffs only go up.</p>
+          </div>
+          <div className="flex flex-col rounded-2xl border border-brand-teal/50 bg-brand-teal/10 p-3.5 print:bg-white">
+            <div className="flex h-10 items-center gap-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center">
+                <BrandMark className="h-9 w-9" gradientId="benefitBrandMark" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-extrabold leading-tight text-brand-teal-ink">Solar Pixel</p>
+                <p className="mt-0.5 text-[10px] font-semibold uppercase leading-tight tracking-wide text-brand-teal-deep">You pay once</p>
+              </div>
+            </div>
+            <p className="mt-3 text-[10px] uppercase leading-tight tracking-wide text-slate-500">Every month after</p>
+            <p className="text-xl font-extrabold leading-tight text-brand-teal-deep sm:text-2xl">Rs 0</p>
+            <p className="mt-2 text-[10px] uppercase leading-tight tracking-wide text-slate-500">Whole system, one time</p>
+            <p className="text-xl font-extrabold leading-tight text-brand-teal-deep sm:text-2xl">{formatCompactPKR(systemCost)}</p>
+            <p className="mt-auto pt-2 text-[11px] font-semibold leading-snug text-brand-teal-deep">Paid back in {formatTrim(paybackYears, 1)} years, then it is free power.</p>
+          </div>
+        </div>
+        {tenYearGain > 0 && (
+          <div className="mt-2.5 rounded-2xl bg-brand-navy px-4 py-3 text-center text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
+            <p className="text-[11px] text-slate-300">With Solar Pixel, in 10 years you keep</p>
+            <p className="text-2xl font-extrabold leading-tight text-brand-teal">{formatCompactPKR(tenYearGain)}</p>
+            <p className="text-[11px] text-slate-300">that would have gone to LESCO</p>
+          </div>
+        )}
+        <div className="mt-2.5 rounded-2xl border border-slate-200 bg-white p-3.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">What you get with Solar Pixel</p>
+          <ul className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-[12px] text-slate-700 sm:grid-cols-2">
+            {[
+              `A ${formatTrim(result.systemKw, 1)} kW solar plant on your site`,
+              `${result.equipment.panel.count} ${result.equipment.panel.label}`,
+              `${result.equipment.inverter.quantity > 1 ? `${result.equipment.inverter.quantity} x ` : ""}${result.equipment.inverter.label}`,
+              g ? `About ${g.monthlyGenerationKwh.toLocaleString("en-PK")} units of your own power each month` : "Your own power, made on your roof",
+              "No net metering paperwork",
+              `Installed and live in ${result.deploymentLabel ?? `${result.daysToDeploy} days`}`,
+            ].map((line) => (
+              <li key={line} className="flex items-start gap-1.5">
+                <BadgeCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-teal-deep" />
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
+    );
+  }
+
+  return (
+    <section className="mt-8 space-y-4 print:mt-0 print:break-before-page">
+      <div className={`rounded-2xl border border-slate-200 bg-white p-4 ${keepAvoid}`}>
+        <p className="text-sm font-bold text-slate-900">Where you stand, year by year</p>
+        <p className="text-[11px] text-slate-500">
+          Each bar is your position after paying for the system and counting the LESCO bills it avoids. About {formatCompactPKR(annualSavingsPKR)} a year.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-semibold">
+          <span className="flex items-center gap-1.5 text-[#C2474C]">
+            <span className="h-2.5 w-2.5 rounded-sm bg-brand-coral" /> Still recovering the system cost
+          </span>
+          <span className="flex items-center gap-1.5 text-brand-teal-deep">
+            <span className="h-2.5 w-2.5 rounded-sm bg-brand-teal-deep" /> Profit after paying for the system
+          </span>
+        </div>
+        <SavingsVsGridChart annualSavingsPKR={annualSavingsPKR} systemCostPKR={systemCost} />
+      </div>
+
+      {monthly && (
+        <div className={`rounded-2xl border border-slate-200 bg-white p-4 ${keepAvoid}`}>
+          <p className="text-sm font-bold text-slate-900">How the saving changes through the year</p>
+          <p className="text-[11px] text-slate-500">Summer sun is stronger, so those months save more.</p>
+          <div className="mt-3 flex h-36 items-end gap-1.5 print:h-28" role="img" aria-label="Estimated savings for each month of the year">
+            {monthly.map((v, i) => {
+              const current = i === currentMonthIndex;
+              return (
+                <div key={MONTH_SHORT[i]} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
+                  <span className={`text-[9px] font-semibold tabular-nums ${current ? "text-orange-700" : "text-slate-500"}`}>
+                    {formatCompactPKR(v).replace("Rs ", "")}
+                  </span>
+                  <div
+                    className={`w-full rounded-t-md print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact] ${current ? "bg-brand-gold" : "bg-brand-teal"}`}
+                    style={{ height: `${Math.max(6, (v / maxMonth) * 100)}%` }}
+                  />
+                  <span className={`text-[10px] ${current ? "font-bold text-orange-700" : "text-slate-500"}`}>{MONTH_SHORT[i]}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {g && (
+        <div className={`rounded-2xl border border-slate-200 bg-slate-50 p-4 print:bg-white ${keepAvoid}`}>
+          <p className="text-sm font-bold text-slate-900">How we reached these numbers</p>
+          <p className="text-[11px] text-slate-500">The same steps for {g.generationMonth}, with your system size of {formatTrim(result.systemKw, 1)} kW.</p>
+          <ol className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            {[
+              { n: "1", title: "Lahore sunshine", value: `${g.kwhPerKwpPerDay} units`, note: `per kW per day in ${g.generationMonth}, after normal losses` },
+              {
+                n: "2",
+                title: "Units generated",
+                value: g.monthlyGenerationKwh.toLocaleString("en-PK"),
+                note: `${formatTrim(result.systemKw, 1)} kW × ${g.kwhPerKwpPerDay} × ${g.daysInMonth} days × ${Math.round(g.dustDerate * 100)}% for dust`,
+              },
+              {
+                n: "3",
+                title: "Units you use",
+                value: g.usedKwh.toLocaleString("en-PK"),
+                note: `${Math.round(g.selfUseShare * 100)}% used on site. Unused power earns nothing, there is no export credit`,
+              },
+              {
+                n: "4",
+                title: "Worth to you",
+                value: formatCompactPKR(Math.round(g.usedKwh * g.tariffPKR)),
+                note: `${g.usedKwh.toLocaleString("en-PK")} units × Rs ${g.tariffPKR} per unit`,
+              },
+            ].map((step) => (
+              <li key={step.n} className="rounded-xl border border-slate-200 bg-white p-3">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-navy text-[10px] font-bold text-white print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]">
+                  {step.n}
+                </span>
+                <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{step.title}</p>
+                <p className="text-base font-extrabold leading-tight text-slate-900">{step.value}</p>
+                <p className="mt-0.5 text-[10px] leading-snug text-slate-500">{step.note}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      <p className="text-[10px] leading-relaxed text-slate-500">
+        These are estimates, not guarantees. The comparison uses today&apos;s tariff with no yearly increase, so real grid bills are likely to be
+        higher. Your actual bill, tariff slab and daytime use will change the result. Share your recent LESCO bill and we will refine it.
+      </p>
+    </section>
+  );
+}
+
+/** The logo's 3 x 3 pixel grid as a live meter: cells light up in brand
+ *  orange as the system gets bigger, one gentle step at a time. */
+function PixelGrid({ lit, className }: { lit: number; className?: string }) {
+  return (
+    <div className={`grid grid-cols-3 gap-[3px] ${className ?? ""}`} aria-hidden>
+      {Array.from({ length: 9 }, (_, i) => (
+        <span
+          key={i}
+          className={`h-2.5 w-2.5 rounded-[3px] transition-colors duration-500 motion-reduce:transition-none ${
+            i < lit ? "bg-orange-700" : "bg-white/10"
+          } ${i === 2 && lit > 2 ? "!bg-brand-gold" : ""}`}
+          style={{ transitionDelay: `${i * 40}ms` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Rolls a number to its new value instead of snapping, so a changed quote
+ *  feels live. Falls straight to the value for reduced motion. */
+function CountUp({ value, format }: { value: number; format: (n: number) => string }) {
+  const [shown, setShown] = useState(value);
+  const fromRef = useRef(value);
+  useEffect(() => {
+    const reduce = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const from = fromRef.current;
+    if (reduce || from === value) {
+      fromRef.current = value;
+      const id = requestAnimationFrame(() => setShown(value));
+      return () => cancelAnimationFrame(id);
+    }
+    const start = performance.now();
+    const duration = 600;
+    let frame = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const current = from + (value - from) * eased;
+      fromRef.current = current;
+      setShown(current);
+      if (t < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
+  return <>{format(shown)}</>;
+}
+
+const SIZE_PRESETS_KW = [3, 5, 8, 10, 15, 20];
+const INDUSTRIAL_SIZE_PRESETS_KW = [50, 100, 125, 200, 300, 500];
+
+/** Bill / system-size switch for the Complete Solar inputs. `dark` is the
+ *  mobile hero card's palette, light is the desktop Energy Profile card. */
+function SizingModeToggle({ sizeMode, onChange, dark }: { sizeMode: boolean; onChange: (sizeMode: boolean) => void; dark?: boolean }) {
+  const option = (active: boolean) =>
+    `flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors duration-200 ${
+      active
+        ? dark
+          ? "bg-white/[0.14] text-white ring-1 ring-inset ring-orange-300/50"
+          : "bg-white text-orange-800 shadow-sm ring-1 ring-inset ring-orange-200"
+        : dark
+          ? "text-[#8FA0B4] hover:text-white"
+          : "text-slate-500 hover:text-slate-800"
+    }`;
+  return (
+    <div
+      role="group"
+      aria-label="How do you want to size your system?"
+      className={`flex gap-1 rounded-xl p-1 ${dark ? "border border-white/10 bg-white/[0.06]" : "bg-slate-100"}`}
+    >
+      <button type="button" aria-pressed={!sizeMode} onClick={() => onChange(false)} className={option(!sizeMode)}>
+        I know my bill
+      </button>
+      <button type="button" aria-pressed={sizeMode} onClick={() => onChange(true)} className={option(sizeMode)}>
+        I know the system size
+      </button>
+    </div>
+  );
+}
+
+/** kW target input with quick presets, used when the customer sizes by kW. */
+function SystemSizeField({
+  id,
+  value,
+  onChange,
+  dark,
+  presets = SIZE_PRESETS_KW,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  dark?: boolean;
+  presets?: number[];
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className={`mb-1.5 block text-sm font-semibold ${dark ? "text-[#8FA0B4]" : "text-slate-700"}`}>
+        System size (kW)
+      </label>
+      <input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, "").replace(/^(\d*\.?\d*).*$/, "$1"))}
+        placeholder="e.g. 10"
+        className={
+          dark
+            ? "w-full rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-3 font-mono text-lg font-semibold text-white placeholder:text-[#5E6E82] outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
+            : "w-full sm:max-w-sm rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-base font-medium text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-400/25"
+        }
+      />
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {presets.map((kw) => {
+          const active = Number(value) === kw;
+          return (
+            <button
+              key={kw}
+              type="button"
+              onClick={() => onChange(String(kw))}
+              aria-pressed={active}
+              className={`min-h-9 rounded-full border px-3 text-xs font-semibold transition-colors duration-200 ${
+                active
+                  ? dark
+                    ? "border-orange-300/60 bg-white/[0.14] text-white"
+                    : "border-orange-300 bg-orange-50 text-orange-800"
+                  : dark
+                    ? "border-white/10 bg-white/[0.06] text-[#C4D0DD] hover:border-orange-400"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-orange-400"
+              }`}
+            >
+              {kw} kW
+            </button>
+          );
+        })}
+      </div>
+      <p className={`mt-2 max-w-xl text-[11px] leading-relaxed ${dark ? "text-[#8FA0B4]" : "text-slate-500"}`}>
+        Sized to the kW you choose, not to your usage. Savings are estimated from Lahore sunshine this month. Share your bill later and we will check the size fits.
+      </p>
+    </div>
+  );
+}
 
 const BILL_SOURCE_LABEL: Record<Exclude<BillSource, "MANUAL">, string> = {
   UPLOADED_PDF: "From Your PDF",
@@ -5957,7 +6788,76 @@ function buildCostBreakdownRows(source: {
     ...(panelWashing
       ? [{ label: "Panel Washing (One Time Visit)", valuePKR: source.breakdown.panelWashingPKR }]
       : []),
+    // Goodwe-style inverter + battery bundle saving (a negative amount), so
+    // the rows still add up to the headline total.
+    ...(source.breakdown.bundleDiscountPKR
+      ? [{ label: "Goodwe Bundle Saving", valuePKR: source.breakdown.bundleDiscountPKR }]
+      : []),
   ];
+}
+
+/** "Add this battery and save Rs X" card for inverters that have a vendor
+ *  bundle deal (Hybrid only, single inverter). Shows the offer(s) until the
+ *  matching battery is picked, then confirms the saving that is applied. */
+function BundleSuggestion({
+  bundles,
+  inverterCode,
+  batteryCode,
+  inverterQuantity,
+  isHybrid,
+  onPick,
+}: {
+  bundles: PublicBundleDealDTO[];
+  inverterCode: string | null;
+  batteryCode: string | null;
+  inverterQuantity: number;
+  isHybrid: boolean;
+  onPick: (batteryCode: string) => void;
+}) {
+  if (!isHybrid || !inverterCode || inverterQuantity > 1) return null;
+  const forInverter = bundles.filter((b) => b.inverterCode === inverterCode);
+  if (forInverter.length === 0) return null;
+  const applied = forInverter.find((b) => b.batteryCode === batteryCode);
+  const note = forInverter[0].note;
+
+  if (applied) {
+    return (
+      <div className="flex items-start gap-2.5 rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5">
+        <BadgePercent className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-emerald-900">Bundle saving applied: {formatPKR(applied.discountPKR)} off</p>
+          <p className="mt-0.5 text-xs text-emerald-800">
+            {applied.batteryLabel} with this inverter.{note ? ` ${note}.` : ""}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5">
+      <p className="flex items-center gap-1.5 text-sm font-bold text-emerald-900">
+        <BadgePercent className="h-5 w-5 shrink-0 text-emerald-700" />
+        Pair a battery and save
+      </p>
+      {note && <p className="mt-0.5 text-xs text-emerald-800">{note}.</p>}
+      <div className="mt-2.5 space-y-2">
+        {forInverter.map((b) => (
+          <button
+            key={b.batteryCode}
+            type="button"
+            onClick={() => onPick(b.batteryCode)}
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-emerald-300 bg-white px-3 py-2.5 text-left transition-colors duration-200 hover:border-emerald-500"
+          >
+            <span className="min-w-0 text-xs font-semibold text-slate-900">Add {b.batteryLabel}</span>
+            <span className="shrink-0 rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white">
+              Save {formatPKR(b.discountPKR)}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function ResultSummary({
@@ -5966,9 +6866,16 @@ function ResultSummary({
   connectionPhase,
   installationArea,
   customerName,
+  isIndustrial,
+  siteDetails,
 }: {
   result: QuoteResult;
   onEdit: () => void;
+  /** Industrial quotations print the priced quotation on page one and the
+   *  cost breakdown, savings chart and working on the following pages. */
+  isIndustrial?: boolean;
+  /** What an industrial customer told us about their site, for the diagram. */
+  siteDetails?: IndustrialSiteDetails;
   /** "Refine your details" (2026-09-04, mobile Live Estimate panel) —
    *  capture-only, no pricing effect (see that field's own doc comment
    *  in CalculatorCard). Optional/undefined for the EV Charger/Panel
@@ -6033,7 +6940,20 @@ function ResultSummary({
     { description: "Galvanized Iron Rust Proof Customized Elevated Structure", uom: "JOB", qty: "1" },
     { description: `${inverter.label} | WIFI Dongle`, uom: "PCS", qty: String(inverter.quantity) },
     ...(battery
-      ? [{ description: `Lithium Battery Backup ${formatTrim(battery.capacityKwh)}kWh`, uom: "PCS" as const, qty: "1" }]
+      ? [
+          {
+            // Named by brand and model (the catalog label already carries both
+            // and the module size); the total only shows when it differs from
+            // one module, so it never repeats itself.
+            description: `${battery.label} | Lithium Battery Backup${
+              battery.specValue !== null && Math.abs(battery.capacityKwh - battery.specValue) > 0.05
+                ? ` (${formatTrim(battery.capacityKwh)} kWh total)`
+                : ""
+            }`,
+            uom: "PCS" as const,
+            qty: "1",
+          },
+        ]
       : []),
     { description: "DC Cable 6mm Tin Coated Copper 8mm OD Double PVC Insulated", uom: "JOB", qty: "1" },
     { description: "AC Cables as per NEPRA Requirements", uom: "JOB", qty: "1" },
@@ -6150,7 +7070,12 @@ function ResultSummary({
   const costBreakdownRows = buildCostBreakdownRows(result);
 
   return (
-    <div className="animate-fade-up relative mx-auto my-8 w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-2xl shadow-slate-200/60 print:my-0 print:max-w-none print:rounded-none print:border-0 print:shadow-none">
+    <div className="animate-fade-up relative mx-auto my-8 w-full max-w-3xl overflow-hidden rounded-3xl print:[animation:none]! print:[transform:none]! border border-slate-200 bg-white text-slate-900 shadow-2xl shadow-slate-200/60 print:my-0 print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:px-[12mm] print:py-[12mm] print:shadow-none print:[-webkit-box-decoration-break:clone] print:[box-decoration-break:clone]">
+      {/* A zero page margin is what stops the browser stamping its own
+          date/title header and URL/page-number footer on the PDF. The
+          padding above stands in for the margin, and box-decoration-break
+          repeats it on every printed page. */}
+      <style>{"@media print{@page{size:A4;margin:0}}"}</style>
       {/* Background watermark (2026-09-04) — a large, very faint version
           of the real mark sitting quietly behind the whole document
           (screen AND print, deliberately NOT print:hidden — the point is
@@ -6163,7 +7088,7 @@ function ResultSummary({
           <defs> id and break one instance's fill). */}
       <div
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-1/3 -z-10 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.04]"
+        className="pointer-events-none absolute left-1/2 top-1/3 -z-10 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 opacity-[0.04] print:fixed print:top-1/2 print:z-[1] print:opacity-[0.05] print:[-webkit-print-color-adjust:exact] print:[print-color-adjust:exact]"
       >
         <BrandMark className="h-full w-full" gradientId="resultWatermark" />
       </div>
@@ -6176,10 +7101,16 @@ function ResultSummary({
         >
           <ChevronLeft className="h-3.5 w-3.5" /> Edit Inputs
         </button>
-        {result.billSource !== "MANUAL" && (
-          <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
-            <BadgeCheck className="h-3.5 w-3.5" /> From Your Bill
+        {result.billSource === "NOT_PROVIDED" ? (
+          <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-600">
+            <Gauge className="h-3.5 w-3.5" /> Sized by your chosen kW
           </span>
+        ) : (
+          result.billSource !== "MANUAL" && (
+            <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+              <BadgeCheck className="h-3.5 w-3.5" /> From Your Bill
+            </span>
+          )
         )}
       </div>
 
@@ -6266,7 +7197,7 @@ function ResultSummary({
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center print:rounded-none print:border-0 print:bg-white print:py-2.5">
           <TrendingDown className="mx-auto h-3.5 w-3.5 text-emerald-600 print:hidden" />
           <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-500 print:mt-0">Monthly Savings</p>
-          <p className="mt-0.5 text-sm font-bold text-emerald-600">{formatPKR(result.estimatedMonthlySavingsPKR)}</p>
+          <p className="mt-0.5 text-sm font-bold text-emerald-600">{result.estimatedMonthlySavingsPKR > 0 ? formatPKR(result.estimatedMonthlySavingsPKR) : "N/A"}</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center print:rounded-none print:border-0 print:bg-white print:py-2.5">
           <Clock className="mx-auto h-3.5 w-3.5 text-slate-400 print:hidden" />
@@ -6278,9 +7209,10 @@ function ResultSummary({
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-center print:rounded-none print:border-0 print:bg-white print:py-2.5">
           <CalendarCheck className="mx-auto h-3.5 w-3.5 text-slate-400 print:hidden" />
           <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-500 print:mt-0">Live In</p>
-          <p className="mt-0.5 text-sm font-bold text-slate-900">{result.daysToDeploy} Days</p>
+          <p className="mt-0.5 text-sm font-bold text-slate-900">{result.deploymentLabel ?? `${result.daysToDeploy} Days`}</p>
         </div>
       </div>
+      {!isIndustrial && <GenerationNote generation={result.generation} systemKw={result.systemKw} className="mx-4 mt-2 sm:mx-6 print:mx-0" />}
 
       {/* ---- Warnings ---- */}
       {(isInverterBottleneck || result.hasCustomRequirements) && (
@@ -6341,6 +7273,11 @@ function ResultSummary({
           </table>
         </div>
 
+      </div>
+
+      {/* ---- Page 2 for industrial PDFs: cost breakdown, the saving against
+          LESCO as a chart, and the working. Everyone else keeps one flow. */}
+      <div className={`px-6 sm:px-8 ${isIndustrial ? "pt-6 print:break-before-page print:pt-0" : ""}`}>
         {/* ---- Detailed Cost Breakdown — one row per priced category ---- */}
         <p className="mb-1.5 mt-5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
           <Receipt className="h-3.5 w-3.5" /> Cost Breakdown
@@ -6368,6 +7305,10 @@ function ResultSummary({
             </tbody>
           </table>
         </div>
+
+        {isIndustrial && <IndustrialBenefitSection result={result} part="summary" />}
+        {isIndustrial && <IndustrialSystemDiagram result={result} siteDetails={siteDetails} customerName={customerName} />}
+        {isIndustrial && <IndustrialBenefitSection result={result} part="evidence" />}
       </div>
 
       {/* ---- Footer — the repeated "Total Price" card that used to sit
@@ -6376,7 +7317,7 @@ function ResultSummary({
           right below the cost breakdown (which itself ends on the same
           total) was three copies of one figure on one document — pure
           repetition, not reinforcement. ---- */}
-      <div className="mt-6 border-t border-slate-200 bg-slate-50 px-6 py-6 sm:px-8">
+      <div className="mt-6 border-t border-slate-200 bg-slate-50 px-6 py-6 sm:px-8 print:mt-2 print:py-3">
         <p className="text-center text-[11px] leading-relaxed text-slate-500">
           Email: solarpixelpk@gmail.com · Mobile: +92 328 2155550 · Site:{" "}
           <a
@@ -6414,6 +7355,7 @@ function ResultSummary({
 
         <p className="mt-3 text-center text-[10px] text-slate-500 print:hidden">
           Instant estimate. Your exact price is confirmed after an on site engineering survey (Rs 5,000 fee applies).
+          Cabling is estimated for a typical layout. It may change with the distance from the inverter to your main breaker and the panel earthing run.
         </p>
       </div>
     </div>
@@ -6578,6 +7520,7 @@ function PrintableReport({
 
       <p className="mt-6 text-[9px] text-stone-500">
         This is an instant, indicative estimate. Final pricing is confirmed after an on site engineering survey (Rs 5,000 fee applies).
+        Cabling is estimated for a typical layout and may change with the distance from the inverter to the main breaker and the panel earthing run.
         Solar Pixel: Smart Solar systems for Residential, Commercial &amp; Industrial.
       </p>
     </div>

@@ -59,7 +59,7 @@ export function AdminSidebar({
 
       <aside
         id="admin-nav"
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85vw] shrink-0 flex-col border-r border-stone-200 bg-white transition-[transform,visibility] duration-200 ${
+        className={`print:hidden fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85vw] shrink-0 flex-col border-r border-stone-200 bg-white transition-[transform,visibility] duration-200 ${
           mobileOpen ? "translate-x-0 shadow-2xl" : "invisible -translate-x-full"
         } lg:visible lg:sticky lg:top-0 lg:z-auto lg:h-dvh lg:max-w-none lg:translate-x-0 lg:shadow-none lg:transition-[width] ${
           collapsed ? "lg:w-16" : "lg:w-56"

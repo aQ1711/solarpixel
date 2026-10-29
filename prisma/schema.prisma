@@ -101,6 +101,8 @@ enum Role {
 enum AdminModule {
   LEADS
   CHECKER
+  QUOTES // Custom Quotation creator: build quotations from catalog items at
+  // locked prices. Never exposes cost/margin or any price editing.
 
   @@schema("public")
 }
@@ -138,6 +140,7 @@ enum BillSource {
   MANUAL // typed in directly
   UPLOADED_PDF // parsed from an uploaded bill PDF
   UPLOADED_IMAGE // parsed from an uploaded bill photo/screenshot (OCR)
+  NOT_PROVIDED // customer sized by kW instead; monthlyBillRs is stored as 0
 
   @@schema("public")
 }
@@ -357,6 +360,9 @@ model User {
   // FIELD_ENGINEER acting as a labour head: site projects they entered
   // (see SiteProject)
   siteProjectsAsLabourHead SiteProject[] @relation("SiteProjectLabourHead")
+
+  // ADMIN/SUPER_ADMIN: custom quotations they created (see CustomQuotation)
+  customQuotationsCreated CustomQuotation[] @relation("CustomQuotationCreator")
 
   // SUPER_ADMIN: vendor cost & margin records they authored
   vendorCostsCreated RawVendorCost[] @relation("VendorCostCreatedBy")
@@ -1084,7 +1090,7 @@ model TickerSettings {
 // confidential vendor cost or margin — so it uses the ordinary public
 // Prisma client (lib/siteProjects/server.ts) and stays clear of
 // vendor_private entirely.
-// ============================================================================
+// =====================================================================
 
 enum SiteProjectStatus {
   ASSIGNED // Super Admin created the project; waiting for the labour head's materials
@@ -1219,4 +1225,113 @@ model SiteProjectEvent {
   @@index([projectId, createdAt])
   @@map("site_project_events")
   @@schema("public")
+}
+=======
+// CUSTOM QUOTATIONS (2026-10-20) — an admin with the QUOTES permission builds a
+// quotation from catalog items (a single inverter, a single battery, panels,
+// ...) at LOCKED prices. The server looks every price up from the catalog
+// (the same marked-up client price the storefront uses); the browser only
+// ever sends item codes + quantities, so a price can't be edited. Only the
+// SELLING price is stored here, never a cost or margin, so this lives in the
+// public schema.
+// ============================================================================
+
+model CustomQuotation {
+  id              String  @id @default(cuid())
+  quotationNumber String // e.g. CQ-2026-4F9A21BC; shared by every version of one quotation
+  // Version number (1, 2, 3...). Editing a quotation never changes an existing
+  // row: it adds a new row with the same quotationNumber and version + 1, so
+  // every earlier version stays readable exactly as it was sent.
+  version         Int     @default(1)
+  // Optional "what changed" note the editor leaves on a new version.
+  versionNote     String?
+
+  customerName    String
+  customerPhone   String
+  customerCity    String
+  customerAddress String?
+
+  // Which sector's margin the prices were looked up at (customer type).
+  sector Sector
+
+  notes String? @db.Text
+
+  // Sum of the line totals, frozen at creation.
+  totalPKR Decimal @db.Decimal(14, 2)
+
+  createdById   String
+  createdBy     User   @relation("CustomQuotationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  // Denormalized so the quotation still reads correctly if the account is
+  // later renamed.
+  createdByName String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items CustomQuotationItem[]
+
+  @@unique([quotationNumber, version])
+  @@index([quotationNumber])
+  @@index([createdById])
+  @@index([createdAt])
+  @@map("custom_quotations")
+  @@schema("public")
+}
+
+model CustomQuotationItem {
+  id String @id @default(cuid())
+
+  quotationId String
+  quotation   CustomQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  componentType ComponentType
+  itemCode      String
+  // Snapshot of how the item read when quoted.
+  label         String
+  brand         String?
+  unitLabel     String // "per panel", "per piece", "per kW of system"
+
+  quantity     Decimal @db.Decimal(10, 2)
+  unitPricePKR Decimal @db.Decimal(14, 2)
+  lineTotalPKR Decimal @db.Decimal(14, 2)
+
+  @@index([quotationId])
+  @@map("custom_quotation_items")
+  @@schema("public")
+}
+
+// ============================================================================
+// BUNDLE DEALS (2026-10-20) — vendor combo prices for an inverter + battery
+// pair (e.g. Goodwe ES Uniq 10kW + 14.3kWh at one combo cost). Lives in
+// vendor_private because comboCostRs is a confidential purchase cost, same as
+// RawVendorCost. The customer-facing discount is derived from it at quote time
+// (see lib/db/admin.ts bundleSellDiscountPKR): the saving versus the two items'
+// current SEPARATE costs, passed on at the same margin, so a rate change to
+// either item moves the discount automatically. Customers only ever see the
+// resulting discount in rupees, never the combo cost.
+// ============================================================================
+
+model BundleDeal {
+  id String @id @default(cuid())
+
+  // EquipmentOption.code of the inverter and the battery in the combo.
+  inverterCode String
+  batteryCode  String
+
+  // What the vendor charges for the pair together.
+  comboCostRs Decimal @db.Decimal(12, 2)
+
+  // Shown on the storefront suggestion, e.g. "10 years replacement warranty".
+  note String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([inverterCode, batteryCode])
+  @@map("bundle_deals")
+  @@schema("vendor_private")
 }

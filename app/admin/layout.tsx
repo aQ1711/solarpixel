@@ -108,7 +108,7 @@ function AdminShell({ onUnauthorized, children }: { onUnauthorized: (reason?: st
 
   return (
     <AdminAuthProvider value={{ viewer, onUnauthorized }}>
-      <div className="flex min-h-dvh bg-stone-50">
+      <div className="flex min-h-dvh bg-stone-50 print:block print:bg-white">
         <AdminSidebar
           viewer={viewer}
           onLogout={handleLogout}

@@ -15,7 +15,7 @@ import { internalFetch, type ApiJson } from "@/lib/internal/access";
 // /admin/leads and /admin/pricing.
 // ============================================================================
 
-type AdminModule = "LEADS" | "CHECKER";
+type AdminModule = "LEADS" | "CHECKER" | "QUOTES";
 
 interface AdminAccount {
   id: string;
@@ -41,8 +41,8 @@ interface EngineerAccount {
   createdAt: string;
 }
 
-const MODULE_LABELS: Record<AdminModule, string> = { LEADS: "Leads", CHECKER: "Checker" };
-const ALL_MODULES: AdminModule[] = ["LEADS", "CHECKER"];
+const MODULE_LABELS: Record<AdminModule, string> = { LEADS: "Leads", CHECKER: "Checker", QUOTES: "Custom Quotes" };
+const ALL_MODULES: AdminModule[] = ["LEADS", "CHECKER", "QUOTES"];
 
 export default function AdminTeamPage() {
   const { onUnauthorized } = useAdminAuth();

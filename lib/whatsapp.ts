@@ -38,6 +38,8 @@ export interface ContractLineItems {
   acCablePKR: number;
   dataCablePKR: number;
   dbUpgradePKR?: number;
+  /** Vendor bundle deal saving, a NEGATIVE amount; omitted when none applies. */
+  bundleDiscountPKR?: number;
 }
 
 export interface ContractMessageInput {
@@ -45,7 +47,7 @@ export interface ContractMessageInput {
   quoteNumber: string;
   systemKw: number;
   finalPriceRs: number;
-  daysToDeploy: number;
+  deploymentLabel: string;
   lineItems: ContractLineItems;
 }
 
@@ -56,7 +58,7 @@ export interface ContractMessageInput {
  *  "Installation & Commissioning" — so the contract is transparent about
  *  what the final price covers, not just one lump-sum figure. */
 export function buildContractMessage(input: ContractMessageInput): string {
-  const { fullName, quoteNumber, systemKw, finalPriceRs, daysToDeploy, lineItems } = input;
+  const { fullName, quoteNumber, systemKw, finalPriceRs, deploymentLabel, lineItems } = input;
 
   const lines: [string, number | undefined][] = [
     ["Solar Panels", lineItems.panelPKR],
@@ -67,9 +69,10 @@ export function buildContractMessage(input: ContractMessageInput): string {
     ["Cabling & Metering", (lineItems.dcCablePKR ?? 0) + (lineItems.acCablePKR ?? 0) + (lineItems.dataCablePKR ?? 0)],
     ["DB Panel Upgrade", lineItems.dbUpgradePKR],
     ["Installation & Commissioning", lineItems.installationPKR],
+    ["Bundle Saving", lineItems.bundleDiscountPKR],
   ];
   const itemizedText = lines
-    .filter((line): line is [string, number] => typeof line[1] === "number" && line[1] > 0)
+    .filter((line): line is [string, number] => typeof line[1] === "number" && line[1] !== 0)
     .map(([label, pkr]) => `• ${label}: ${pkrFormatter.format(pkr)}`)
     .join("\n");
 
@@ -83,7 +86,7 @@ export function buildContractMessage(input: ContractMessageInput): string {
     itemizedText,
     "",
     `Final Price: ${pkrFormatter.format(finalPriceRs)}`,
-    `Live in: ${daysToDeploy} days from confirmation`,
+    `Live in: ${deploymentLabel} from confirmation`,
     "",
     "No WAPDA net-metering paperwork. Reply YES to confirm and we'll lock in your installation slot.",
   ].join("\n");

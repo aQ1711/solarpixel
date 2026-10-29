@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useAdminAuth } from "@/components/admin/AdminAuthContext";
+import { BundleDealsPanel } from "@/components/admin/BundleDealsPanel";
 import { internalFetch, type ApiJson } from "@/lib/internal/access";
 import { formatGoogleDriveLink } from "@/lib/utils/googleDrive";
 
@@ -543,6 +544,8 @@ function PricingDashboard({ onUnauthorized }: { onUnauthorized: () => void }) {
             />
           </>
         )}
+
+        {items && <BundleDealsPanel catalog={items} onUnauthorized={onUnauthorized} />}
       </div>
 
       {modalState.mode !== "closed" && (

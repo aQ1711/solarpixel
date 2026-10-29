@@ -89,6 +89,8 @@ export interface ItemizedBreakdown {
   cablingAndProtectionPKR: number;
   structurePKR: number;
   installationPKR: number;
+  /** Negative; present only when an inverter + battery bundle deal applied. */
+  bundleDiscountPKR?: number;
 }
 
 export interface LeadDetail {
@@ -840,7 +842,7 @@ export function LeadDetailContent({
         {lead.email && <DetailRow icon={Mail} label="Email" value={lead.email} />}
         <DetailRow icon={MapPin} label="Location" value={[lead.address, lead.city].filter(Boolean).join(", ")} />
         <DetailRow icon={Zap} label="Sector" value={SECTOR_LABELS[lead.sector] ?? lead.sector} />
-        <DetailRow icon={Receipt} label="Monthly Bill" value={formatPKR(lead.monthlyBillRs)} />
+        <DetailRow icon={Receipt} label="Monthly Bill" value={lead.monthlyBillRs > 0 ? formatPKR(lead.monthlyBillRs) : "Not provided (customer chose a system size)"} />
       </Section>
 
       {quote && (
@@ -923,7 +925,8 @@ export function LeadDetailContent({
                   (hasBattery ? b.batteryPKR : 0) +
                   b.structurePKR +
                   b.cablingAndProtectionPKR +
-                  b.installationPKR;
+                  b.installationPKR +
+                  (b.bundleDiscountPKR ?? 0);
                 return (
                   <dl className="space-y-1.5 text-sm">
                     <BreakdownRow label="Solar Panels" value={b.panelsPKR} />
@@ -932,6 +935,7 @@ export function LeadDetailContent({
                     <BreakdownRow label="Galvanized Mounting Structure" value={b.structurePKR} />
                     <BreakdownRow label="Cabling, DB & Safety Equipment" value={b.cablingAndProtectionPKR} />
                     <BreakdownRow label="Installation & Commissioning" value={b.installationPKR} />
+                    {b.bundleDiscountPKR ? <BreakdownRow label="Bundle Saving" value={b.bundleDiscountPKR} /> : null}
                     <div className="mt-2 flex items-center justify-between border-t border-stone-200 pt-2 text-sm font-bold text-stone-900">
                       <span>Total Turnkey Price</span>
                       <span>{formatPKR(breakdownTotal)}</span>

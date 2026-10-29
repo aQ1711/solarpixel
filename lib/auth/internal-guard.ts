@@ -95,7 +95,7 @@ export function assertSuperAdminAccess(req: NextRequest): void {
 // ADMIN — per-user access codes + per-module grants (2026-08-20).
 // ============================================================================
 
-export type AdminModule = "LEADS" | "CHECKER";
+export type AdminModule = "LEADS" | "CHECKER" | "QUOTES";
 
 export interface AdminIdentity {
   kind: "SUPER_ADMIN" | "ADMIN";
@@ -136,7 +136,7 @@ export function generateAccessCode(): string {
   return randomBytes(16).toString("hex");
 }
 
-const ALL_ADMIN_MODULES: AdminModule[] = ["LEADS", "CHECKER"];
+const ALL_ADMIN_MODULES: AdminModule[] = ["LEADS", "CHECKER", "QUOTES"];
 
 /**
  * Resolves WHO is making this request and every module they can reach,

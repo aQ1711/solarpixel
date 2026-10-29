@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { z } from "zod";
 import { Sector, ServiceType, BillSource, Prisma } from "@prisma/client";
 import { getDb } from "@/lib/db/client";
@@ -17,7 +17,7 @@ import {
   type BudgetTier,
 } from "@/lib/db/admin";
 import { extractLeadIntelligence, EMPTY_LEAD_INTELLIGENCE, type LeadIntelligence } from "@/lib/leadIntelligence";
-import { DAYS_TO_DEPLOY_DEFAULT } from "@/lib/constants";
+import { estimateDeployment } from "@/lib/constants";
 
 // EV Charger cable pricing has no admin-configurable field yet (unlike
 // evChargerInstallationFee) — only the flat base fee lives in
@@ -127,6 +127,16 @@ const calculateQuoteSchema = z
       .max(10_000_000, "monthlyBillPKR is unrealistically large")
       .optional(),
 
+    // "Build by system size" mode: the customer knows the kW they want and
+    // gives no bill. Exactly one of monthlyBillPKR / targetSystemKw must be
+    // sent (enforced in superRefine). Snapped up to a standard inverter size
+    // below, same as the bill-derived size.
+    targetSystemKw: z
+      .number()
+      .positive("targetSystemKw must be greater than 0")
+      .max(1000, "targetSystemKw is unrealistically large")
+      .optional(),
+
     sector: z.nativeEnum(Sector).optional(),
 
     // Customer's choice for Residential/Commercial (defaults to
@@ -210,8 +220,11 @@ const calculateQuoteSchema = z
   })
   .superRefine((data, ctx) => {
     if (data.requestKind === "SOLAR" || data.requestKind === "SOLAR_PREVIEW") {
-      if (data.monthlyBillPKR === undefined) {
-        ctx.addIssue({ code: "custom", path: ["monthlyBillPKR"], message: "monthlyBillPKR is required" });
+      if (data.monthlyBillPKR === undefined && data.targetSystemKw === undefined) {
+        ctx.addIssue({ code: "custom", path: ["monthlyBillPKR"], message: "monthlyBillPKR or targetSystemKw is required" });
+      }
+      if (data.monthlyBillPKR !== undefined && data.targetSystemKw !== undefined) {
+        ctx.addIssue({ code: "custom", path: ["targetSystemKw"], message: "Send either monthlyBillPKR or targetSystemKw, not both" });
       }
       if (data.sector === undefined) {
         ctx.addIssue({ code: "custom", path: ["sector"], message: "sector is required" });
@@ -290,6 +303,69 @@ function calculateSystemSize(monthlyBillPKR: number, daytimeUsagePct: number) {
   return { requiredDailyDaytimeUnits, rawKwRequired, systemKw };
 }
 
+// Size mode has no bill, so savings come from what the array should generate
+// in Lahore instead. Typical delivered kWh per installed kWp per day for each
+// month (after inverter/cable/temperature losses), Jan..Dec. An estimate,
+// labelled as such in the UI, not a guarantee.
+const LAHORE_KWH_PER_KWP_PER_DAY = [3.0, 3.6, 4.4, 5.0, 5.4, 5.2, 4.5, 4.4, 4.6, 4.3, 3.5, 2.9];
+// Dust/soiling between cleanings in Lahore.
+const DUST_DERATE = 0.95;
+// Share of the generated units the site actually uses itself. With no
+// export credit (no net metering), anything not used on site earns nothing.
+// Hybrid homes store the surplus in the battery, so more of it is used.
+const SELF_USE_SHARE: Record<Sector, number> = { RESIDENTIAL: 0.7, COMMERCIAL: 0.9, INDUSTRIAL: 0.95 };
+const HYBRID_SELF_USE_SHARE = 0.85;
+// Blended grid price a saved unit is worth, by sector (PKR/unit, incl. taxes).
+const TARIFF_BY_SECTOR: Record<Sector, number> = { RESIDENTIAL: BLENDED_TARIFF_PKR_PER_UNIT, COMMERCIAL: 55, INDUSTRIAL: 45 };
+
+interface GenerationEstimate {
+  monthlyGenerationKwh: number;
+  generationMonth: string;
+  /** Inputs behind the figures, shown to the customer as the working. */
+  kwhPerKwpPerDay: number;
+  daysInMonth: number;
+  dustDerate: number;
+  selfUseShare: number;
+  usedKwh: number;
+  tariffPKR: number;
+  annualSavingsPKR: number;
+  /** Estimated savings for each month, January first, for the seasonal chart. */
+  monthlySavingsPKR: number[];
+}
+
+function lahoreGenerationEstimate(systemKw: number, totalClientPricePKR: number, sector: Sector, serviceType: ServiceType) {
+  // Pakistan time, so the month does not flip early on a server running in UTC.
+  const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Karachi" }));
+  const month = now.getMonth();
+  const daysIn = (m: number) => new Date(now.getFullYear(), m + 1, 0).getDate();
+  const selfUseShare = sector === "RESIDENTIAL" && serviceType === "HYBRID_BATTERY" ? HYBRID_SELF_USE_SHARE : SELF_USE_SHARE[sector];
+  const tariffPKR = TARIFF_BY_SECTOR[sector];
+  const kwhPerKwpPerDay = LAHORE_KWH_PER_KWP_PER_DAY[month];
+  const monthlyGenerationKwh = Math.round(systemKw * kwhPerKwpPerDay * daysIn(month) * DUST_DERATE);
+  const usedKwh = Math.round(monthlyGenerationKwh * selfUseShare);
+  const estimatedMonthlySavingsPKR = Math.round(usedKwh * tariffPKR);
+  const annualGenerationKwh =
+    systemKw * DUST_DERATE * LAHORE_KWH_PER_KWP_PER_DAY.reduce((sum, perDay, m) => sum + perDay * daysIn(m), 0);
+  // Payback uses the whole year, not this month, so winter does not look slow.
+  const annualSavingsPKR = Math.round(annualGenerationKwh * selfUseShare * tariffPKR);
+  const paybackYears = annualSavingsPKR > 0 ? Math.round((totalClientPricePKR / annualSavingsPKR) * 10) / 10 : null;
+  const generation: GenerationEstimate = {
+    monthlyGenerationKwh,
+    generationMonth: now.toLocaleString("en-US", { month: "long" }),
+    kwhPerKwpPerDay,
+    daysInMonth: daysIn(month),
+    dustDerate: DUST_DERATE,
+    selfUseShare,
+    usedKwh,
+    tariffPKR,
+    annualSavingsPKR,
+    monthlySavingsPKR: LAHORE_KWH_PER_KWP_PER_DAY.map((perDay, m) =>
+      Math.round(systemKw * perDay * daysIn(m) * DUST_DERATE * selfUseShare * tariffPKR),
+    ),
+  };
+  return { generation, estimatedMonthlySavingsPKR, paybackYears };
+}
+
 function calculateSavingsAndPayback(requiredDailyDaytimeUnits: number, totalClientPricePKR: number) {
   // Zero-export offsets — never exports — so realistic monthly savings is
   // the daytime units offset × the blended tariff. (Algebraically this
@@ -321,6 +397,8 @@ interface PricedTier {
   totalClientPricePKR: number;
   estimatedMonthlySavingsPKR: number;
   paybackYears: number | null;
+  /** Size mode only: estimated Lahore output for the current month. */
+  generation: GenerationEstimate | null;
   hasCustomRequirements: boolean;
   breakdown: ItemizedBreakdown;
   resolvedEquipment: ResolvedEquipment;
@@ -335,20 +413,32 @@ interface PricedTier {
  *  reflects "same equipment, bigger system," not a silent reset to
  *  Recommended defaults. */
 async function priceTier(
-  monthlyBillPKR: number,
+  sizing: { monthlyBillPKR: number } | { targetSystemKw: number },
   offsetPct: number,
   sector: Sector,
   serviceType: ServiceType,
   selections: EquipmentSelections | undefined,
   targetBudgetTier: BudgetTier | undefined
 ): Promise<PricedTier> {
-  const { requiredDailyDaytimeUnits, rawKwRequired, systemKw: targetSystemKw } = calculateSystemSize(monthlyBillPKR, offsetPct);
+  // Size mode: the customer's own kW target replaces the bill-derived sizing
+  // (used as given; pricing picks the inverter and panel count from it). There is no
+  // consumption figure, so savings/payback can't be estimated and stay 0/null.
+  const sized =
+    "targetSystemKw" in sizing
+      ? {
+          requiredDailyDaytimeUnits: 0,
+          rawKwRequired: sizing.targetSystemKw,
+          systemKw: sizing.targetSystemKw,
+        }
+      : calculateSystemSize(sizing.monthlyBillPKR, offsetPct);
+  const { requiredDailyDaytimeUnits, rawKwRequired, systemKw: targetSystemKw } = sized;
   const { totalClientPricePKR, resolvedSystemKw, hasCustomRequirements, breakdown, resolvedEquipment, siteWorks, panelWashing } =
     await calculateSystemPricing(targetSystemKw, sector, serviceType, selections, targetBudgetTier);
-  const { estimatedMonthlySavingsPKR, paybackYears } = calculateSavingsAndPayback(
-    requiredDailyDaytimeUnits,
-    totalClientPricePKR
-  );
+  const lahore = "targetSystemKw" in sizing ? lahoreGenerationEstimate(resolvedSystemKw, totalClientPricePKR, sector, serviceType) : null;
+  const generation = lahore?.generation ?? null;
+  const { estimatedMonthlySavingsPKR, paybackYears } = lahore
+    ? lahore
+    : calculateSavingsAndPayback(requiredDailyDaytimeUnits, totalClientPricePKR);
   return {
     offsetPct,
     // resolvedSystemKw, not targetSystemKw — see PricedTier.systemKw's
@@ -358,6 +448,7 @@ async function priceTier(
     totalClientPricePKR,
     estimatedMonthlySavingsPKR,
     paybackYears,
+    generation,
     hasCustomRequirements,
     breakdown,
     resolvedEquipment,
@@ -422,13 +513,64 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
   // a plain non-optional local instead of an `input.x!` assertion at
   // each call site. fullName/whatsappPhone are narrowed separately below,
   // only on the persisting SOLAR path.
-  if (input.monthlyBillPKR === undefined || input.sector === undefined || input.daytimeUsagePct === undefined) {
+  if (
+    (input.monthlyBillPKR === undefined && input.targetSystemKw === undefined) ||
+    input.sector === undefined ||
+    input.daytimeUsagePct === undefined
+  ) {
     return NextResponse.json({ error: "Validation failed" }, { status: 400 });
   }
-  const { monthlyBillPKR, sector, daytimeUsagePct } = input;
+  const { sector, daytimeUsagePct } = input;
+  const sizeMode = input.targetSystemKw !== undefined;
+  // In size mode no bill exists: it is stored as 0 with billSource
+  // NOT_PROVIDED (the DB columns are NOT NULL), and every reader treats that
+  // pair as "no bill given".
+  const monthlyBillPKR = input.monthlyBillPKR ?? 0;
+  const sizing = sizeMode
+    ? { targetSystemKw: input.targetSystemKw as number }
+    : { monthlyBillPKR };
+  const billSource = sizeMode ? ("NOT_PROVIDED" as const) : input.billSource;
   const isPreview = input.requestKind === "SOLAR_PREVIEW";
 
   const serviceType = resolveServiceType(sector, input.serviceType);
+
+  // The lead row does not depend on the price, so for a real submission it is
+  // written WHILE the price is being worked out instead of after it. Each
+  // database round trip costs real time, and this removes one from the wait.
+  // If pricing then fails the lead is simply kept: we still have a customer
+  // who asked for a quote and left a number.
+  let leadPromise: Promise<{ id: string }> | null = null;
+  if (!isPreview) {
+    if (input.fullName === undefined || input.whatsappPhone === undefined) {
+      return NextResponse.json({ error: "Validation failed" }, { status: 400 });
+    }
+    const { fullName, whatsappPhone } = input;
+    // Best-effort, never blocking — see extractLeadIntelligence's own doc
+    // comment. A header-parsing failure degrades to "nothing captured,"
+    // not a failed quote submission.
+    let leadIntel: LeadIntelligence;
+    try {
+      leadIntel = extractLeadIntelligence(req);
+    } catch (err) {
+      console.error("[POST /api/quote/calculate] lead intelligence capture failed, continuing without it:", err);
+      leadIntel = EMPTY_LEAD_INTELLIGENCE;
+    }
+    leadPromise = prisma.lead.create({
+      data: {
+        fullName,
+        phone: whatsappPhone,
+        city: input.city,
+        sector,
+        source: "WEBSITE",
+        monthlyBillRs: monthlyBillPKR,
+        ...leadIntel,
+      },
+      select: { id: true },
+    });
+    // Handled where it is awaited below; this only stops an early rejection
+    // from being reported as unhandled while pricing is still running.
+    leadPromise.catch(() => undefined);
+  }
 
   // 1 & 2. Zero-export sizing + pricing for the recommended tier — routed
   //        entirely through the admin-only boundary. Raw vendor costs and
@@ -436,7 +578,7 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
   let recommended: PricedTier;
   try {
     recommended = await priceTier(
-      monthlyBillPKR,
+      sizing,
       daytimeUsagePct,
       sector,
       serviceType,
@@ -462,10 +604,10 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
   //     binding estimate), and non-fatal if it can't be priced — the
   //     recommended tier above still succeeds either way.
   let nearZeroBillTier: PricedTier | null = null;
-  if (daytimeUsagePct < NEAR_ZERO_BILL_OFFSET_PCT) {
+  if (!sizeMode && daytimeUsagePct < NEAR_ZERO_BILL_OFFSET_PCT) {
     try {
       nearZeroBillTier = await priceTier(
-        monthlyBillPKR,
+        sizing,
         NEAR_ZERO_BILL_OFFSET_PCT,
         sector,
         serviceType,
@@ -488,87 +630,64 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
   //    (no contact info yet — that's only collected right before the real
   //    "SOLAR" submit). This write path never touches vendor_private.
   let quoteId: string | null = null;
-  if (!isPreview) {
-    // superRefine guarantees these 2 are present for a real (non-preview)
-    // SOLAR submission.
-    if (input.fullName === undefined || input.whatsappPhone === undefined) {
-      return NextResponse.json({ error: "Validation failed" }, { status: 400 });
-    }
-    const { fullName, whatsappPhone } = input;
-    // Best-effort, never blocking — see extractLeadIntelligence's own doc
-    // comment. A header-parsing failure degrades to "nothing captured,"
-    // not a failed quote submission.
-    let leadIntel: LeadIntelligence;
+  if (leadPromise) {
     try {
-      leadIntel = extractLeadIntelligence(req);
-    } catch (err) {
-      console.error("[POST /api/quote/calculate] lead intelligence capture failed, continuing without it:", err);
-      leadIntel = EMPTY_LEAD_INTELLIGENCE;
-    }
-    try {
-      const quote = await prisma.$transaction(async (tx) => {
-        const lead = await tx.lead.create({
-          data: {
-            fullName,
-            phone: whatsappPhone,
-            city: input.city,
-            sector,
-            source: "WEBSITE",
-            monthlyBillRs: monthlyBillPKR,
-            ...leadIntel,
-          },
-        });
-
-        const quote = await tx.quote.create({
-          data: {
-            quoteNumber: generateQuoteNumber(),
-            leadId: lead.id,
-            sector,
-            serviceType,
-            status: "AUTOMATED_ESTIMATE",
-            monthlyBillRs: monthlyBillPKR,
-            blendedTariffRsPerUnit: BLENDED_TARIFF_PKR_PER_UNIT,
-            estimatedDaytimeLoadKw: recommended.rawKwRequired,
-            estimatedSystemSizeKw: recommended.systemKw,
-            automatedEstimatePriceRs: recommended.totalClientPricePKR,
-            billSource: input.billSource,
-            uploadedBillFileUrl: input.billFileUrl ?? undefined,
-            // Persisted as the EFFECTIVE tier ("no preference" -> the same
-            // "UNDER_1M" it was actually priced under, per
-            // calculateSystemPricing's targetBudgetTier doc comment) so
-            // the Checker's exact-BOQ pass (calculateAdminBoqPricing) can
-            // resolve the identical equipment default later, rather than
-            // silently re-adding a battery cost on approval — see
-            // Quote.targetBudgetTier's doc comment in schema.prisma.
-            targetBudgetTier: input.targetBudgetTier ?? "UNDER_1M",
-            equipmentSelections: input.equipmentSelections ?? undefined,
-            // Cost-free snapshots of exactly what was priced — see their
-            // doc comments in schema.prisma. `as unknown as Prisma.InputJsonValue`
-            // matches the cast Prisma's own Json columns need for a typed
-            // (not `any`) object — both DTOs are plain, JSON-serializable
-            // interfaces (numbers/strings/null only).
-            resolvedEquipmentSnapshot: recommended.resolvedEquipment as unknown as Prisma.InputJsonValue,
-            breakdownSnapshot: recommended.breakdown as unknown as Prisma.InputJsonValue,
-          },
-        });
-
-        // First entry on this lead's Activity Timeline — see
-        // LeadActivityType's doc comment in schema.prisma for every
-        // event type and where each is logged from.
-        await tx.leadActivity.create({
-          data: {
-            leadId: lead.id,
-            type: "QUOTE_GENERATED",
-            description: `Generated an automated web quote for a ${sector.toLowerCase()} ${
-              serviceType === "HYBRID_BATTERY" ? "Hybrid + Battery" : "On-Grid"
-            } system.`,
-            metadata: { quoteId: quote.id, quoteNumber: quote.quoteNumber } as unknown as Prisma.InputJsonValue,
-          },
-        });
-
-        return quote;
+      const lead = await leadPromise;
+      const quote = await prisma.quote.create({
+        data: {
+          quoteNumber: generateQuoteNumber(),
+          leadId: lead.id,
+          sector,
+          serviceType,
+          status: "AUTOMATED_ESTIMATE",
+          monthlyBillRs: monthlyBillPKR,
+          blendedTariffRsPerUnit: BLENDED_TARIFF_PKR_PER_UNIT,
+          estimatedDaytimeLoadKw: recommended.rawKwRequired,
+          estimatedSystemSizeKw: recommended.systemKw,
+          automatedEstimatePriceRs: recommended.totalClientPricePKR,
+          billSource,
+          uploadedBillFileUrl: input.billFileUrl ?? undefined,
+          // Persisted as the EFFECTIVE tier ("no preference" -> the same
+          // "UNDER_1M" it was actually priced under, per
+          // calculateSystemPricing's targetBudgetTier doc comment) so
+          // the Checker's exact-BOQ pass (calculateAdminBoqPricing) can
+          // resolve the identical equipment default later, rather than
+          // silently re-adding a battery cost on approval — see
+          // Quote.targetBudgetTier's doc comment in schema.prisma.
+          targetBudgetTier: input.targetBudgetTier ?? "UNDER_1M",
+          equipmentSelections: input.equipmentSelections ?? undefined,
+          // Cost-free snapshots of exactly what was priced — see their
+          // doc comments in schema.prisma. `as unknown as Prisma.InputJsonValue`
+          // matches the cast Prisma's own Json columns need for a typed
+          // (not `any`) object — both DTOs are plain, JSON-serializable
+          // interfaces (numbers/strings/null only).
+          resolvedEquipmentSnapshot: recommended.resolvedEquipment as unknown as Prisma.InputJsonValue,
+          breakdownSnapshot: recommended.breakdown as unknown as Prisma.InputJsonValue,
+        },
+        select: { id: true, quoteNumber: true },
       });
       quoteId = quote.id;
+
+      // First entry on this lead's Activity Timeline — see
+      // LeadActivityType's doc comment in schema.prisma for every event
+      // type and where each is logged from. Written after the response is
+      // sent so the customer is not kept waiting on a log line.
+      const sectorLabel = sector.toLowerCase();
+      const systemLabel = serviceType === "HYBRID_BATTERY" ? "Hybrid + Battery" : "On-Grid";
+      after(async () => {
+        try {
+          await prisma.leadActivity.create({
+            data: {
+              leadId: lead.id,
+              type: "QUOTE_GENERATED",
+              description: `Generated an automated web quote for a ${sectorLabel} ${systemLabel} system.`,
+              metadata: { quoteId: quote.id, quoteNumber: quote.quoteNumber } as unknown as Prisma.InputJsonValue,
+            },
+          });
+        } catch (err) {
+          console.error("[POST /api/quote/calculate] failed to log the lead activity:", err);
+        }
+      });
     } catch (err) {
       console.error("[POST /api/quote/calculate] failed to persist lead/quote:", err);
       return NextResponse.json({ error: "Could not save your quote. Please try again." }, { status: 500 });
@@ -587,9 +706,12 @@ async function handleCalculateQuote(req: NextRequest): Promise<NextResponse> {
     totalClientPricePKR: recommended.totalClientPricePKR,
     estimatedMonthlySavingsPKR: recommended.estimatedMonthlySavingsPKR,
     paybackYears: recommended.paybackYears,
+    generation: recommended.generation,
     offsetPct: daytimeUsagePct,
-    daysToDeploy: DAYS_TO_DEPLOY_DEFAULT,
-    billSource: input.billSource,
+    daysToDeploy: estimateDeployment(recommended.systemKw).days,
+    deploymentLabel: estimateDeployment(recommended.systemKw).label,
+    billSource,
+    sizingMode: sizeMode ? "SIZE" : "BILL",
     monthlyBillPKR,
     hasCustomRequirements: recommended.hasCustomRequirements,
     breakdown: recommended.breakdown,

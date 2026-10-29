@@ -94,6 +94,8 @@
 @theme {
   --color-brand-teal: #49dcb1;
   --color-brand-teal-ink: #0b3b30;
+  /* Same hue as brand-teal, darkened so figures stay readable on white. */
+  --color-brand-teal-deep: #1f9b78;
 
   --color-brand-navy: #456990;
 
@@ -478,4 +480,5 @@ body {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
 
