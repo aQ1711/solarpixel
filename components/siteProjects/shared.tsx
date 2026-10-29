@@ -18,9 +18,12 @@ export function formatDate(isoOrYmd: string): string {
 
 export const EVENT_LABEL: Record<SiteProjectEventType, string> = {
   CREATED: "Project created",
-  SUBMITTED: "Materials submitted for approval",
+  SUBMITTED: "Quotation submitted for approval",
   REVISION_REQUESTED: "Changes requested",
   RESUBMITTED: "Resubmitted",
+  COUNTER_OFFERED: "Counter-offer sent",
+  ACCEPTED: "Offer accepted, prices fixed",
+  DECLINED: "Offer declined",
   APPROVED: "Approved",
   REJECTED: "Rejected",
   STARTED: "Site started",
@@ -34,6 +37,7 @@ const STATUS_TONE: Record<SiteProjectStatus, { light: string; dark: string }> = 
   ASSIGNED: { light: "bg-indigo-100 text-indigo-800", dark: "bg-indigo-400/15 text-indigo-300" },
   SUBMITTED: { light: "bg-amber-100 text-amber-800", dark: "bg-amber-400/15 text-amber-300" },
   REVISION_REQUESTED: { light: "bg-orange-100 text-orange-800", dark: "bg-orange-400/15 text-orange-300" },
+  COUNTER_OFFERED: { light: "bg-teal-100 text-teal-800", dark: "bg-teal-400/15 text-teal-300" },
   APPROVED: { light: "bg-emerald-100 text-emerald-800", dark: "bg-emerald-400/15 text-emerald-300" },
   IN_PROGRESS: { light: "bg-sky-100 text-sky-800", dark: "bg-sky-400/15 text-sky-300" },
   COMPLETED: { light: "bg-violet-100 text-violet-800", dark: "bg-violet-400/15 text-violet-300" },

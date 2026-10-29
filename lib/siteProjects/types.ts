@@ -10,6 +10,7 @@ export type SiteProjectStatus =
   | "ASSIGNED"
   | "SUBMITTED"
   | "REVISION_REQUESTED"
+  | "COUNTER_OFFERED"
   | "APPROVED"
   | "IN_PROGRESS"
   | "COMPLETED"
@@ -21,6 +22,9 @@ export type SiteProjectEventType =
   | "SUBMITTED"
   | "REVISION_REQUESTED"
   | "RESUBMITTED"
+  | "COUNTER_OFFERED"
+  | "ACCEPTED"
+  | "DECLINED"
   | "APPROVED"
   | "REJECTED"
   | "STARTED"
@@ -66,13 +70,20 @@ export interface SiteProjectDTO {
   materials: SiteProjectMaterialDTO[];
   /** What the labour head proposed (sum of quantity x proposed price). */
   proposedMaterialsTotalPKR: number;
+  /** The labour head's own service fee, entered with their quotation. */
+  proposedLabourFeePKR: number;
 
   reviewNote: string | null;
   reviewedAt: string | null;
+  /** The Super Admin's fee while COUNTER_OFFERED, the agreed fee once approved. */
   labourFeePKR: number | null;
   approvedMaterialsTotalPKR: number | null;
   /** Frozen at approval: approved materials + labour fee. */
   payoutPKR: number | null;
+  /** Admin only (null for the labour head): what the customer quotation
+   *  charges for everything except panels, inverters and batteries, to
+   *  compare with the labour head's agreed price. */
+  quotedBosPKR: number | null;
 
   startedAt: string | null;
   completedAt: string | null;
@@ -117,7 +128,8 @@ export const SITE_PROJECT_STATUS_LABEL: Record<SiteProjectStatus, string> = {
   ASSIGNED: "Waiting for materials",
   SUBMITTED: "Awaiting approval",
   REVISION_REQUESTED: "Changes requested",
-  APPROVED: "Approved, ready to start",
+  COUNTER_OFFERED: "Counter-offer sent",
+  APPROVED: "Prices agreed, ready to start",
   IN_PROGRESS: "Site in progress",
   COMPLETED: "Completed, payout pending",
   PAID: "Paid",

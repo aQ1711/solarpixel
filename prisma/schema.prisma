@@ -1096,7 +1096,8 @@ enum SiteProjectStatus {
   ASSIGNED // Super Admin created the project; waiting for the labour head's materials
   SUBMITTED // Labour head entered the materials + prices; awaiting the Super Admin
   REVISION_REQUESTED // Sent back with a note; labour head edits and resubmits
-  APPROVED // Super Admin accepted the materials/prices; site may start
+  COUNTER_OFFERED // Super Admin edited the quotation and sent it back; the labour head accepts or declines
+  APPROVED // Prices agreed (approved, or the labour head accepted the counter-offer); site may start
   IN_PROGRESS // Labour head started the site
   COMPLETED // Labour head ended the site with a completion report; payout pending
   PAID // Super Admin released the payout
@@ -1110,6 +1111,9 @@ enum SiteProjectEventType {
   SUBMITTED
   REVISION_REQUESTED
   RESUBMITTED
+  COUNTER_OFFERED
+  ACCEPTED
+  DECLINED
   APPROVED
   REJECTED
   STARTED
@@ -1153,6 +1157,8 @@ model SiteProject {
   // Set at approval and frozen: the payout the labour head is owed is
   // approved materials + labour fee, snapshotted so a later edit can never
   // silently change what was agreed.
+  // The labour head's own service fee, entered with their materials.
+  proposedLabourFeePKR      Decimal   @default(0) @db.Decimal(12, 2)
   labourFeePKR              Decimal?  @db.Decimal(12, 2)
   approvedMaterialsTotalPKR Decimal?  @db.Decimal(14, 2)
   payoutPKR                 Decimal?  @db.Decimal(14, 2)

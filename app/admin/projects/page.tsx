@@ -38,7 +38,7 @@ const MATERIAL_GRID = "sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_5rem_7.5rem
 type Filter = "ACTION" | "ALL" | SiteProjectStatus;
 
 /** Before the prices are approved: details are still editable. */
-const PRE_APPROVAL: SiteProjectStatus[] = ["ASSIGNED", "SUBMITTED", "REVISION_REQUESTED"];
+const PRE_APPROVAL: SiteProjectStatus[] = ["ASSIGNED", "SUBMITTED", "REVISION_REQUESTED", "COUNTER_OFFERED"];
 
 /** Statuses where the ball is in the Super Admin's court. */
 const NEEDS_ADMIN: SiteProjectStatus[] = ["SUBMITTED", "COMPLETED"];
@@ -48,11 +48,12 @@ const FILTER_LABEL: Record<Filter, string> = {
   ALL: "All",
   ...SITE_PROJECT_STATUS_LABEL,
   SUBMITTED: "Awaiting approval",
-  APPROVED: "Approved",
+  COUNTER_OFFERED: "Offer sent",
+  APPROVED: "Prices agreed",
   IN_PROGRESS: "In progress",
   COMPLETED: "Payout due",
 };
-const FILTER_ORDER: Filter[] = ["ACTION", "ALL", "ASSIGNED", "SUBMITTED", "REVISION_REQUESTED", "APPROVED", "IN_PROGRESS", "COMPLETED", "PAID", "REJECTED"];
+const FILTER_ORDER: Filter[] = ["ACTION", "ALL", "ASSIGNED", "SUBMITTED", "REVISION_REQUESTED", "COUNTER_OFFERED", "APPROVED", "IN_PROGRESS", "COMPLETED", "PAID", "REJECTED"];
 
 // ============================================================================
 // Page
@@ -253,7 +254,7 @@ export default function AdminProjectsPage() {
                   <div className="mt-2.5 flex items-baseline justify-between text-xs text-stone-500">
                     <span className="truncate">{p.labourHead.name}</span>
                     <span className="shrink-0 font-semibold tabular-nums text-stone-700">
-                      {p.status === "ASSIGNED" ? "No materials yet" : formatPKR(p.payoutPKR ?? p.proposedMaterialsTotalPKR)}
+                      {p.status === "ASSIGNED" ? "No quotation yet" : formatPKR(p.payoutPKR ?? p.proposedMaterialsTotalPKR + p.proposedLabourFeePKR)}
                     </span>
                   </div>
                 </button>
@@ -300,7 +301,8 @@ function ProjectReview({
   onChanged: (p: SiteProjectDTO) => void;
   onUnauthorized: (reason?: string) => void;
 }) {
-  const reviewable = project.status === "SUBMITTED";
+  const reviewable = project.status === "SUBMITTED" || project.status === "COUNTER_OFFERED";
+  const canApprove = project.status === "SUBMITTED";
 
   // Approved quantity/price per line, starting from the labour head's own
   // proposal (or the already-approved values once reviewed).
@@ -315,7 +317,13 @@ function ProjectReview({
       ]),
     ),
   );
-  const [labourFee, setLabourFee] = useState(project.labourFeePKR !== null ? String(project.labourFeePKR) : "");
+  const [labourFee, setLabourFee] = useState(
+    project.labourFeePKR !== null
+      ? String(project.labourFeePKR)
+      : project.proposedLabourFeePKR > 0
+        ? String(project.proposedLabourFeePKR)
+        : "",
+  );
   const [approveNote, setApproveNote] = useState("");
   const [mode, setMode] = useState<null | "REQUEST_REVISION" | "REJECT">(null);
   const [reason, setReason] = useState("");
@@ -368,6 +376,22 @@ function ProjectReview({
         })),
       },
       "Could not approve the project.",
+    );
+
+  const counterOffer = () =>
+    post(
+      "review",
+      {
+        decision: "COUNTER_OFFER",
+        labourFeePKR: fee,
+        note: approveNote || null,
+        materials: project.materials.map((m) => ({
+          id: m.id,
+          approvedQuantity: Number(draft[m.id].qty) || 0,
+          approvedUnitPricePKR: Number(draft[m.id].price) || 0,
+        })),
+      },
+      "Could not send the offer.",
     );
 
   return (
@@ -424,7 +448,7 @@ function ProjectReview({
       {project.materials.length > 0 && (
       <div className={CARD}>
         <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">
-          {reviewable ? "Verify materials and prices" : "Materials"}
+          {reviewable ? "Verify the quotation" : "Materials"}
         </p>
         <div className="mt-3">
           <div className={`hidden gap-3 pb-2 text-xs font-medium text-stone-400 sm:grid ${MATERIAL_GRID}`}>
@@ -514,14 +538,15 @@ function ProjectReview({
           <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Payout to {project.labourHead.name}</p>
           <dl className="mt-3 space-y-2 text-sm">
             <Row label="Proposed materials" value={formatPKR(project.proposedMaterialsTotalPKR)} muted />
+            <Row label="Proposed service fee" value={formatPKR(project.proposedLabourFeePKR)} muted />
             <Row
-              label="Approved materials"
+              label="Offered materials"
               value={formatPKR(approvedTotal)}
               hint={difference === 0 ? null : `${formatPKR(Math.abs(difference))} ${difference < 0 ? "less" : "more"} than proposed`}
             />
             <div className="flex items-center justify-between gap-3">
               <dt className="text-stone-600">
-                <label htmlFor="labourFee">Labour fee</label>
+                <label htmlFor="labourFee">Service fee</label>
               </dt>
               <dd>
                 <input
@@ -535,7 +560,7 @@ function ProjectReview({
               </dd>
             </div>
             <div className="flex items-baseline justify-between border-t border-stone-100 pt-3">
-              <dt className="font-semibold text-stone-900">Payout once the site ends</dt>
+              <dt className="font-semibold text-stone-900">Total once the site ends</dt>
               <dd className="text-xl font-bold tabular-nums text-emerald-700">{formatPKR(payout)}</dd>
             </div>
           </dl>
@@ -547,22 +572,35 @@ function ProjectReview({
 
           {mode === null ? (
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              {canApprove && (
+                <button
+                  type="button"
+                  onClick={approve}
+                  disabled={busy || payout <= 0}
+                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60 sm:w-auto"
+                >
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  Approve as quoted
+                </button>
+              )}
               <button
                 type="button"
-                onClick={approve}
+                onClick={counterOffer}
                 disabled={busy || payout <= 0}
-                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60 sm:w-auto"
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60 sm:w-auto"
               >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                Approve and let them start
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquareWarning className="h-4 w-4" />}
+                {project.status === "COUNTER_OFFERED" ? "Update the offer" : "Send my edits as an offer"}
               </button>
-              <button
-                type="button"
-                onClick={() => setMode("REQUEST_REVISION")}
-                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 transition hover:border-stone-300 sm:w-auto"
-              >
-                <MessageSquareWarning className="h-4 w-4" /> Ask for changes
-              </button>
+              {canApprove && (
+                <button
+                  type="button"
+                  onClick={() => setMode("REQUEST_REVISION")}
+                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 transition hover:border-stone-300 sm:w-auto"
+                >
+                  <MessageSquareWarning className="h-4 w-4" /> Ask for changes
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setMode("REJECT")}
@@ -612,12 +650,42 @@ function ProjectReview({
         </div>
       )}
 
+      {project.status === "COUNTER_OFFERED" && (
+        <div className={CARD}>
+          <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Waiting for {project.labourHead.name} to answer your offer</p>
+          {project.reviewNote && <p className="mt-1 whitespace-pre-line text-sm text-stone-700">{project.reviewNote}</p>}
+        </div>
+      )}
+
+      {project.quotedBosPKR !== null && (project.payoutPKR !== null || reviewable) && project.status !== "REJECTED" && (
+        <div className={CARD}>
+          <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Margin on installation work</p>
+          <dl className="mt-3 space-y-2 text-sm">
+            <Row label="Customer quotation (cabling, structure, installation, site works)" value={formatPKR(project.quotedBosPKR)} />
+            <Row
+              label={project.payoutPKR !== null ? `Agreed with ${project.labourHead.name}` : `Current figure for ${project.labourHead.name}`}
+              value={formatPKR(project.payoutPKR ?? payout)}
+            />
+            <div className="flex items-baseline justify-between border-t border-stone-100 pt-3">
+              <dt className="font-semibold text-stone-900">Difference (our margin)</dt>
+              <dd
+                className={`text-xl font-bold tabular-nums ${
+                  project.quotedBosPKR - (project.payoutPKR ?? payout) >= 0 ? "text-emerald-700" : "text-red-600"
+                }`}
+              >
+                {formatPKR(roundMoney(project.quotedBosPKR - (project.payoutPKR ?? payout)))}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      )}
+
       {project.payoutPKR !== null && project.status !== "REJECTED" && (
         <div className={CARD}>
           <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Agreed payout</p>
           <p className="mt-1 text-2xl font-bold tabular-nums text-emerald-700">{formatPKR(project.payoutPKR)}</p>
           <p className="mt-1 text-xs text-stone-500">
-            Approved materials {formatPKR(project.approvedMaterialsTotalPKR ?? 0)} + labour fee {formatPKR(project.labourFeePKR ?? 0)}
+            Agreed materials {formatPKR(project.approvedMaterialsTotalPKR ?? 0)} + service fee {formatPKR(project.labourFeePKR ?? 0)}
           </p>
         </div>
       )}

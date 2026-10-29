@@ -22,6 +22,9 @@ import {
  *   Super Admin reviews prices:
  *       approve (sets labour fee)           -> APPROVED
  *       send back with a note               -> REVISION_REQUESTED -> (edit) -> SUBMITTED
+ *       edit the lines and counter-offer    -> COUNTER_OFFERED
+ *           labour head accepts             -> APPROVED (prices fixed)
+ *           labour head declines + note     -> REVISION_REQUESTED -> (edit) -> SUBMITTED
  *       reject / cancel                     -> REJECTED
  *   labour head starts the site             -> IN_PROGRESS
  *   labour head ends it with a report       -> COMPLETED
@@ -52,7 +55,7 @@ const SUPER_ADMIN_LABEL = "Super Admin";
 
 /** Statuses before the Super Admin has approved the prices: details are
  *  still correctable and the project can still be cancelled. */
-const PRE_APPROVAL: SiteProjectStatus[] = ["ASSIGNED", "SUBMITTED", "REVISION_REQUESTED"];
+const PRE_APPROVAL: SiteProjectStatus[] = ["ASSIGNED", "SUBMITTED", "REVISION_REQUESTED", "COUNTER_OFFERED"];
 
 // ============================================================================
 // Validation
@@ -86,6 +89,8 @@ export type ProjectDetailsInput = z.infer<typeof projectDetailsSchema>;
 /** What the labour head submits: only the materials and their prices. */
 export const materialsInputSchema = z.object({
   materials: z.array(materialInputSchema).min(1, "Add at least one material").max(100),
+  /** The labour head's own service fee, part of their quotation. */
+  labourFeePKR: z.coerce.number().min(0, "Service fee can't be negative").max(100_000_000).default(0),
 });
 export type MaterialInput = z.infer<typeof materialInputSchema>;
 
@@ -104,10 +109,30 @@ export const reviewInputSchema = z.discriminatedUnion("decision", [
       )
       .min(1),
   }),
+  z.object({
+    decision: z.literal("COUNTER_OFFER"),
+    labourFeePKR: z.coerce.number().min(0, "Labour fee can't be negative").max(100_000_000),
+    note: z.string().trim().max(1000).nullish(),
+    materials: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          approvedQuantity: z.coerce.number().min(0).max(1_000_000),
+          approvedUnitPricePKR: z.coerce.number().min(0).max(100_000_000),
+        }),
+      )
+      .min(1),
+  }),
   z.object({ decision: z.literal("REQUEST_REVISION"), note: z.string().trim().min(1, "Tell them what to change").max(1000) }),
   z.object({ decision: z.literal("REJECT"), note: z.string().trim().min(1, "Give a reason").max(1000) }),
 ]);
 export type ReviewInput = z.infer<typeof reviewInputSchema>;
+
+export const offerResponseSchema = z.discriminatedUnion("decision", [
+  z.object({ decision: z.literal("ACCEPT") }),
+  z.object({ decision: z.literal("DECLINE"), note: z.string().trim().min(1, "Tell us what you want changed").max(1000) }),
+]);
+export type OfferResponseInput = z.infer<typeof offerResponseSchema>;
 
 export const completeInputSchema = z.object({
   completionNotes: z.string().trim().min(1, "Add a short completion report").max(4000),
@@ -133,7 +158,7 @@ type ProjectRow = Prisma.SiteProjectGetPayload<{ include: typeof projectInclude 
 const num = (d: Prisma.Decimal | null): number | null => (d === null ? null : d.toNumber());
 const iso = (d: Date | null): string | null => (d === null ? null : d.toISOString());
 
-function toDTO(row: ProjectRow): SiteProjectDTO {
+function toDTO(row: ProjectRow, quotedBosPKR: number | null = null): SiteProjectDTO {
   const materials = row.materials.map((m) => ({
     id: m.id,
     name: m.name,
@@ -159,6 +184,8 @@ function toDTO(row: ProjectRow): SiteProjectDTO {
     scopeNotes: row.scopeNotes,
     materials,
     proposedMaterialsTotalPKR: sumLinesPKR(materials.map((m) => ({ quantity: m.quantity, unitPricePKR: m.proposedUnitPricePKR }))),
+    proposedLabourFeePKR: row.proposedLabourFeePKR.toNumber(),
+    quotedBosPKR,
     reviewNote: row.reviewNote,
     reviewedAt: iso(row.reviewedAt),
     labourFeePKR: num(row.labourFeePKR),
@@ -179,6 +206,17 @@ function toDTO(row: ProjectRow): SiteProjectDTO {
       createdAt: e.createdAt.toISOString(),
     })),
   };
+}
+
+/** Everything the customer quotation charges except panels, inverters and
+ *  batteries (cabling and protection, structure, installation, site works),
+ *  read from the breakdown saved with the quote. */
+function quotedBosFromSnapshot(snapshot: Prisma.JsonValue | null): number | null {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return null;
+  const b = snapshot as Record<string, unknown>;
+  const n = (k: string) => (typeof b[k] === "number" ? (b[k] as number) : 0);
+  const total = n("cablingAndProtectionPKR") + n("structurePKR") + n("installationPKR") + n("siteWorksPKR");
+  return total > 0 ? roundMoney(total) : null;
 }
 
 function generateProjectNumber(): string {
@@ -319,7 +357,14 @@ export async function listProjectsForAdmin(): Promise<SiteProjectDTO[]> {
     orderBy: { createdAt: "desc" },
     take: 300,
   });
-  return rows.map(toDTO);
+  // The customer quotation's non-equipment lines, for the admin's
+  // profit comparison. Never attached for the labour head.
+  const quoteIds = rows.map((r) => r.quoteId).filter((id): id is string => id !== null);
+  const quotes = quoteIds.length
+    ? await prisma.quote.findMany({ where: { id: { in: quoteIds } }, select: { id: true, breakdownSnapshot: true } })
+    : [];
+  const bosByQuote = new Map(quotes.map((q) => [q.id, quotedBosFromSnapshot(q.breakdownSnapshot)]));
+  return rows.map((r) => toDTO(r, r.quoteId ? (bosByQuote.get(r.quoteId) ?? null) : null));
 }
 
 /** Create a project and assign it to a labour head; they then only need to
@@ -420,6 +465,44 @@ export async function reviewProject(projectId: string, input: ReviewInput): Prom
       return;
     }
 
+    if (input.decision === "COUNTER_OFFER") {
+      const lines = await tx.siteProjectMaterial.findMany({ where: { projectId }, select: { id: true } });
+      const submitted = new Map(input.materials.map((m) => [m.id, m]));
+      if (lines.length !== submitted.size || lines.some((l) => !submitted.has(l.id))) {
+        throw new SiteProjectError("The material list changed. Reload and review again.", 409);
+      }
+      const offerTotal = sumLinesPKR(
+        input.materials.map((m) => ({ quantity: m.approvedQuantity, unitPricePKR: m.approvedUnitPricePKR })),
+      );
+      const labourFee = roundMoney(input.labourFeePKR);
+      if (computePayoutPKR(offerTotal, labourFee) <= 0) {
+        throw new SiteProjectError("The offer can't be zero. Keep at least one material or add a service fee.");
+      }
+      // Not frozen yet: payout stays null until the labour head accepts.
+      const moved = await tx.siteProject.updateMany({
+        where: { id: projectId, status: { in: ["SUBMITTED", "COUNTER_OFFERED"] } },
+        data: {
+          status: "COUNTER_OFFERED",
+          reviewedAt: new Date(),
+          reviewNote: input.note || null,
+          labourFeePKR: labourFee,
+          approvedMaterialsTotalPKR: offerTotal,
+          payoutPKR: null,
+        },
+      });
+      if (moved.count === 0) await throwNotActionable(tx, projectId, null, "take a counter-offer");
+      for (const m of input.materials) {
+        await tx.siteProjectMaterial.update({
+          where: { id: m.id },
+          data: { approvedQuantity: m.approvedQuantity, approvedUnitPricePKR: m.approvedUnitPricePKR },
+        });
+      }
+      await tx.siteProjectEvent.create({
+        data: { projectId, type: "COUNTER_OFFERED", actorLabel: SUPER_ADMIN_LABEL, note: input.note || null },
+      });
+      return;
+    }
+
     // Asking for changes only makes sense once materials are submitted; a
     // project can be rejected/cancelled at any point before approval.
     const fromStatuses: SiteProjectStatus[] = input.decision === "REJECT" ? PRE_APPROVAL : ["SUBMITTED"];
@@ -481,12 +564,17 @@ export async function listProjectsForLabourHead(engineerId: string): Promise<Sit
     orderBy: { createdAt: "desc" },
     take: 100,
   });
-  return rows.map(toDTO);
+  return rows.map((r) => toDTO(r));
 }
 
 /** Enter (or, after the Super Admin asked for changes, correct) the
  *  materials and prices, and send them for approval. */
-export async function submitMaterials(engineerId: string, projectId: string, materials: MaterialInput[]): Promise<SiteProjectDTO> {
+export async function submitMaterials(
+  engineerId: string,
+  projectId: string,
+  materials: MaterialInput[],
+  labourFeePKR: number,
+): Promise<SiteProjectDTO> {
   await assertLabourHead(engineerId);
   const prisma = await getDb();
   const actorLabel = await labourHeadName(engineerId);
@@ -503,7 +591,15 @@ export async function submitMaterials(engineerId: string, projectId: string, mat
 
     const moved = await tx.siteProject.updateMany({
       where: { id: projectId, labourHeadId: engineerId, status: current.status },
-      data: { status: "SUBMITTED", submittedAt: new Date(), reviewNote: null, reviewedAt: null },
+      data: {
+        status: "SUBMITTED",
+        submittedAt: new Date(),
+        reviewNote: null,
+        reviewedAt: null,
+        proposedLabourFeePKR: roundMoney(labourFeePKR),
+        labourFeePKR: null,
+        approvedMaterialsTotalPKR: null,
+      },
     });
     if (moved.count === 0) await throwNotActionable(tx, projectId, engineerId, "take materials");
 
@@ -512,6 +608,43 @@ export async function submitMaterials(engineerId: string, projectId: string, mat
     await tx.siteProjectEvent.create({
       data: { projectId, type: current.status === "ASSIGNED" ? "SUBMITTED" : "RESUBMITTED", actorLabel },
     });
+  });
+  return fetchProject(projectId);
+}
+
+/** The labour head's answer to a counter-offer: accepting fixes the prices
+ *  (the payout is frozen from the offered lines + fee); declining sends it
+ *  back to them to edit and resubmit, with their note on the timeline. */
+export async function respondToOffer(engineerId: string, projectId: string, input: OfferResponseInput): Promise<SiteProjectDTO> {
+  await assertLabourHead(engineerId);
+  const prisma = await getDb();
+  const actorLabel = await labourHeadName(engineerId);
+
+  await prisma.$transaction(async (tx) => {
+    if (input.decision === "DECLINE") {
+      const moved = await tx.siteProject.updateMany({
+        where: { id: projectId, labourHeadId: engineerId, status: "COUNTER_OFFERED" },
+        data: { status: "REVISION_REQUESTED", reviewNote: input.note },
+      });
+      if (moved.count === 0) await throwNotActionable(tx, projectId, engineerId, "decline the offer");
+      await tx.siteProjectEvent.create({ data: { projectId, type: "DECLINED", actorLabel, note: input.note } });
+      return;
+    }
+
+    const row = await tx.siteProject.findFirst({
+      where: { id: projectId, labourHeadId: engineerId, status: "COUNTER_OFFERED" },
+      select: { labourFeePKR: true, approvedMaterialsTotalPKR: true },
+    });
+    if (!row || row.labourFeePKR === null || row.approvedMaterialsTotalPKR === null) {
+      return throwNotActionable(tx, projectId, engineerId, "accept the offer");
+    }
+    const payout = computePayoutPKR(row.approvedMaterialsTotalPKR.toNumber(), row.labourFeePKR.toNumber());
+    const moved = await tx.siteProject.updateMany({
+      where: { id: projectId, labourHeadId: engineerId, status: "COUNTER_OFFERED" },
+      data: { status: "APPROVED", reviewNote: null, payoutPKR: payout },
+    });
+    if (moved.count === 0) await throwNotActionable(tx, projectId, engineerId, "accept the offer");
+    await tx.siteProjectEvent.create({ data: { projectId, type: "ACCEPTED", actorLabel } });
   });
   return fetchProject(projectId);
 }

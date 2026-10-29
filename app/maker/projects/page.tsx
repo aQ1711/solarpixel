@@ -234,9 +234,11 @@ function ProjectList({ projects, onOpen }: { projects: SiteProjectDTO[] | null; 
           </div>
           <p className="mt-3 text-xs text-[var(--color-ink-muted)]">
             {p.status === "ASSIGNED" ? (
-              <span className="font-semibold text-indigo-300">Tap to enter the materials</span>
+              <span className="font-semibold text-indigo-300">Tap to send your quotation</span>
             ) : p.status === "REVISION_REQUESTED" ? (
-              <span className="font-semibold text-orange-300">Tap to fix the materials</span>
+              <span className="font-semibold text-orange-300">Tap to fix your quotation</span>
+            ) : p.status === "COUNTER_OFFERED" ? (
+              <span className="font-semibold text-teal-300">The admin sent you an offer. Tap to answer</span>
             ) : p.status === "REJECTED" ? (
               <>This project was cancelled</>
             ) : p.payoutPKR !== null ? (
@@ -333,14 +335,14 @@ function ProjectDetail({
 
       {/* What happens next, depending on where the project is */}
       {project.status === "ASSIGNED" && (
-        <Callout tone="indigo" title="Your turn: enter the materials">
-          Add everything you will buy for this site, with your price for each. The admin checks the prices before you start.
+        <Callout tone="indigo" title="Your turn: send your quotation">
+          Add everything you will buy for this site with your price for each, plus your own service fee. The admin approves it or sends you an offer before you start.
         </Callout>
       )}
 
       {project.status === "SUBMITTED" && (
         <Callout tone="amber" title="Waiting for approval">
-          The admin is checking your materials and prices. You can start the site once it is approved.
+          The admin is checking your quotation. You can start the site once the prices are agreed.
         </Callout>
       )}
 
@@ -348,6 +350,10 @@ function ProjectDetail({
         <Callout tone="orange" title="Changes requested">
           {project.reviewNote}
         </Callout>
+      )}
+
+      {project.status === "COUNTER_OFFERED" && (
+        <OfferCard project={project} engineerId={engineerId} onUnauthorized={onUnauthorized} onChanged={onChanged} />
       )}
 
       {project.status === "REJECTED" && (
@@ -367,7 +373,7 @@ function ProjectDetail({
           </p>
           <p className="mt-1 text-2xl font-bold text-[var(--color-neon)]">{formatPKR(project.payoutPKR)}</p>
           <p className="mt-1 text-xs text-[var(--color-ink-muted)]">
-            Approved materials {formatPKR(approvedTotal ?? 0)} + labour fee {formatPKR(project.labourFeePKR ?? 0)}
+            Agreed materials {formatPKR(approvedTotal ?? 0)} + your service fee {formatPKR(project.labourFeePKR ?? 0)}
           </p>
           <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
             {project.status === "APPROVED" && "Released after you end the site."}
@@ -447,7 +453,7 @@ function ProjectDetail({
         </p>
       )}
 
-      {!editingMaterials && project.materials.length > 0 && (
+      {!editingMaterials && project.status !== "COUNTER_OFFERED" && project.materials.length > 0 && (
         <div className={CARD}>
           <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-ink-faint)]">Materials</p>
           <ul className="mt-2 divide-y divide-[var(--color-border)]">
@@ -526,6 +532,136 @@ function Callout({
   );
 }
 
+function OfferCard({
+  project,
+  engineerId,
+  onUnauthorized,
+  onChanged,
+}: {
+  project: SiteProjectDTO;
+  engineerId: string;
+  onUnauthorized: (reason?: string) => void;
+  onChanged: (p: SiteProjectDTO) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [declining, setDeclining] = useState(false);
+  const [note, setNote] = useState("");
+
+  async function respond(body: { decision: "ACCEPT" } | { decision: "DECLINE"; note: string }) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await internalFetch("MAKER", `/api/maker/projects/${project.id}/offer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ engineerId, ...body }),
+      });
+      if (res.status === 401) return onUnauthorized();
+      const data = (await res.json()) as ApiJson<{ project?: SiteProjectDTO }>;
+      if (!res.ok || !data.project) return setError(data?.error ?? "Could not send your answer.");
+      onChanged(data.project);
+    } catch {
+      setError("Network error. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const offerTotal = (project.approvedMaterialsTotalPKR ?? 0) + (project.labourFeePKR ?? 0);
+  const yourTotal = project.proposedMaterialsTotalPKR + project.proposedLabourFeePKR;
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-teal-400/30 bg-teal-400/10 p-4 text-sm text-teal-100">
+      <p className="font-semibold">The admin sent you an offer</p>
+      {project.reviewNote && <p className="whitespace-pre-line">{project.reviewNote}</p>}
+
+      <ul className="space-y-1.5">
+        {project.materials.map((m) => {
+          const changed = m.approvedQuantity !== m.quantity || m.approvedUnitPricePKR !== m.proposedUnitPricePKR;
+          return (
+            <li key={m.id} className="flex items-baseline justify-between gap-3">
+              <span className="min-w-0">
+                {m.name}
+                <span className="block text-[11px] opacity-70">
+                  {changed ? (
+                    <>
+                      You asked {m.quantity} {m.unit} × {formatPKR(m.proposedUnitPricePKR)}. Offer: {m.approvedQuantity} {m.unit} ×{" "}
+                      {formatPKR(m.approvedUnitPricePKR ?? 0)}
+                    </>
+                  ) : (
+                    <>
+                      {m.quantity} {m.unit} × {formatPKR(m.proposedUnitPricePKR)}
+                    </>
+                  )}
+                </span>
+              </span>
+              <span className="shrink-0 tabular-nums">{formatPKR(lineTotalPKR(m.approvedQuantity ?? 0, m.approvedUnitPricePKR ?? 0))}</span>
+            </li>
+          );
+        })}
+        <li className="flex items-baseline justify-between gap-3">
+          <span>
+            Your service fee
+            {project.labourFeePKR !== project.proposedLabourFeePKR && (
+              <span className="block text-[11px] opacity-70">You asked {formatPKR(project.proposedLabourFeePKR)}</span>
+            )}
+          </span>
+          <span className="shrink-0 tabular-nums">{formatPKR(project.labourFeePKR ?? 0)}</span>
+        </li>
+      </ul>
+
+      <div className="flex items-baseline justify-between border-t border-teal-400/30 pt-2">
+        <span>
+          Offer total
+          <span className="block text-[11px] opacity-70">Your quotation was {formatPKR(yourTotal)}</span>
+        </span>
+        <span className="text-xl font-bold tabular-nums">{formatPKR(offerTotal)}</span>
+      </div>
+
+      {declining && (
+        <div>
+          <label htmlFor="decline-note" className="mb-1 block text-[11px] opacity-80">
+            What would you like changed?
+          </label>
+          <textarea id="decline-note" value={note} onChange={(e) => setNote(e.target.value)} rows={3} className={INPUT} />
+        </div>
+      )}
+
+      {error && (
+        <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-300">
+          {error}
+        </p>
+      )}
+
+      {!declining ? (
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setDeclining(true)} disabled={busy} className={BTN_GHOST}>
+            Ask for changes
+          </button>
+          <button type="button" onClick={() => respond({ decision: "ACCEPT" })} disabled={busy} className={BTN_PRIMARY}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Accept offer
+          </button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setDeclining(false)} disabled={busy} className={BTN_GHOST}>
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={() => respond({ decision: "DECLINE", note })}
+            disabled={busy || note.trim().length === 0}
+            className={BTN_PRIMARY}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Send and edit my quotation
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Timeline({ project }: { project: SiteProjectDTO }) {
   return (
     <div className={CARD}>
@@ -588,6 +724,7 @@ function MaterialsForm({
       : [emptyRow(0)],
   );
   const [nextKey, setNextKey] = useState(Math.max(project.materials.length, 1));
+  const [fee, setFee] = useState(project.proposedLabourFeePKR > 0 ? String(project.proposedLabourFeePKR) : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -610,6 +747,7 @@ function MaterialsForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           engineerId,
+          labourFeePKR: Number(fee) || 0,
           materials: rows.map((r) => ({
             name: r.name,
             unit: r.unit,
@@ -632,7 +770,7 @@ function MaterialsForm({
   return (
     <form onSubmit={handleSubmit} className={`${CARD} space-y-3`}>
       <p className="flex items-center gap-1.5 text-sm font-semibold text-[var(--color-ink)]">
-        <HardHat className="h-4 w-4 text-[var(--color-amber)]" /> Materials and prices
+        <HardHat className="h-4 w-4 text-[var(--color-amber)]" /> Your quotation
       </p>
 
       {rows.map((r, i) => (
@@ -698,9 +836,22 @@ function MaterialsForm({
         <Plus className="h-4 w-4" /> Add material
       </button>
 
-      <div className="flex items-baseline justify-between border-t border-[var(--color-border)] pt-3">
-        <span className="text-sm text-[var(--color-ink-muted)]">Materials total</span>
-        <span className="text-lg font-bold tabular-nums text-[var(--color-ink)]">{formatPKR(total)}</span>
+      <div>
+        <label htmlFor="service-fee" className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
+          Your service fee (Rs): labour, survey, transport and your own charges
+        </label>
+        <input id="service-fee" inputMode="decimal" value={fee} onChange={(e) => setFee(digitsOnly(e.target.value))} className={INPUT} />
+      </div>
+
+      <div className="space-y-1 border-t border-[var(--color-border)] pt-3">
+        <div className="flex items-baseline justify-between text-sm text-[var(--color-ink-muted)]">
+          <span>Materials</span>
+          <span className="tabular-nums">{formatPKR(total)}</span>
+        </div>
+        <div className="flex items-baseline justify-between">
+          <span className="text-sm text-[var(--color-ink-muted)]">Quotation total</span>
+          <span className="text-lg font-bold tabular-nums text-[var(--color-ink)]">{formatPKR(total + (Number(fee) || 0))}</span>
+        </div>
       </div>
 
       {error && (
@@ -711,7 +862,7 @@ function MaterialsForm({
 
       <button type="submit" disabled={busy} className={BTN_PRIMARY}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-        {project.status === "REVISION_REQUESTED" ? "Resubmit for approval" : "Send for approval"}
+        {project.status === "REVISION_REQUESTED" ? "Resubmit quotation" : "Send quotation"}
       </button>
     </form>
   );
