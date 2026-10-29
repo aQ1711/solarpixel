@@ -724,15 +724,14 @@ export async function endSite(engineerId: string, projectId: string, completionN
 // Item catalog for the labour head's quotation picker
 // ============================================================================
 
-/** Groups the labour head can pick from, in display order. Panels, inverters
- *  and batteries are deliberately absent: Solar Pixel supplies those. */
+/** Groups the labour head can pick from, in display order. Panels, inverters,
+ *  batteries and EV chargers are deliberately absent: Solar Pixel supplies those. */
 const PICKER_GROUPS: { group: string; label: string; defaultUnit: string }[] = [
   { group: "DC_CABLE", label: "DC cabling", defaultUnit: "m" },
   { group: "AC_CABLE", label: "AC cabling", defaultUnit: "m" },
   { group: "BREAKERS", label: "Protection and breakers", defaultUnit: "set" },
   { group: "MOUNTING_STRUCTURE", label: "Mounting structure", defaultUnit: "set" },
   { group: "LABOR", label: "Installation and labour", defaultUnit: "job" },
-  { group: "EV_CHARGER", label: "EV chargers", defaultUnit: "pcs" },
 ];
 
 /** Site works are priced from flat admin rates, not catalog rows, so they are
