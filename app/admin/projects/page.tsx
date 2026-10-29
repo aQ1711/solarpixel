@@ -107,6 +107,31 @@ export default function AdminProjectsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keep the list live: a labour head's submission or answer shows up on its
+  // own (every 15 s while the tab is visible, and as soon as it regains focus)
+  // without flashing the loading state or touching the screen unless
+  // something actually changed.
+  useEffect(() => {
+    async function quietRefresh() {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const res = await internalFetch("ADMIN", "/api/admin/projects");
+        if (!res.ok) return;
+        const data = (await res.json()) as ApiJson<{ projects?: SiteProjectDTO[] }>;
+        const next = data.projects ?? [];
+        setProjects((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      } catch {
+        /* a missed poll is harmless; the next one retries */
+      }
+    }
+    const timer = setInterval(quietRefresh, 15_000);
+    document.addEventListener("visibilitychange", quietRefresh);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", quietRefresh);
+    };
+  }, []);
+
   const counts = useMemo(() => {
     const c = new Map<Filter, number>();
     for (const p of projects ?? []) {

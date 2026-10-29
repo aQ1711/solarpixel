@@ -110,6 +110,30 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engineerId]);
 
+  // Keep the list live so an offer or approval from the admin shows up on its
+  // own (every 15 s while the tab is visible, and when it regains focus).
+  useEffect(() => {
+    if (!engineerId) return;
+    async function quietRefresh() {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const res = await internalFetch("MAKER", `/api/maker/projects?engineerId=${encodeURIComponent(engineerId)}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as ApiJson<{ projects?: SiteProjectDTO[] }>;
+        const next = data.projects ?? [];
+        setProjects((prev) => (prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      } catch {
+        /* a missed poll is harmless; the next one retries */
+      }
+    }
+    const timer = setInterval(quietRefresh, 15_000);
+    document.addEventListener("visibilitychange", quietRefresh);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", quietRefresh);
+    };
+  }, [engineerId]);
+
   function chooseEngineer(id: string) {
     setEngineerId(id);
     setView({ kind: "list" });
