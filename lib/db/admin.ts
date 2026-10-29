@@ -356,6 +356,10 @@ const DEFAULT_BATTERY_CODE = "PYLONTECH_5KWH";
 // catalog entry (under DC_CABLE) drives both lookups, differentiated by
 // componentType alone; see app/page.tsx and prisma/seed.ts.
 const DEFAULT_CABLE_CODE = "PAKISTAN_CABLES";
+
+// Supplier charge on small panel orders: under 10 panels, Rs 0.25 per panel.
+const SMALL_ORDER_PANEL_THRESHOLD = 10;
+const SMALL_ORDER_SURCHARGE_PKR_PER_PANEL = 0.25;
 const DEFAULT_BREAKERS_CODE = "SCHNEIDER_DB_BOX";
 const DEFAULT_STRUCTURE_CODE = "STANDARD_L1_L2";
 // Installation no longer prices off a RawVendorCost row (see
@@ -950,7 +954,11 @@ export async function calculateSystemPricing(
   // marginal cost from — only a blended $/W rate for the WHOLE bill-
   // derived system), not an oversight; flagged here so it's an easy
   // follow-up if a future spec wants every line to scale.
-  const rawPanelPKR = panel!.unitCostRs.toNumber() * (effectivePanelCount * panelWattage);
+  // Small orders (fewer than SMALL_ORDER_PANEL_THRESHOLD panels) carry a
+  // flat per-panel supplier surcharge on the panel cost.
+  const smallOrderSurchargePKR =
+    effectivePanelCount < SMALL_ORDER_PANEL_THRESHOLD ? effectivePanelCount * SMALL_ORDER_SURCHARGE_PKR_PER_PANEL : 0;
+  const rawPanelPKR = panel!.unitCostRs.toNumber() * (effectivePanelCount * panelWattage) + smallOrderSurchargePKR;
   // Flat PER_PIECE (2026-08-22, explicit instruction) — NOT multiplied by
   // watts. Every inverter in the catalog is now a real, specific product
   // (brand + rated kW + phase) with its own fixed price; the customer's
