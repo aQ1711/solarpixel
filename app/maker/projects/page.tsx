@@ -19,7 +19,7 @@ import { AccessGate } from "@/components/internal/AccessGate";
 import { BrandMark } from "@/components/BrandMark";
 import { EVENT_LABEL, formatDate, formatDateTime, formatPKR, StatusBadge } from "@/components/siteProjects/shared";
 import { internalFetch, type ApiJson } from "@/lib/internal/access";
-import { lineTotalPKR, sumLinesPKR, type SiteProjectDTO } from "@/lib/siteProjects/types";
+import { lineTotalPKR, sumLinesPKR, type CatalogGroupDTO, type SiteProjectDTO } from "@/lib/siteProjects/types";
 
 // ============================================================================
 // Shared look (same tokens as the Field Engineer survey tool)
@@ -714,14 +714,19 @@ function Timeline({ project }: { project: SiteProjectDTO }) {
 
 interface MaterialRow {
   key: number;
+  /** "GROUP::CODE" for a catalog item, "" while nothing is chosen yet. */
+  itemKey: string;
+  /** A line typed by hand instead of picked from the catalog. */
+  custom: boolean;
   name: string;
   unit: string;
   quantity: string;
   unitPrice: string;
 }
 
+const CUSTOM_VALUE = "__custom__";
 const UNIT_SUGGESTIONS = ["pcs", "m", "set", "kg", "bag", "box", "roll"];
-const emptyRow = (key: number): MaterialRow => ({ key, name: "", unit: "pcs", quantity: "", unitPrice: "" });
+const emptyRow = (key: number, custom = false): MaterialRow => ({ key, itemKey: "", custom, name: "", unit: "pcs", quantity: "", unitPrice: "" });
 const digitsOnly = (v: string) => v.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
 
 function MaterialsForm({
@@ -740,6 +745,8 @@ function MaterialsForm({
     project.materials.length > 0
       ? project.materials.map((m, i) => ({
           key: i,
+          itemKey: m.itemGroup && m.itemCode ? `${m.itemGroup}::${m.itemCode}` : "",
+          custom: !(m.itemGroup && m.itemCode),
           name: m.name,
           unit: m.unit,
           quantity: String(m.quantity),
@@ -749,6 +756,35 @@ function MaterialsForm({
   );
   const [nextKey, setNextKey] = useState(Math.max(project.materials.length, 1));
   const [fee, setFee] = useState(project.proposedLabourFeePKR > 0 ? String(project.proposedLabourFeePKR) : "");
+  const [catalog, setCatalog] = useState<CatalogGroupDTO[]>([]);
+
+  // The same item list the admin pricing page has (names only, no prices).
+  useEffect(() => {
+    let cancelled = false;
+    internalFetch("MAKER", "/api/maker/projects/catalog")
+      .then(async (res) => {
+        if (res.status === 401) return onUnauthorized();
+        const data = (await res.json()) as ApiJson<{ groups?: CatalogGroupDTO[] }>;
+        if (!cancelled && res.ok) setCatalog(data.groups ?? []);
+      })
+      .catch(() => {
+        /* the picker just stays empty; custom items still work */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function pickItem(key: number, value: string) {
+    if (value === "") return updateRow(key, { itemKey: "", custom: false, name: "" });
+    if (value === CUSTOM_VALUE) return updateRow(key, { itemKey: "", custom: true, name: "" });
+    const [group, code] = value.split("::");
+    const g = catalog.find((x) => x.group === group);
+    const item = g?.items.find((x) => x.code === code);
+    if (!g || !item) return;
+    updateRow(key, { itemKey: value, custom: false, name: `${g.label}: ${item.label}`, unit: g.defaultUnit });
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -763,6 +799,9 @@ function MaterialsForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (rows.some((r) => r.name.trim() === "")) {
+      return setError("Choose an item for every line, or use Custom item and type its name.");
+    }
     setBusy(true);
     setError(null);
     try {
@@ -773,6 +812,8 @@ function MaterialsForm({
           engineerId,
           labourFeePKR: Number(fee) || 0,
           materials: rows.map((r) => ({
+            itemGroup: r.itemKey ? r.itemKey.split("::")[0] : null,
+            itemCode: r.itemKey ? r.itemKey.split("::")[1] : null,
             name: r.name,
             unit: r.unit,
             quantity: Number(r.quantity),
@@ -800,13 +841,36 @@ function MaterialsForm({
       {rows.map((r, i) => (
         <div key={r.key} className="space-y-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
           <div className="flex items-center gap-2">
-            <input
-              aria-label={`Material ${i + 1} name`}
-              value={r.name}
-              onChange={(e) => updateRow(r.key, { name: e.target.value })}
-              placeholder="Material name (e.g. DC cable)"
-              className={INPUT}
-            />
+            <div className="min-w-0 flex-1 space-y-2">
+              <select
+                aria-label={`Item ${i + 1}`}
+                value={r.custom ? CUSTOM_VALUE : r.itemKey}
+                onChange={(e) => pickItem(r.key, e.target.value)}
+                className={INPUT}
+              >
+                <option value="">Choose an item…</option>
+                {catalog.map((g) => (
+                  <optgroup key={g.group} label={g.label}>
+                    {g.items.map((it) => (
+                      <option key={`${g.group}::${it.code}`} value={`${g.group}::${it.code}`}>
+                        {it.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+                <option value={CUSTOM_VALUE}>Custom item (type your own)</option>
+              </select>
+              {!r.custom && r.itemKey && <p className="px-1 text-xs text-[var(--color-ink-muted)]">{r.name}</p>}
+              {r.custom && (
+                <input
+                  aria-label={`Custom item ${i + 1} name`}
+                  value={r.name}
+                  onChange={(e) => updateRow(r.key, { name: e.target.value })}
+                  placeholder="Item name"
+                  className={INPUT}
+                />
+              )}
+            </div>
             {rows.length > 1 && (
               <button
                 type="button"
@@ -849,16 +913,28 @@ function MaterialsForm({
         ))}
       </datalist>
 
-      <button
-        type="button"
-        onClick={() => {
-          setRows((prev) => [...prev, emptyRow(nextKey)]);
-          setNextKey((k) => k + 1);
-        }}
-        className={`${BTN_GHOST} w-full`}
-      >
-        <Plus className="h-4 w-4" /> Add material
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setRows((prev) => [...prev, emptyRow(nextKey)]);
+            setNextKey((k) => k + 1);
+          }}
+          className={BTN_GHOST}
+        >
+          <Plus className="h-4 w-4" /> Add item
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setRows((prev) => [...prev, emptyRow(nextKey, true)]);
+            setNextKey((k) => k + 1);
+          }}
+          className={BTN_GHOST}
+        >
+          <Plus className="h-4 w-4" /> Custom item
+        </button>
+      </div>
 
       <div>
         <label htmlFor="service-fee" className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">

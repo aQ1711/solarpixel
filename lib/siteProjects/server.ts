@@ -7,6 +7,7 @@ import {
   computePayoutPKR,
   roundMoney,
   sumLinesPKR,
+  type CatalogGroupDTO,
   type LinkableQuoteDTO,
   type ProjectOptionsDTO,
   type SiteProjectDTO,
@@ -62,6 +63,8 @@ const PRE_APPROVAL: SiteProjectStatus[] = ["ASSIGNED", "SUBMITTED", "REVISION_RE
 // ============================================================================
 
 const materialInputSchema = z.object({
+  itemGroup: z.string().trim().min(1).max(40).nullish(),
+  itemCode: z.string().trim().min(1).max(80).nullish(),
   name: z.string().trim().min(1, "Every material needs a name").max(120),
   unit: z.string().trim().min(1, "Every material needs a unit").max(20),
   quantity: z.coerce.number().positive("Quantity must be more than 0").max(1_000_000),
@@ -134,6 +137,11 @@ export const offerResponseSchema = z.discriminatedUnion("decision", [
 ]);
 export type OfferResponseInput = z.infer<typeof offerResponseSchema>;
 
+export const customerPriceSchema = z.object({
+  /** Null clears it. */
+  customerPricePKR: z.coerce.number().positive("Enter a price more than 0").max(1_000_000_000).nullable(),
+});
+
 export const completeInputSchema = z.object({
   completionNotes: z.string().trim().min(1, "Add a short completion report").max(4000),
 });
@@ -158,9 +166,17 @@ type ProjectRow = Prisma.SiteProjectGetPayload<{ include: typeof projectInclude 
 const num = (d: Prisma.Decimal | null): number | null => (d === null ? null : d.toNumber());
 const iso = (d: Date | null): string | null => (d === null ? null : d.toISOString());
 
-function toDTO(row: ProjectRow, quotedBosPKR: number | null = null): SiteProjectDTO {
+/** Admin-only figures. Never passed for the labour head, so neither the
+ *  customer price nor the customer quotation ever reaches them. */
+interface AdminExtras {
+  quotedBosPKR: number | null;
+}
+
+function toDTO(row: ProjectRow, admin?: AdminExtras): SiteProjectDTO {
   const materials = row.materials.map((m) => ({
     id: m.id,
+    itemGroup: m.itemGroup,
+    itemCode: m.itemCode,
     name: m.name,
     unit: m.unit,
     quantity: m.quantity.toNumber(),
@@ -185,7 +201,8 @@ function toDTO(row: ProjectRow, quotedBosPKR: number | null = null): SiteProject
     materials,
     proposedMaterialsTotalPKR: sumLinesPKR(materials.map((m) => ({ quantity: m.quantity, unitPricePKR: m.proposedUnitPricePKR }))),
     proposedLabourFeePKR: row.proposedLabourFeePKR.toNumber(),
-    quotedBosPKR,
+    quotedBosPKR: admin ? admin.quotedBosPKR : null,
+    customerPricePKR: admin ? num(row.customerPricePKR) : null,
     reviewNote: row.reviewNote,
     reviewedAt: iso(row.reviewedAt),
     labourFeePKR: num(row.labourFeePKR),
@@ -226,6 +243,8 @@ function generateProjectNumber(): string {
 function toMaterialCreate(input: MaterialInput[]) {
   return input.map((m, i) => ({
     sortOrder: i,
+    itemGroup: m.itemGroup ?? null,
+    itemCode: m.itemCode ?? null,
     name: m.name,
     unit: m.unit,
     quantity: m.quantity,
@@ -248,11 +267,25 @@ function toDetailFields(input: ProjectDetailsInput) {
   };
 }
 
-async function fetchProject(projectId: string): Promise<SiteProjectDTO> {
+/** The admin's extra figures for a set of projects: the customer
+ *  quotation's non-equipment lines, read from the quote's saved breakdown. */
+async function adminExtrasFor(rows: ProjectRow[]): Promise<Map<string, AdminExtras>> {
+  const prisma = await getDb();
+  const quoteIds = rows.map((r) => r.quoteId).filter((id): id is string => id !== null);
+  const quotes = quoteIds.length
+    ? await prisma.quote.findMany({ where: { id: { in: quoteIds } }, select: { id: true, breakdownSnapshot: true } })
+    : [];
+  const bosByQuote = new Map(quotes.map((q) => [q.id, quotedBosFromSnapshot(q.breakdownSnapshot)]));
+  return new Map(rows.map((r) => [r.id, { quotedBosPKR: r.quoteId ? (bosByQuote.get(r.quoteId) ?? null) : null }]));
+}
+
+/** `asAdmin` attaches the admin-only figures; the labour head's calls leave it
+ *  off so they can never carry the customer price or quotation. */
+async function fetchProject(projectId: string, asAdmin = false): Promise<SiteProjectDTO> {
   const prisma = await getDb();
   const row = await prisma.siteProject.findUnique({ where: { id: projectId }, include: projectInclude });
   if (!row) throw new SiteProjectError("Project not found.", 404);
-  return toDTO(row);
+  return toDTO(row, asAdmin ? (await adminExtrasFor([row])).get(row.id) : undefined);
 }
 
 /** Why a conditional transition matched nothing: wrong owner / missing
@@ -357,14 +390,8 @@ export async function listProjectsForAdmin(): Promise<SiteProjectDTO[]> {
     orderBy: { createdAt: "desc" },
     take: 300,
   });
-  // The customer quotation's non-equipment lines, for the admin's
-  // profit comparison. Never attached for the labour head.
-  const quoteIds = rows.map((r) => r.quoteId).filter((id): id is string => id !== null);
-  const quotes = quoteIds.length
-    ? await prisma.quote.findMany({ where: { id: { in: quoteIds } }, select: { id: true, breakdownSnapshot: true } })
-    : [];
-  const bosByQuote = new Map(quotes.map((q) => [q.id, quotedBosFromSnapshot(q.breakdownSnapshot)]));
-  return rows.map((r) => toDTO(r, r.quoteId ? (bosByQuote.get(r.quoteId) ?? null) : null));
+  const extras = await adminExtrasFor(rows);
+  return rows.map((r) => toDTO(r, extras.get(r.id)));
 }
 
 /** Create a project and assign it to a labour head; they then only need to
@@ -386,7 +413,7 @@ export async function createProject(input: ProjectDetailsInput): Promise<SitePro
     },
     include: projectInclude,
   });
-  return toDTO(created);
+  return toDTO(created, (await adminExtrasFor([created])).get(created.id));
 }
 
 /** Correct a project's details. Allowed until the prices are approved; the
@@ -419,7 +446,7 @@ export async function updateProjectDetails(projectId: string, input: ProjectDeta
     data: { labourHeadId: input.labourHeadId, quoteId: newQuoteId, ...toDetailFields(input) },
   });
   if (moved.count === 0) throw new SiteProjectError("This project just changed. Reload and try again.", 409);
-  return fetchProject(projectId);
+  return fetchProject(projectId, true);
 }
 
 export async function reviewProject(projectId: string, input: ReviewInput): Promise<SiteProjectDTO> {
@@ -517,7 +544,19 @@ export async function reviewProject(projectId: string, input: ReviewInput): Prom
       data: { projectId, type: eventType, actorLabel: SUPER_ADMIN_LABEL, note: input.note },
     });
   });
-  return fetchProject(projectId);
+  return fetchProject(projectId, true);
+}
+
+/** Set (or clear) what the customer is charged for this job. Allowed at any
+ *  stage: it is the Super Admin's own figure, not part of the negotiation. */
+export async function setCustomerPrice(projectId: string, customerPricePKR: number | null): Promise<SiteProjectDTO> {
+  const prisma = await getDb();
+  const moved = await prisma.siteProject.updateMany({
+    where: { id: projectId },
+    data: { customerPricePKR: customerPricePKR === null ? null : roundMoney(customerPricePKR) },
+  });
+  if (moved.count === 0) throw new SiteProjectError("Project not found.", 404);
+  return fetchProject(projectId, true);
 }
 
 export async function markPaid(projectId: string, paymentReference: string | null | undefined): Promise<SiteProjectDTO> {
@@ -532,7 +571,7 @@ export async function markPaid(projectId: string, paymentReference: string | nul
       data: { projectId, type: "PAID", actorLabel: SUPER_ADMIN_LABEL, note: paymentReference || null },
     });
   });
-  return fetchProject(projectId);
+  return fetchProject(projectId, true);
 }
 
 // ============================================================================
@@ -679,4 +718,55 @@ export async function endSite(engineerId: string, projectId: string, completionN
     await tx.siteProjectEvent.create({ data: { projectId, type: "COMPLETED", actorLabel, note: completionNotes } });
   });
   return fetchProject(projectId);
+}
+
+// ============================================================================
+// Item catalog for the labour head's quotation picker
+// ============================================================================
+
+/** Groups the labour head can pick from, in display order. Panels, inverters
+ *  and batteries are deliberately absent: Solar Pixel supplies those. */
+const PICKER_GROUPS: { group: string; label: string; defaultUnit: string }[] = [
+  { group: "DC_CABLE", label: "DC cabling", defaultUnit: "m" },
+  { group: "AC_CABLE", label: "AC cabling", defaultUnit: "m" },
+  { group: "BREAKERS", label: "Protection and breakers", defaultUnit: "set" },
+  { group: "MOUNTING_STRUCTURE", label: "Mounting structure", defaultUnit: "set" },
+  { group: "LABOR", label: "Installation and labour", defaultUnit: "job" },
+  { group: "EV_CHARGER", label: "EV chargers", defaultUnit: "pcs" },
+];
+
+/** Site works are priced from flat admin rates, not catalog rows, so they are
+ *  listed here by name. */
+const SITE_WORKS_GROUP: CatalogGroupDTO = {
+  group: "SITE_WORKS",
+  label: "Site works",
+  defaultUnit: "pcs",
+  items: [
+    { code: "CIVIL_BLOCK", label: "Civil blocks" },
+    { code: "EARTHING_BORE", label: "Earthing and boring" },
+    { code: "LIGHTNING_ARRESTOR", label: "Lightning arrestor" },
+  ],
+};
+
+/** Names only, never a price: the picker shows the same items as the admin
+ *  pricing catalog, and the labour head types their own rate for each. */
+export async function getItemCatalog(): Promise<CatalogGroupDTO[]> {
+  const prisma = await getDb();
+  const options = await prisma.equipmentOption.findMany({
+    where: {
+      isActive: true,
+      isOtherOption: false,
+      componentType: { in: PICKER_GROUPS.map((g) => g.group) as never[] },
+    },
+    orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+    select: { componentType: true, code: true, label: true },
+  });
+  const groups: CatalogGroupDTO[] = PICKER_GROUPS.map((g) => {
+    const seen = new Set<string>();
+    const items = options
+      .filter((o) => o.componentType === g.group && !seen.has(o.code) && seen.add(o.code))
+      .map((o) => ({ code: o.code, label: o.label }));
+    return { ...g, items };
+  }).filter((g) => g.items.length > 0);
+  return [...groups, SITE_WORKS_GROUP];
 }

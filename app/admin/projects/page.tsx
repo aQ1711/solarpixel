@@ -353,6 +353,7 @@ function ProjectReview({
         : "",
   );
   const [approveNote, setApproveNote] = useState("");
+  const [customerPrice, setCustomerPrice] = useState(project.customerPricePKR !== null ? String(project.customerPricePKR) : "");
   const [mode, setMode] = useState<null | "REQUEST_REVISION" | "REJECT">(null);
   const [reason, setReason] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
@@ -685,25 +686,58 @@ function ProjectReview({
         </div>
       )}
 
-      {project.quotedBosPKR !== null && (project.payoutPKR !== null || reviewable) && project.status !== "REJECTED" && (
+      {(project.payoutPKR !== null || reviewable) && project.status !== "REJECTED" && (
         <div className={CARD}>
-          <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Margin on installation work</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Margin on this job</p>
           <dl className="mt-3 space-y-2 text-sm">
-            <Row label="Customer quotation (cabling, structure, installation, site works)" value={formatPKR(project.quotedBosPKR)} />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <dt className="text-stone-600">
+                <label htmlFor="customerPrice">What the customer pays (Rs)</label>
+              </dt>
+              <dd className="flex items-center gap-2">
+                <input
+                  id="customerPrice"
+                  inputMode="decimal"
+                  value={customerPrice}
+                  onChange={(e) => setCustomerPrice(digitsOnly(e.target.value))}
+                  placeholder="Your price to the customer"
+                  className={`${FIELD} w-44 text-right`}
+                />
+                <button
+                  type="button"
+                  disabled={busy || (customerPrice === "" ? project.customerPricePKR === null : Number(customerPrice) === project.customerPricePKR)}
+                  onClick={() => post("customer-price", { customerPricePKR: customerPrice === "" ? null : Number(customerPrice) }, "Could not save the price.")}
+                  className="min-h-9 rounded-lg border border-stone-200 bg-white px-3 text-xs font-medium text-stone-700 transition hover:border-stone-300 disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </dd>
+            </div>
             <Row
               label={project.payoutPKR !== null ? `Agreed with ${project.labourHead.name}` : `Current figure for ${project.labourHead.name}`}
               value={formatPKR(project.payoutPKR ?? payout)}
             />
-            <div className="flex items-baseline justify-between border-t border-stone-100 pt-3">
-              <dt className="font-semibold text-stone-900">Difference (our margin)</dt>
-              <dd
-                className={`text-xl font-bold tabular-nums ${
-                  project.quotedBosPKR - (project.payoutPKR ?? payout) >= 0 ? "text-emerald-700" : "text-red-600"
-                }`}
-              >
-                {formatPKR(roundMoney(project.quotedBosPKR - (project.payoutPKR ?? payout)))}
-              </dd>
-            </div>
+            {project.customerPricePKR !== null ? (
+              <div className="flex items-baseline justify-between border-t border-stone-100 pt-3">
+                <dt className="font-semibold text-stone-900">Your margin</dt>
+                <dd
+                  className={`text-xl font-bold tabular-nums ${
+                    project.customerPricePKR - (project.payoutPKR ?? payout) >= 0 ? "text-emerald-700" : "text-red-600"
+                  }`}
+                >
+                  {formatPKR(roundMoney(project.customerPricePKR - (project.payoutPKR ?? payout)))}
+                </dd>
+              </div>
+            ) : (
+              <p className="border-t border-stone-100 pt-3 text-xs text-stone-500">
+                Enter what the customer pays to see your margin. Nothing here is generated from a percentage.
+              </p>
+            )}
+            {project.quotedBosPKR !== null && (
+              <p className="text-xs text-stone-400">
+                For reference, the linked customer quotation charges {formatPKR(project.quotedBosPKR)} for cabling, structure, installation and site works.
+              </p>
+            )}
           </dl>
         </div>
       )}

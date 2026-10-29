@@ -1159,6 +1159,11 @@ model SiteProject {
   // silently change what was agreed.
   // The labour head's own service fee, entered with their materials.
   proposedLabourFeePKR      Decimal   @default(0) @db.Decimal(12, 2)
+
+  // What Solar Pixel charges the customer for this job, entered by the Super
+  // Admin (never generated from a margin percentage; installation-only and
+  // small-fix jobs have no catalog price). Never sent to the labour head.
+  customerPricePKR Decimal? @db.Decimal(14, 2)
   labourFeePKR              Decimal?  @db.Decimal(12, 2)
   approvedMaterialsTotalPKR Decimal?  @db.Decimal(14, 2)
   payoutPKR                 Decimal?  @db.Decimal(14, 2)
@@ -1196,6 +1201,12 @@ model SiteProjectMaterial {
 
   projectId String
   project   SiteProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Catalog item this line was picked from (EquipmentOption componentType +
+  // code, or a SITE_WORKS code), so the same item reads the same on every
+  // project. Both null for a custom line the labour head typed.
+  itemGroup String?
+  itemCode  String?
 
   sortOrder Int    @default(0)
   name      String

@@ -33,6 +33,9 @@ export type SiteProjectEventType =
 
 export interface SiteProjectMaterialDTO {
   id: string;
+  /** Catalog item this line was picked from; null for a custom line. */
+  itemGroup: string | null;
+  itemCode: string | null;
   name: string;
   unit: string;
   quantity: number;
@@ -84,6 +87,9 @@ export interface SiteProjectDTO {
    *  charges for everything except panels, inverters and batteries, to
    *  compare with the labour head's agreed price. */
   quotedBosPKR: number | null;
+  /** Admin only (null for the labour head): what the customer is charged,
+   *  entered by the Super Admin. */
+  customerPricePKR: number | null;
 
   startedAt: string | null;
   completedAt: string | null;
@@ -153,4 +159,18 @@ export function sumLinesPKR(lines: { quantity: number; unitPricePKR: number }[])
 /** Payout the labour head is owed: approved materials plus the labour fee. */
 export function computePayoutPKR(approvedMaterialsTotalPKR: number, labourFeePKR: number): number {
   return roundMoney(approvedMaterialsTotalPKR + labourFeePKR);
+}
+
+/** One pickable item for the labour head: a name only, never a price. */
+export interface CatalogItemDTO {
+  code: string;
+  label: string;
+}
+
+export interface CatalogGroupDTO {
+  group: string;
+  label: string;
+  /** Unit the line starts with when this group's item is picked. */
+  defaultUnit: string;
+  items: CatalogItemDTO[];
 }
