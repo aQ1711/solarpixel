@@ -7355,6 +7355,7 @@ function ResultSummary({
 
         <p className="mt-3 text-center text-[10px] text-slate-500 print:hidden">
           Instant estimate. Your exact price is confirmed after an on site engineering survey (Rs 5,000 fee applies).
+          Cabling is estimated for a typical layout. It may change with the distance from the inverter to your main breaker and the panel earthing run.
         </p>
       </div>
     </div>
@@ -7519,6 +7520,7 @@ function PrintableReport({
 
       <p className="mt-6 text-[9px] text-stone-500">
         This is an instant, indicative estimate. Final pricing is confirmed after an on site engineering survey (Rs 5,000 fee applies).
+        Cabling is estimated for a typical layout and may change with the distance from the inverter to the main breaker and the panel earthing run.
         Solar Pixel: Smart Solar systems for Residential, Commercial &amp; Industrial.
       </p>
     </div>
