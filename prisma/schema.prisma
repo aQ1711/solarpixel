@@ -1225,7 +1225,9 @@ model SiteProjectEvent {
   @@index([projectId, createdAt])
   @@map("site_project_events")
   @@schema("public")
+}
 
+// ============================================================================
 // CUSTOM QUOTATIONS (2026-10-20) — an admin with the QUOTES permission builds a
 // quotation from catalog items (a single inverter, a single battery, panels,
 // ...) at LOCKED prices. The server looks every price up from the catalog
