@@ -1090,7 +1090,7 @@ model TickerSettings {
 // confidential vendor cost or margin — so it uses the ordinary public
 // Prisma client (lib/siteProjects/server.ts) and stays clear of
 // vendor_private entirely.
-// =====================================================================
+// ============================================================================
 
 enum SiteProjectStatus {
   ASSIGNED // Super Admin created the project; waiting for the labour head's materials
@@ -1225,8 +1225,7 @@ model SiteProjectEvent {
   @@index([projectId, createdAt])
   @@map("site_project_events")
   @@schema("public")
-}
-=======
+
 // CUSTOM QUOTATIONS (2026-10-20) — an admin with the QUOTES permission builds a
 // quotation from catalog items (a single inverter, a single battery, panels,
 // ...) at LOCKED prices. The server looks every price up from the catalog
