@@ -229,6 +229,28 @@ body {
   }
 }
 
+/* Draws the eye to the Industrial tab when a bill of Rs 250,000+ is typed
+   on Residential/Commercial. A ring that pulses outward, so it reads as
+   "look here" without moving anything or switching tabs for the visitor. */
+@keyframes industrial-nudge {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(224, 122, 71, 0.6);
+  }
+  60% {
+    box-shadow: 0 0 0 8px rgba(224, 122, 71, 0);
+  }
+}
+.industrial-nudge {
+  animation: industrial-nudge 1.6s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .industrial-nudge {
+    animation: none;
+    box-shadow: 0 0 0 2px rgba(224, 122, 71, 0.7);
+  }
+}
+
 /* Amber CTA glow — pulses gently so the primary action always reads
    first, without feeling neon or jittery. Kept subtle: smaller shadow
    swing, slower cycle, softer peak opacity than a typical "attention"

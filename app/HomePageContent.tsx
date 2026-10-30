@@ -1644,6 +1644,14 @@ function CalculatorCard() {
   const [targetKwInput, setTargetKwInput] = useState("");
   const resolvedTargetKw = targetKwInput.trim() === "" ? null : Number(targetKwInput);
   const targetKwValid = resolvedTargetKw !== null && Number.isFinite(resolvedTargetKw) && resolvedTargetKw > 0 && resolvedTargetKw <= 1000;
+  // A bill this large on Residential/Commercial pulses the Industrial tab
+  // instead of switching to it; the visitor chooses.
+  const industrialNudge =
+    !sizeMode &&
+    sector !== "INDUSTRIAL" &&
+    resolvedBillPKR !== null &&
+    Number.isFinite(resolvedBillPKR) &&
+    resolvedBillPKR >= INDUSTRIAL_SECTOR_THRESHOLD_PKR;
   // The phone hero shows a sample bill (Rs 45,000 Residential, Rs 100,000
   // Commercial) until the customer touches it. That amount is what they see,
   // so it is what the quote must use: without this, entering a name and number
@@ -2820,6 +2828,7 @@ function CalculatorCard() {
                   <div className="flex gap-1 rounded-xl bg-[#1E2A3C] p-1">
                     {SECTOR_CARDS.map(({ value, label }) => {
                       const active = sector === value;
+                      const nudge = value === "INDUSTRIAL" && industrialNudge;
                       return (
                         <button
                           key={value}
@@ -2832,7 +2841,11 @@ function CalculatorCard() {
                           }}
                           aria-pressed={active}
                           className={`flex flex-1 flex-col items-center gap-1 rounded-lg py-2 text-center text-xs font-bold transition-colors duration-200 ${
-                            active ? "bg-white text-[#0F172A]" : "text-[#9FB0C2] hover:text-white"
+                            active
+                              ? "bg-white text-[#0F172A]"
+                              : nudge
+                                ? "industrial-nudge bg-orange-500/20 text-white"
+                                : "text-[#9FB0C2] hover:text-white"
                           }`}
                         >
                           {value === "RESIDENTIAL" ? (
@@ -3702,6 +3715,7 @@ function CalculatorCard() {
                 <div className="grid grid-cols-3 gap-4">
                   {SECTOR_CARDS.map(({ value, label, description }) => {
                     const active = sector === value;
+                    const nudge = value === "INDUSTRIAL" && industrialNudge;
                     return (
                       <button
                         key={value}
@@ -3711,7 +3725,9 @@ function CalculatorCard() {
                         className={`relative flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-2xl p-2.5 text-left transition-all duration-200 ${
                           active
                             ? "border-2 border-orange-700 bg-orange-50 text-orange-900"
-                            : "border border-slate-200 bg-white text-slate-700 hover:border-orange-400 hover:shadow-md"
+                            : nudge
+                              ? "industrial-nudge border border-orange-400 bg-orange-50/60 text-slate-700"
+                              : "border border-slate-200 bg-white text-slate-700 hover:border-orange-400 hover:shadow-md"
                         }`}
                       >
                         <span
