@@ -89,11 +89,13 @@ const PILLARS = [
   {
     icon: Eye,
     title: "Radical Transparency",
+    short: "Every cost itemised, priced from the real brand and model we propose.",
     body: "Every quotation we send breaks down exactly what you're paying for: panels, inverter, battery, cabling & protection, mounting structure, installation, and site works, each priced from the real brand and model we're proposing, not a blended guess. Our public Market Watch pricing and our own internal pricing are both drawn from the same real vendor market data we track, so the number you see on our calculator and the number on your final quotation never drift apart for no reason.",
   },
   {
     icon: Wrench,
     title: "Open Engineering",
+    short: "An engineer measures your site before your final price is set.",
     body: (
       <>
         Every system starts with an instant, honest estimate based on the information you give us. Before any
@@ -110,8 +112,16 @@ const PILLARS = [
   {
     icon: Receipt,
     title: "No Hidden Fees",
+    short: "Every cost is in your quotation before you commit.",
     body: "If a cost applies to your system, it's in your quotation before you commit, not added afterward. That includes our site survey fee, which we disclose upfront rather than folding into a bigger number later.",
   },
+];
+
+const STEPS = [
+  { title: "Estimate", body: "Enter your bill for an instant price." },
+  { title: "Site survey", body: "An engineer measures your site. Rs 5,000." },
+  { title: "Quotation", body: "Your final itemised quotation, built from the measurements." },
+  { title: "Installation", body: "Live in as little as 48 hours once confirmed." },
 ];
 
 export default function AboutPage() {
@@ -136,18 +146,33 @@ export default function AboutPage() {
             Solar, priced and engineered <span className="text-orange-400">honestly.</span>
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-base text-[#C9D5E4] sm:text-lg">
-            Solar Pixel installs Hybrid (Battery) and On Grid solar systems for homes and businesses across Lahore
-            and Punjab. We size and price every system from real, live market data, not a rough estimate, and we aim
-            to have a new system live in as little as 48 hours.
+            Hybrid and On Grid solar for homes and businesses across Lahore and Punjab. We aim to go live in as
+            little as 48 hours.
           </p>
         </div>
       </div>
       </div>
 
+      {/* ---- How it works: the real sequence from the Terms and FAQ ---- */}
+      <div className="mx-auto max-w-6xl px-3 pt-3 sm:px-5 sm:pt-6">
+        <h2 className="px-1 text-lg font-bold tracking-tight text-stone-900 sm:text-xl">How it works</h2>
+        <ol className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+          {STEPS.map(({ title, body }, i) => (
+            <li key={title} className="rounded-2xl border border-[#D5DFEC] bg-white p-4">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#1E3550] text-xs font-bold text-white">
+                {i + 1}
+              </span>
+              <p className="mt-3 text-sm font-bold text-stone-900">{title}</p>
+              <p className="mt-1 text-xs leading-relaxed text-stone-600">{body}</p>
+            </li>
+          ))}
+        </ol>
+      </div>
+
       {/* ---- Three pillars ---- */}
       <div className="mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-8">
         <div className="grid gap-3 sm:grid-cols-3 sm:gap-5">
-          {PILLARS.map(({ icon: Icon, title, body }) => (
+          {PILLARS.map(({ icon: Icon, title, short, body }) => (
             <div
               key={title}
               className="rounded-2xl border border-[#D5DFEC] bg-[#EDF2F8] p-5 transition-shadow duration-200 hover:shadow-md hover:shadow-[#1E3550]/10 sm:p-6"
@@ -156,7 +181,16 @@ export default function AboutPage() {
                 <Icon className="h-5 w-5 text-orange-700" />
               </div>
               <h2 className="mt-4 text-lg font-bold text-stone-900">{title}</h2>
-              <p className="mt-2 text-sm leading-relaxed text-stone-600">{body}</p>
+              <p className="mt-2 text-sm font-medium leading-relaxed text-stone-800">{short}</p>
+              {/* Full text stays in the page (native details, crawlable even
+                  when closed), just not all shown at once. */}
+              <details className="group mt-3">
+                <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1 text-xs font-semibold text-orange-700 marker:content-none">
+                  Read more
+                  <ChevronDown className="h-3.5 w-3.5 transition-transform duration-200 group-open:rotate-180" />
+                </summary>
+                <p className="mt-1 text-sm leading-relaxed text-stone-600">{body}</p>
+              </details>
             </div>
           ))}
         </div>
@@ -179,9 +213,8 @@ export default function AboutPage() {
             </span>
             <h2 className="mt-4 text-2xl font-extrabold tracking-tight sm:text-3xl">Real Time Control Over Your Own Energy</h2>
             <p className="mt-4 text-sm leading-relaxed text-[#C9D5E4] sm:text-base">
-              Our team is building an intelligent energy management solution that puts you in control of every watt
-              moving in and out of your home, in real time. See exactly what your system is generating, storing, and
-              drawing from the grid, and manage your own electricity bill yourself, on your own terms.
+              See every watt your system generates, stores and draws from the grid, and manage your own electricity
+              bill, in real time.
             </p>
             <div className="mt-6 flex items-center justify-center gap-2 text-xs font-medium text-[#8FA0B4]">
               <Gauge className="h-3.5 w-3.5" />
