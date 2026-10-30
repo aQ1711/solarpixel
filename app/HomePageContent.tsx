@@ -2175,66 +2175,11 @@ function CalculatorCard() {
     };
   }, [masterService, sector, serviceType, heroBillTouched, billAmountInput]);
 
-  // Auto Sector & System Routing (2026-08-29, explicit instruction).
-  // Debounced (2026-09-04, real reported bug) — this used to run
-  // SYNCHRONOUSLY on every keystroke from handleBillAmountChange, so
-  // correcting a typo (backspacing a large number down before retyping
-  // it) could visibly bounce the sector back and forth mid-edit before
-  // the customer finished typing their real number ("bit annoying in
-  // the experience," their words). Now a standalone effect, same 250ms
-  // debounce pattern as the live-preview calls above, keyed on
-  // resolvedBillPKR — it only evaluates once typing actually settles.
-  //
-  // Fires on CROSSING the threshold, not on every settle while already
-  // on one side of it — prevBillForRoutingRef holds the bill value the
-  // LAST evaluation actually settled on, so a customer who manually
-  // picks Commercial while above Rs 2.5 Lac isn't stomped back to
-  // Industrial by an unrelated bill tweak that never actually
-  // re-crosses.
-  const prevBillForRoutingRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (resolvedBillPKR === null) return;
-    const timeoutId = setTimeout(() => {
-      const oldAmount = prevBillForRoutingRef.current;
-      const newAmount = resolvedBillPKR;
-      prevBillForRoutingRef.current = newAmount;
-      const wasIndustrialRange = oldAmount !== null && oldAmount >= INDUSTRIAL_SECTOR_THRESHOLD_PKR;
-      const isIndustrialRange = newAmount >= INDUSTRIAL_SECTOR_THRESHOLD_PKR;
-      if (isIndustrialRange === wasIndustrialRange) return;
-
-      if (isIndustrialRange && sector !== "INDUSTRIAL") {
-        // Crossing UP into industrial-scale consumption — only when this
-        // actually CHANGES the sector. Guarding on `sector !== "INDUSTRIAL"`
-        // (not just "isIndustrialRange") matters: without it, a customer
-        // who explicitly chose Industrial (chooseSector, industrialAutoRoutedRef
-        // already false) and then typed a bill that happens to cross the
-        // threshold on its way to a real number would have this branch
-        // fire anyway (nothing stops it — they're still "crossing up"),
-        // stomping their explicit-choice protection back to true and
-        // reopening the exact bug chooseSector exists to prevent. System
-        // Type needs no separate call — LOCKED_SERVICE_TYPE_BY_SECTOR
-        // forces On-Grid the instant sector becomes "INDUSTRIAL" (see that
-        // map's own doc comment), and the Hybrid/Battery UI already hides
-        // itself for Industrial (Property & System's "Locked for
-        // Industrial" branch).
-        setSector("INDUSTRIAL");
-        industrialAutoRoutedRef.current = true;
-        setAutoRouteNotice("Switched to Industrial. This looks like an industrial scale bill.");
-      } else if (!isIndustrialRange && sector === "INDUSTRIAL" && industrialAutoRoutedRef.current) {
-        // Crossing back DOWN — only acts if THIS routing (not an
-        // explicit chooseSector tap) put the customer on Industrial in
-        // the first place. Someone who deliberately chose Industrial for
-        // a genuinely small bill (a seasonal factory, off-season) is
-        // never force-switched back just because the number dropped —
-        // see chooseSector's own doc comment for the other half of this.
-        setSector("RESIDENTIAL");
-        setResidentialServiceType("HYBRID_BATTERY");
-        industrialAutoRoutedRef.current = false;
-        setAutoRouteNotice("Switched back to Residential. This bill isn't industrial scale.");
-      }
-    }, 250);
-    return () => clearTimeout(timeoutId);
-  }, [resolvedBillPKR, sector]);
+  // No automatic Property Type switch for large bills (removed 2026-10-30,
+  // "if user entering 250+ it's auto switching to industrial, it shouldn't
+  // be, so much annoying"). A bill at/above INDUSTRIAL_SECTOR_THRESHOLD_PKR
+  // now only shows the "industrial scale bill, double check or pick
+  // Industrial" hint under the amount; the customer chooses the tab.
 
   // Auto-dismiss the routing notice — a few seconds is enough to read
   // one sentence without needing an explicit close button, and
