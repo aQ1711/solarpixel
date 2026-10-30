@@ -30,7 +30,7 @@ import { trackWhatsAppClick } from "@/lib/analytics";
 export function SiteHeader() {
   return (
     <header className="px-3 pt-3 sm:px-5">
-      <div className="mx-auto flex max-w-4xl items-center justify-between gap-2 rounded-full border border-stone-200 bg-white/90 py-2 pl-4 pr-2 shadow-sm shadow-stone-200/50 backdrop-blur-md sm:pl-5 sm:pr-2.5">
+      <div className="mx-auto flex max-w-4xl items-center justify-between gap-2 rounded-full border border-white/70 bg-white/40 py-2 pl-4 pr-2 shadow-[0_8px_32px_-8px_rgba(30,53,80,0.22),inset_0_1px_0_rgba(255,255,255,0.9),inset_0_-1px_0_rgba(255,255,255,0.35)] backdrop-blur-xl backdrop-saturate-[1.8] sm:pl-5 sm:pr-2.5">
         <Link href="/" className="flex items-center gap-2">
           <BrandMark className="h-7 w-7 shrink-0 sm:h-8 sm:w-8" />
           <span className="text-base font-semibold tracking-tight text-stone-900 sm:text-lg">Solar Pixel</span>
@@ -44,7 +44,7 @@ export function SiteHeader() {
               short, and "Get Instant Quote" is one scroll away either
               way). "Punjab · Pakistan", not "LESCO · Lahore" — LESCO
               only serves Lahore; this business quotes across Punjab. */}
-          <span className="flex min-h-9 items-center rounded-full border border-[#E8E1D8] bg-white px-3.5 font-mono text-[11px] font-semibold text-[#5A6472] lg:hidden">
+          <span className="flex min-h-9 items-center rounded-full border border-white/70 bg-white/45 px-3.5 font-mono text-[11px] font-semibold text-[#5A6472] lg:hidden">
             Punjab · Pakistan
           </span>
           <a
@@ -52,7 +52,7 @@ export function SiteHeader() {
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => trackWhatsAppClick("header")}
-            className="hidden min-h-9 items-center rounded-full border border-stone-200 px-3.5 text-xs font-medium text-stone-600 transition-colors duration-200 hover:border-stone-300 hover:text-stone-900 lg:flex"
+            className="hidden min-h-9 items-center rounded-full border border-white/70 bg-white/30 px-3.5 text-xs font-medium text-stone-700 transition-colors duration-200 hover:border-stone-300 hover:text-stone-900 lg:flex"
           >
             Contact Us
           </a>

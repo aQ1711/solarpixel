@@ -229,6 +229,28 @@ body {
   }
 }
 
+/* Draws the eye to the Industrial tab when a bill of Rs 250,000+ is typed
+   on Residential/Commercial. A ring that pulses outward, so it reads as
+   "look here" without moving anything or switching tabs for the visitor. */
+@keyframes industrial-nudge {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(224, 122, 71, 0.6);
+  }
+  60% {
+    box-shadow: 0 0 0 8px rgba(224, 122, 71, 0);
+  }
+}
+.industrial-nudge {
+  animation: industrial-nudge 1.6s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .industrial-nudge {
+    animation: none;
+    box-shadow: 0 0 0 2px rgba(224, 122, 71, 0.7);
+  }
+}
+
 /* Amber CTA glow — pulses gently so the primary action always reads
    first, without feeling neon or jittery. Kept subtle: smaller shadow
    swing, slower cycle, softer peak opacity than a typical "attention"
@@ -457,8 +479,12 @@ body {
    paragraph inside each LegalSection's own content div both sit right
    under something that already carries its own bottom spacing (the
    intro band, or LegalSection's mt-3) — without this they'd double up. */
+.legal-prose > p:first-child {
+  padding: 0.25rem 0.25rem 0.5rem;
+}
 .legal-prose > p:first-child,
-.legal-prose section > div > p:first-child {
+.legal-prose section > div > p:first-child,
+.legal-prose details > div > p:first-child {
   margin-top: 0;
 }
 .legal-prose ul {
@@ -470,6 +496,9 @@ body {
 .legal-prose li {
   margin-top: 0.35rem;
   line-height: 1.6;
+}
+.legal-prose li::marker {
+  color: #d9743f;
 }
 .legal-prose strong {
   color: var(--color-stone-900, #1c1917);

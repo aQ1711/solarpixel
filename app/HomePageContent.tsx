@@ -1038,7 +1038,7 @@ function Hero() {
     // sticky for the live-summary card inside it (the exact trap the
     // globals.css body comment documents); clip crops paint without
     // creating one.
-    <section className="dot-grid relative overflow-x-clip px-5 pb-4 pt-3 sm:pt-5 md:pb-3 print:p-0">
+    <section className="dot-grid relative overflow-x-clip px-2.5 pb-2 pt-1 sm:px-5 sm:pb-4 sm:pt-5 md:pb-3 print:p-0">
       {/* Ambient glow, purely decorative — two soft, low-opacity washes
           instead of one saturated blob, for a calmer first impression. */}
       <div
@@ -1090,15 +1090,15 @@ function Hero() {
         <h1 className="text-balance text-[1.85rem] font-bold leading-[1.15] tracking-tight text-stone-900 sm:text-5xl sm:leading-[1.1]">
           Solar. <span className="text-orange-700">Priced Instantly.</span>
         </h1>
-        <p className="mx-auto mt-1.5 max-w-xs text-balance text-xs text-stone-400 lg:hidden">
-          Slide in your monthly bill and see the exact system and price. No sales calls to get a number.
+        <p className="mx-auto mt-1 max-w-xs text-balance text-xs text-stone-500 lg:hidden">
+          Slide in your monthly bill to see your system and price.
         </p>
         <p className="mx-auto mt-1.5 hidden max-w-sm text-balance text-sm text-stone-400 lg:block">
           Live engineering. Zero hidden fees.
         </p>
       </div>
 
-      <div id="calculator" className="relative mx-auto mt-4 w-full scroll-mt-24 sm:mt-4 md:mt-3 print:mt-0 print:max-w-none">
+      <div id="calculator" className="relative mx-auto mt-2.5 w-full scroll-mt-24 sm:mt-4 md:mt-3 print:mt-0 print:max-w-none">
         {/* useSearchParams() (for the report-step/back-button sync — see
             CalculatorCard) requires a Suspense boundary so the rest of
             this static page isn't forced fully dynamic. */}
@@ -1644,6 +1644,14 @@ function CalculatorCard() {
   const [targetKwInput, setTargetKwInput] = useState("");
   const resolvedTargetKw = targetKwInput.trim() === "" ? null : Number(targetKwInput);
   const targetKwValid = resolvedTargetKw !== null && Number.isFinite(resolvedTargetKw) && resolvedTargetKw > 0 && resolvedTargetKw <= 1000;
+  // A bill this large on Residential/Commercial pulses the Industrial tab
+  // instead of switching to it; the visitor chooses.
+  const industrialNudge =
+    !sizeMode &&
+    sector !== "INDUSTRIAL" &&
+    resolvedBillPKR !== null &&
+    Number.isFinite(resolvedBillPKR) &&
+    resolvedBillPKR >= INDUSTRIAL_SECTOR_THRESHOLD_PKR;
   // The phone hero shows a sample bill (Rs 45,000 Residential, Rs 100,000
   // Commercial) until the customer touches it. That amount is what they see,
   // so it is what the quote must use: without this, entering a name and number
@@ -2175,66 +2183,11 @@ function CalculatorCard() {
     };
   }, [masterService, sector, serviceType, heroBillTouched, billAmountInput]);
 
-  // Auto Sector & System Routing (2026-08-29, explicit instruction).
-  // Debounced (2026-09-04, real reported bug) — this used to run
-  // SYNCHRONOUSLY on every keystroke from handleBillAmountChange, so
-  // correcting a typo (backspacing a large number down before retyping
-  // it) could visibly bounce the sector back and forth mid-edit before
-  // the customer finished typing their real number ("bit annoying in
-  // the experience," their words). Now a standalone effect, same 250ms
-  // debounce pattern as the live-preview calls above, keyed on
-  // resolvedBillPKR — it only evaluates once typing actually settles.
-  //
-  // Fires on CROSSING the threshold, not on every settle while already
-  // on one side of it — prevBillForRoutingRef holds the bill value the
-  // LAST evaluation actually settled on, so a customer who manually
-  // picks Commercial while above Rs 2.5 Lac isn't stomped back to
-  // Industrial by an unrelated bill tweak that never actually
-  // re-crosses.
-  const prevBillForRoutingRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (resolvedBillPKR === null) return;
-    const timeoutId = setTimeout(() => {
-      const oldAmount = prevBillForRoutingRef.current;
-      const newAmount = resolvedBillPKR;
-      prevBillForRoutingRef.current = newAmount;
-      const wasIndustrialRange = oldAmount !== null && oldAmount >= INDUSTRIAL_SECTOR_THRESHOLD_PKR;
-      const isIndustrialRange = newAmount >= INDUSTRIAL_SECTOR_THRESHOLD_PKR;
-      if (isIndustrialRange === wasIndustrialRange) return;
-
-      if (isIndustrialRange && sector !== "INDUSTRIAL") {
-        // Crossing UP into industrial-scale consumption — only when this
-        // actually CHANGES the sector. Guarding on `sector !== "INDUSTRIAL"`
-        // (not just "isIndustrialRange") matters: without it, a customer
-        // who explicitly chose Industrial (chooseSector, industrialAutoRoutedRef
-        // already false) and then typed a bill that happens to cross the
-        // threshold on its way to a real number would have this branch
-        // fire anyway (nothing stops it — they're still "crossing up"),
-        // stomping their explicit-choice protection back to true and
-        // reopening the exact bug chooseSector exists to prevent. System
-        // Type needs no separate call — LOCKED_SERVICE_TYPE_BY_SECTOR
-        // forces On-Grid the instant sector becomes "INDUSTRIAL" (see that
-        // map's own doc comment), and the Hybrid/Battery UI already hides
-        // itself for Industrial (Property & System's "Locked for
-        // Industrial" branch).
-        setSector("INDUSTRIAL");
-        industrialAutoRoutedRef.current = true;
-        setAutoRouteNotice("Switched to Industrial. This looks like an industrial scale bill.");
-      } else if (!isIndustrialRange && sector === "INDUSTRIAL" && industrialAutoRoutedRef.current) {
-        // Crossing back DOWN — only acts if THIS routing (not an
-        // explicit chooseSector tap) put the customer on Industrial in
-        // the first place. Someone who deliberately chose Industrial for
-        // a genuinely small bill (a seasonal factory, off-season) is
-        // never force-switched back just because the number dropped —
-        // see chooseSector's own doc comment for the other half of this.
-        setSector("RESIDENTIAL");
-        setResidentialServiceType("HYBRID_BATTERY");
-        industrialAutoRoutedRef.current = false;
-        setAutoRouteNotice("Switched back to Residential. This bill isn't industrial scale.");
-      }
-    }, 250);
-    return () => clearTimeout(timeoutId);
-  }, [resolvedBillPKR, sector]);
+  // No automatic Property Type switch for large bills (removed 2026-10-30,
+  // "if user entering 250+ it's auto switching to industrial, it shouldn't
+  // be, so much annoying"). A bill at/above INDUSTRIAL_SECTOR_THRESHOLD_PKR
+  // now only shows the "industrial scale bill, double check or pick
+  // Industrial" hint under the amount; the customer chooses the tab.
 
   // Auto-dismiss the routing notice — a few seconds is enough to read
   // one sentence without needing an explicit close button, and
@@ -2797,7 +2750,7 @@ function CalculatorCard() {
       // form so the fixed bar never covers the very fields "Get Quotation"
       // scrolls the user to (Part 3). lg: cancels it out entirely since
       // the bar itself is lg:hidden.
-      className={`animate-fade-up mx-auto mb-8 w-full max-w-6xl rounded-3xl border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-xl md:p-8 print:hidden ${
+      className={`animate-fade-up mx-auto mb-4 w-full max-w-6xl md:mb-8 md:rounded-3xl md:border md:border-slate-200 md:bg-white/80 md:p-8 md:shadow-xl md:backdrop-blur-xl print:hidden ${
         masterService === "COMPLETE_SOLAR" ? "pb-14 lg:pb-8" : ""
       }`}
     >
@@ -2845,9 +2798,9 @@ function CalculatorCard() {
 
       {masterService === "COMPLETE_SOLAR" ? (
         // ============ Tesla-style split dashboard ============
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px] lg:items-start">
+        <div className="mt-1 grid grid-cols-1 gap-4 md:mt-6 md:gap-6 lg:grid-cols-[1fr_360px] lg:items-start">
           {/* ---- LEFT COLUMN: inputs ---- */}
-          <div className="space-y-5">
+          <div className="space-y-3 md:space-y-5">
             {/* Mobile Home Tab — LOCKED SPEC (2026-09-03, design kit
                 handoff at /Users/tempuser/Downloads/solarpixel-design-kit/
                 BUILD_SPEC.md). Dark "hero" instant-estimator card
@@ -2860,7 +2813,7 @@ function CalculatorCard() {
             {masterService === "COMPLETE_SOLAR" && (
               <div className="lg:hidden">
                 <div
-                  className={`rounded-[22px] p-5 ${
+                  className={`rounded-[22px] p-4 sm:p-5 ${
                     sector === "INDUSTRIAL" ? "bg-[#1B2E47]" : "bg-gradient-to-b from-[#2F4D70] to-[#1E3550] shadow-[0_24px_50px_-26px_rgba(30,53,80,0.7)]"
                   }`}
                 >
@@ -2875,6 +2828,7 @@ function CalculatorCard() {
                   <div className="flex gap-1 rounded-xl bg-[#1E2A3C] p-1">
                     {SECTOR_CARDS.map(({ value, label }) => {
                       const active = sector === value;
+                      const nudge = value === "INDUSTRIAL" && industrialNudge;
                       return (
                         <button
                           key={value}
@@ -2887,7 +2841,11 @@ function CalculatorCard() {
                           }}
                           aria-pressed={active}
                           className={`flex flex-1 flex-col items-center gap-1 rounded-lg py-2 text-center text-xs font-bold transition-colors duration-200 ${
-                            active ? "bg-white text-[#0F172A]" : "text-[#9FB0C2] hover:text-white"
+                            active
+                              ? "bg-white text-[#0F172A]"
+                              : nudge
+                                ? "industrial-nudge bg-orange-500/20 text-white"
+                                : "text-[#9FB0C2] hover:text-white"
                           }`}
                         >
                           {value === "RESIDENTIAL" ? (
@@ -2910,7 +2868,7 @@ function CalculatorCard() {
                       active instead of crowding the tabs. Now shared
                       (shows for Industrial too, same reason as the
                       segmented control above). */}
-                  <p className="mt-2 text-center text-[11px] font-medium text-[#8FA0B4]">{SECTOR_MICROCOPY[sector]}</p>
+                  <p className="mt-1 text-center text-[11px] font-medium text-[#8FA0B4]">{SECTOR_MICROCOPY[sector]}</p>
                   {/* Auto-route notice (2026-09-04 feedback: "we should
                       ask user or inform user" whenever the bill amount
                       auto-switches their sector) — set by the debounced
@@ -3757,6 +3715,7 @@ function CalculatorCard() {
                 <div className="grid grid-cols-3 gap-4">
                   {SECTOR_CARDS.map(({ value, label, description }) => {
                     const active = sector === value;
+                    const nudge = value === "INDUSTRIAL" && industrialNudge;
                     return (
                       <button
                         key={value}
@@ -3766,7 +3725,9 @@ function CalculatorCard() {
                         className={`relative flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-2xl p-2.5 text-left transition-all duration-200 ${
                           active
                             ? "border-2 border-orange-700 bg-orange-50 text-orange-900"
-                            : "border border-slate-200 bg-white text-slate-700 hover:border-orange-400 hover:shadow-md"
+                            : nudge
+                              ? "industrial-nudge border border-orange-400 bg-orange-50/60 text-slate-700"
+                              : "border border-slate-200 bg-white text-slate-700 hover:border-orange-400 hover:shadow-md"
                         }`}
                       >
                         <span
@@ -3856,7 +3817,7 @@ function CalculatorCard() {
                 above for why that matters inside the dashboard's narrower
                 left column. bg-white (alternating back from Step 2's
                 bg-slate-50) — see StepHeader/Part 2. */}
-            <div ref={configurationRef} className="@container rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
+            <div ref={configurationRef} className="@container rounded-2xl border border-slate-200 bg-white p-3 max-lg:border-[#D5DFEC] max-lg:bg-[#EDF2F8] sm:p-4">
               <StepHeader step={3} title="Equipment Configurator" />
               <PathToggle path={customizationPath} onChange={handleCustomizationPathChange} />
 
@@ -4765,7 +4726,7 @@ function CalculatorCard() {
               behind it a few pixels on scroll; 128px clears it with
               room to spare. Matches the identical wrapper below. */}
           <div id="contact-and-submit" className="lg:sticky lg:top-32 lg:z-30 lg:self-start">
-            <div className="rounded-2xl border border-orange-200 bg-white p-5 shadow-lg shadow-orange-100/60">
+            <div className="rounded-2xl border border-orange-200 bg-white p-5 shadow-lg shadow-orange-100/60 max-lg:border-[#D5DFEC] max-lg:bg-[#F5F8FC] max-lg:shadow-[#1E3550]/10">
               <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
                 {/* Activity (2026-08-29) — was Sparkles, same icon
                     "Solar Pixel Recommended" used, which read as
@@ -5386,7 +5347,7 @@ function CalculatorCard() {
           vs. the Enterprise card, swapped on `sector`), so that one
           scrolls back to the top of #calculator instead — exactly where
           the dark card now lives as the first element below Hero. */}
-      <div className="mt-6 lg:hidden">
+      <div className="mt-4 lg:hidden">
         <p className="font-mono text-[10.5px] font-semibold uppercase tracking-widest text-orange-700">More We Do</p>
         <div className={`mt-3 grid gap-2.5 ${PANEL_WASHING_SERVICE_VISIBLE ? "grid-cols-3" : "grid-cols-2"}`}>
           <button
@@ -5395,7 +5356,7 @@ function CalculatorCard() {
               setMasterService("EV_CHARGER");
               requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(evChargerRef)));
             }}
-            className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-center transition-colors duration-200 hover:border-orange-300"
+            className="flex flex-col items-center gap-2 rounded-2xl border border-[#D5DFEC] bg-[#EDF2F8] p-4 text-center transition-colors duration-200 hover:border-orange-300"
           >
             <EVChargerIcon className="h-6 w-6 text-orange-600" />
             <span className="text-[11px] font-semibold leading-tight text-slate-900">EV Charger</span>
@@ -5407,7 +5368,7 @@ function CalculatorCard() {
                 setMasterService("SYSTEM_UPGRADES");
                 requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(panelWashingRef)));
               }}
-              className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-center transition-colors duration-200 hover:border-orange-300"
+              className="flex flex-col items-center gap-2 rounded-2xl border border-[#D5DFEC] bg-[#EDF2F8] p-4 text-center transition-colors duration-200 hover:border-orange-300"
             >
               <WaterDropIcon className="h-6 w-6 text-orange-600" />
               <span className="text-[11px] font-semibold leading-tight text-slate-900">Washing & Service</span>
@@ -5420,7 +5381,7 @@ function CalculatorCard() {
               chooseSector("COMMERCIAL");
               requestAnimationFrame(() => requestAnimationFrame(scrollToCalculator));
             }}
-            className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-center transition-colors duration-200 hover:border-orange-300"
+            className="flex flex-col items-center gap-2 rounded-2xl border border-[#D5DFEC] bg-[#EDF2F8] p-4 text-center transition-colors duration-200 hover:border-orange-300"
           >
             <SectorIllustration sector="COMMERCIAL" className="h-6 w-8" />
             <span className="text-[11px] font-semibold leading-tight text-slate-900">Commercial & Industrial</span>
@@ -5432,7 +5393,7 @@ function CalculatorCard() {
           from the sticky Mobile-Only Floating Bottom Bar (that one's
           persistent/quick-access while scrolling; this is the one-time
           closing CTA at the end of the page, matching Main.html). */}
-      <div className="mt-7 rounded-3xl bg-gradient-to-b from-[#2F4D70] to-[#1E3550] p-6 lg:hidden">
+      <div className="mt-4 rounded-3xl bg-gradient-to-b from-[#2F4D70] to-[#1E3550] p-5 lg:hidden">
         <p className="text-xl font-extrabold tracking-tight text-white">Ready to cut your bill?</p>
         <div className="mt-3.5 flex gap-2.5">
           <button
@@ -5536,7 +5497,7 @@ function PathToggle({ path, onChange }: { path: CustomizationPath; onChange: (pa
       </div>
       {path === "RECOMMENDED" && (
         <p className="mt-2 text-center text-xs text-brand-navy">
-          Want to select your own inverter, panels, or batteries? Tap <span className="font-semibold">Build Your Own</span> above.
+          Prefer your own brands? Tap <span className="font-semibold">Build Your Own</span>.
         </p>
       )}
     </div>
@@ -6567,10 +6528,10 @@ function SizingModeToggle({ sizeMode, onChange, dark }: { sizeMode: boolean; onC
       className={`flex gap-1 rounded-xl p-1 ${dark ? "border border-white/10 bg-white/[0.06]" : "bg-slate-100"}`}
     >
       <button type="button" aria-pressed={!sizeMode} onClick={() => onChange(false)} className={option(!sizeMode)}>
-        I know my bill
+        Monthly bill
       </button>
       <button type="button" aria-pressed={sizeMode} onClick={() => onChange(true)} className={option(sizeMode)}>
-        I know the system size
+        System size
       </button>
     </div>
   );

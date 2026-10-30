@@ -34,7 +34,9 @@ export default function TermsPage() {
         By requesting a quote or engaging our services, you agree to these Terms.
       </p>
 
-      <LegalSection number={1} id={SECTIONS[0].id} title={SECTIONS[0].label}>
+      <LegalSection number={1} id={SECTIONS[0].id} title={SECTIONS[0].label}
+        summary="Calculator prices are indicative. The binding price comes after a site survey."
+      >
         <p>
           The price shown by our online calculator is an instant, indicative estimate based on the information you
           provide (your electricity bill, property type, and equipment preferences). It is not a binding price. Your
@@ -43,7 +45,9 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection number={2} id={SECTIONS[1].id} title={SECTIONS[1].label}>
+      <LegalSection number={2} id={SECTIONS[1].id} title={SECTIONS[1].label}
+        summary="A flat Rs 5,000, disclosed before you agree to a visit."
+      >
         <p>
           <strong>
             Before we can issue a final, binding quotation, one of our field engineers must visit your site to
@@ -55,7 +59,9 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection number={3} id={SECTIONS[2].id} title={SECTIONS[2].label}>
+      <LegalSection number={3} id={SECTIONS[2].id} title={SECTIONS[2].label}
+        summary="Equipment warranties come from the manufacturer. We warrant our own installation workmanship."
+      >
         <p>
           <strong>
             Solar Pixel does not provide any direct warranty of its own on solar panels, inverters, batteries, or any
@@ -75,7 +81,9 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection number={4} id={SECTIONS[3].id} title={SECTIONS[3].label}>
+      <LegalSection number={4} id={SECTIONS[3].id} title={SECTIONS[3].label}
+        summary="Based on current market rates when your quotation is issued. Payment terms are in your contract."
+      >
         <p>
           Pricing for equipment and installation is based on real, current market rates at the time your quotation is
           issued and confirmed at site survey. Specific payment terms (deposit, milestone, or full payment) for your
@@ -83,7 +91,9 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection number={5} id={SECTIONS[4].id} title={SECTIONS[4].label}>
+      <LegalSection number={5} id={SECTIONS[4].id} title={SECTIONS[4].label}
+        summary="Cancel free before signing, apart from the survey fee if a survey was done."
+      >
         <p>
           You may cancel a quotation request at any time before signing an installation contract at no charge, other
           than the site survey fee described in Section 2 if a survey has already been carried out. Cancellation
@@ -91,14 +101,18 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection number={6} id={SECTIONS[5].id} title={SECTIONS[5].label}>
+      <LegalSection number={6} id={SECTIONS[5].id} title={SECTIONS[5].label}
+        summary="Installed without WAPDA net metering paperwork. Warranty terms are unchanged."
+      >
         <p>
           Our systems are designed and installed without requiring WAPDA net metering interconnection paperwork. This
           does not affect the equipment warranty terms described in Section 3.
         </p>
       </LegalSection>
 
-      <LegalSection number={7} id={SECTIONS[6].id} title={SECTIONS[6].label}>
+      <LegalSection number={7} id={SECTIONS[6].id} title={SECTIONS[6].label}
+        summary="Limited to the amount you paid for the installation. No liability for indirect losses."
+      >
         <p>
           To the fullest extent permitted under the laws of Pakistan, Solar Pixel&apos;s liability for any claim
           arising from our services is limited to the amount you actually paid us for the relevant installation.
