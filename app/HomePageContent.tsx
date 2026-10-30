@@ -1802,6 +1802,11 @@ function CalculatorCard() {
   const [livePreview, setLivePreview] = useState<SolarPreviewResult | null>(null);
   const [livePreviewLoading, setLivePreviewLoading] = useState(false);
   const [livePreviewError, setLivePreviewError] = useState<string | null>(null);
+  // The preview state keeps its last result when the bill is cleared or the
+  // tab changes, so the Industrial card only shows it while it has a real
+  // bill or size to describe (otherwise it showed the Residential sample).
+  const industrialPreview =
+    livePreview && (sizeMode ? targetKwValid : resolvedBillPKR !== null && resolvedBillPKR > 0) ? livePreview : null;
 
   // Inverter options are filtered by serviceType (On-Grid vs Hybrid).
   const inverterOptionsForServiceType = (equipmentOptions?.INVERTER ?? []).filter(
@@ -2884,9 +2889,6 @@ function CalculatorCard() {
                         <Building2 className="h-3.5 w-3.5 shrink-0" />
                         Enterprise Proposal
                       </p>
-                      <p className="mt-1.5 text-sm text-[#9FB0C2]">
-                        A few more details help our industrial team size this accurately.
-                      </p>
 
                       {/* Average Monthly Bill (2026-09-04 feedback: "keep
                           the maths of web in mobile — web uses bill
@@ -2958,13 +2960,13 @@ function CalculatorCard() {
                         <div className="rounded-[14px] border border-white/[0.09] bg-white/[0.06] p-3">
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-[#8FA0B4]">You need</p>
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-white">
-                            {livePreview ? `~${livePreview.systemKw} kW` : "N/A"}
+                            {industrialPreview ? `~${industrialPreview.systemKw} kW` : "—"}
                           </p>
                         </div>
                         <div className="rounded-[14px] border border-emerald-400/25 bg-emerald-400/10 p-3">
                           <p className="font-mono text-[9.5px] uppercase tracking-wider text-emerald-200/80">You save / mo</p>
                           <p className="mt-0.5 font-mono text-[17px] font-semibold text-emerald-400">
-                            {livePreview && livePreview.estimatedMonthlySavingsPKR > 0 ? `~${formatPKR(livePreview.estimatedMonthlySavingsPKR)}` : "N/A"}
+                            {industrialPreview && industrialPreview.estimatedMonthlySavingsPKR > 0 ? `~${formatPKR(industrialPreview.estimatedMonthlySavingsPKR)}` : "—"}
                           </p>
                         </div>
                       </div>
@@ -2990,16 +2992,16 @@ function CalculatorCard() {
                         </div>
                       )}
 
-                      <div className="mt-3">
-                        <p className="mb-1.5 block text-xs font-semibold text-[#D4AF37]">Connection Type</p>
-                        <div className="grid grid-cols-2 gap-2">
+                      <div className="mt-3 flex items-center gap-3">
+                        <p className="shrink-0 text-xs font-semibold text-[#D4AF37]">Connection</p>
+                        <div className="grid flex-1 grid-cols-2 gap-2">
                           {(["HT", "LT"] as const).map((ct) => (
                             <button
                               key={ct}
                               type="button"
                               onClick={() => setConnectionType(ct)}
                               aria-pressed={connectionType === ct}
-                              className={`flex min-h-[48px] items-center justify-center rounded-xl border-2 text-sm font-bold transition-all duration-200 ${
+                              className={`flex min-h-[44px] items-center justify-center rounded-xl border-2 text-sm font-bold transition-all duration-200 ${
                                 connectionType === ct
                                   ? "border-[#D4AF37] bg-[#D4AF37]/10 text-[#D4AF37]"
                                   : "border-white/10 bg-white/[0.04] text-[#9FB0C2] hover:border-white/20"
@@ -3011,6 +3013,60 @@ function CalculatorCard() {
                         </div>
                       </div>
 
+                      {(() => {
+                        // Detailed Load Calculator (2026-09-05) — folded
+                        // into the engineer handoff exactly like
+                        // refineDetailsNote/installationAreaNote already
+                        // do for ResultSummary's own waMessage (see that
+                        // pattern further down this file): one line per
+                        // field the customer actually filled in, nothing
+                        // fabricated for the ones left blank.
+                        const detailedLoadLines = [
+                          sanctionedLoadKwInput.trim() ? `Sanctioned Load: ${sanctionedLoadKwInput.trim()} kW` : null,
+                          connectedLoadKwInput.trim() ? `Connected Load: ${connectedLoadKwInput.trim()} kW` : null,
+                          peakDemandKwInput.trim() ? `Peak Demand: ${peakDemandKwInput.trim()} kW` : null,
+                          shiftPattern ? `Shift Pattern: ${SHIFT_PATTERN_LABEL[shiftPattern]}` : null,
+                          generatorFuelType
+                            ? `Generator: ${generatorFuelType === "DIESEL" ? "Diesel" : "Gas"}${
+                                generatorCapacityKwInput.trim() ? `, ${generatorCapacityKwInput.trim()}kW` : ""
+                              }`
+                            : null,
+                          generatorCostPerUnitPKR !== null
+                            ? `Generator Cost: ~Rs ${generatorCostPerUnitPKR.toFixed(1)}/unit`
+                            : null,
+                        ].filter((line): line is string => line !== null);
+                        const detailedLoadNote =
+                          detailedLoadLines.length > 0 ? ` Detailed Load Info: ${detailedLoadLines.join(", ")}.` : "";
+
+                        const enterpriseInquiryMessage = `Hi Solar Pixel! I'm ${
+                          fullName.trim() || "an industrial customer"
+                        } interested in an Industrial solar system.${
+                          resolvedBillPKR ? ` Average Monthly Bill: ${formatPKR(resolvedBillPKR)}.` : ""
+                        }${industrialPreview ? ` Estimated System: ${industrialPreview.systemKw} kW.` : ""}${
+                          connectionType ? ` Connection Type: ${connectionType}.` : ""
+                        }${detailedLoadNote} Please connect me with a senior industrial engineer.`;
+                        return (
+                          <div className="mt-3 flex flex-col gap-2">
+                            <a
+                              href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(enterpriseInquiryMessage)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => trackWhatsAppClick("enterprise_proposal_inquiry")}
+                              className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-[#10B981] px-4 text-sm font-bold text-white transition-colors duration-200 hover:bg-emerald-500"
+                            >
+                              <MessageCircle className="h-4.5 w-4.5 shrink-0" />
+                              Talk to an Industrial Engineer
+                            </a>
+                            {/* "Call Direct Line" removed (2026-09-04
+                                feedback: "on the industrial, call direct
+                                line not available, only WhatsApp and our
+                                team will contact shortly") — that phone
+                                CTA isn't actually staffed; WhatsApp is
+                                the one real channel here. */}
+                            <p className="text-center text-xs text-[#8FA0B4]">Our team will contact you shortly.</p>
+                          </div>
+                        );
+                      })()}
                       {/* Detailed Load Calculator (2026-09-05, approved
                           workflow — "many [industrial users] are using
                           generators, they know sanction loads, over all
@@ -3036,19 +3092,19 @@ function CalculatorCard() {
                         type="button"
                         onClick={() => setShowDetailedLoadCalc((v) => !v)}
                         aria-expanded={showDetailedLoadCalc}
-                        className={`mt-3 flex w-full items-center gap-3 rounded-2xl border-2 p-3.5 text-left transition-all duration-200 ${
+                        className={`mt-3 flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-all duration-200 ${
                           showDetailedLoadCalc
                             ? "border-[#D4AF37] bg-[#D4AF37]/10"
                             : "border-[#D4AF37]/40 bg-gradient-to-r from-[#D4AF37]/15 to-[#D4AF37]/5 hover:border-[#D4AF37]/60"
                         }`}
                       >
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#D4AF37]/15">
-                          <Gauge className="h-5 w-5 text-[#D4AF37]" />
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#D4AF37]/15">
+                          <Gauge className="h-4 w-4 text-[#D4AF37]" />
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-bold text-[#D4AF37]">Get a Detailed Load Calculation</span>
+                          <span className="block text-sm font-bold text-[#D4AF37]">Add load details (optional)</span>
                           <span className="mt-0.5 block text-[11px] leading-snug text-[#9FB0C2]">
-                            Sanctioned load, shift pattern &amp; generator cost, for a sharper, engineer ready quote
+                            Sanctioned load, shifts and generator cost
                           </span>
                         </span>
                         <ChevronDown
@@ -3193,7 +3249,7 @@ function CalculatorCard() {
                           options") is dropped: nothing in this app
                           confirms Solar Pixel offers financing, and this
                           list must never promise something unconfirmed. */}
-                      <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-3.5">
+                      <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.04] p-3.5">
                         <p className="text-xs font-bold text-white">What a custom proposal covers</p>
                         <ul className="mt-2 space-y-1.5">
                           {["On site load study & shadow analysis", "Engineered single line diagram & BOQ", "O&M support & maintenance options"].map(
@@ -3207,60 +3263,6 @@ function CalculatorCard() {
                         </ul>
                       </div>
 
-                      {(() => {
-                        // Detailed Load Calculator (2026-09-05) — folded
-                        // into the engineer handoff exactly like
-                        // refineDetailsNote/installationAreaNote already
-                        // do for ResultSummary's own waMessage (see that
-                        // pattern further down this file): one line per
-                        // field the customer actually filled in, nothing
-                        // fabricated for the ones left blank.
-                        const detailedLoadLines = [
-                          sanctionedLoadKwInput.trim() ? `Sanctioned Load: ${sanctionedLoadKwInput.trim()} kW` : null,
-                          connectedLoadKwInput.trim() ? `Connected Load: ${connectedLoadKwInput.trim()} kW` : null,
-                          peakDemandKwInput.trim() ? `Peak Demand: ${peakDemandKwInput.trim()} kW` : null,
-                          shiftPattern ? `Shift Pattern: ${SHIFT_PATTERN_LABEL[shiftPattern]}` : null,
-                          generatorFuelType
-                            ? `Generator: ${generatorFuelType === "DIESEL" ? "Diesel" : "Gas"}${
-                                generatorCapacityKwInput.trim() ? `, ${generatorCapacityKwInput.trim()}kW` : ""
-                              }`
-                            : null,
-                          generatorCostPerUnitPKR !== null
-                            ? `Generator Cost: ~Rs ${generatorCostPerUnitPKR.toFixed(1)}/unit`
-                            : null,
-                        ].filter((line): line is string => line !== null);
-                        const detailedLoadNote =
-                          detailedLoadLines.length > 0 ? ` Detailed Load Info: ${detailedLoadLines.join(", ")}.` : "";
-
-                        const enterpriseInquiryMessage = `Hi Solar Pixel! I'm ${
-                          fullName.trim() || "an industrial customer"
-                        } interested in an Industrial solar system.${
-                          resolvedBillPKR ? ` Average Monthly Bill: ${formatPKR(resolvedBillPKR)}.` : ""
-                        }${livePreview ? ` Estimated System: ${livePreview.systemKw} kW.` : ""}${
-                          connectionType ? ` Connection Type: ${connectionType}.` : ""
-                        }${detailedLoadNote} Please connect me with a senior industrial engineer.`;
-                        return (
-                          <div className="mt-4 flex flex-col gap-2">
-                            <a
-                              href={`https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(enterpriseInquiryMessage)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={() => trackWhatsAppClick("enterprise_proposal_inquiry")}
-                              className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-[#10B981] px-4 text-sm font-bold text-white transition-colors duration-200 hover:bg-emerald-500"
-                            >
-                              <MessageCircle className="h-4.5 w-4.5 shrink-0" />
-                              Speak with Senior Industrial Engineer
-                            </a>
-                            {/* "Call Direct Line" removed (2026-09-04
-                                feedback: "on the industrial, call direct
-                                line not available, only WhatsApp and our
-                                team will contact shortly") — that phone
-                                CTA isn't actually staffed; WhatsApp is
-                                the one real channel here. */}
-                            <p className="text-center text-xs text-[#8FA0B4]">Our team will contact you shortly.</p>
-                          </div>
-                        );
-                      })()}
                     </>
                   ) : (
                     <>
@@ -5276,7 +5278,7 @@ function CalculatorCard() {
         past the form. Sibling of the form now, so it's fixed to the
         real viewport like it's supposed to be. Pre-existing bug, not
         introduced by anything else in this change. */}
-    {masterService === "COMPLETE_SOLAR" && (
+    {masterService === "COMPLETE_SOLAR" && sector !== "INDUSTRIAL" && (
       // Liquid glass (2026-09-04 feedback: "all overlapping should be
       // in a liquid glass style") — this bar sits fixed on top of
       // scrolled page content, so it's a real overlap, not just a
