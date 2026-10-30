@@ -32,7 +32,9 @@ export default function PrivacyPolicyPage() {
         our website or request a quote, and how we use it.
       </p>
 
-      <LegalSection number={1} id={SECTIONS[0].id} title={SECTIONS[0].label}>
+      <LegalSection number={1} id={SECTIONS[0].id} title={SECTIONS[0].label}
+        summary="Contact details, bill information, system preferences and site survey data."
+      >
         <p>When you use our calculator or request a quote, we collect:</p>
         <ul>
           <li>
@@ -56,7 +58,9 @@ export default function PrivacyPolicyPage() {
         </ul>
       </LegalSection>
 
-      <LegalSection number={2} id={SECTIONS[1].id} title={SECTIONS[1].label}>
+      <LegalSection number={2} id={SECTIONS[1].id} title={SECTIONS[1].label}
+        summary="To quote you, contact you and improve our pricing. We do not sell your information."
+      >
         <ul>
           <li>To calculate and send you an accurate solar system quotation.</li>
           <li>To contact you on WhatsApp or by phone about your quote, survey, or installation.</li>
@@ -66,7 +70,9 @@ export default function PrivacyPolicyPage() {
         <p>We do not sell your personal information to third parties.</p>
       </LegalSection>
 
-      <LegalSection number={3} id={SECTIONS[2].id} title={SECTIONS[2].label}>
+      <LegalSection number={3} id={SECTIONS[2].id} title={SECTIONS[2].label}
+        summary="Quotes and follow ups happen on WhatsApp, under its privacy practices as well as ours."
+      >
         <p>
           Quotes, follow ups, and scheduling are primarily handled over WhatsApp. When you click a &quot;Message Us
           on WhatsApp&quot; button, you&apos;re taken to WhatsApp with a prefilled message, and that conversation is
@@ -74,7 +80,9 @@ export default function PrivacyPolicyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection number={4} id={SECTIONS[3].id} title={SECTIONS[3].label}>
+      <LegalSection number={4} id={SECTIONS[3].id} title={SECTIONS[3].label}
+        summary="Analytics cookies load only if you accept the cookie banner."
+      >
         <p>
           We use cookies for basic site functionality and, only if you accept our cookie banner, for analytics
           (such as Google Analytics or Meta Pixel) to understand how visitors use our site. If you decline, no
@@ -83,14 +91,18 @@ export default function PrivacyPolicyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection number={5} id={SECTIONS[4].id} title={SECTIONS[4].label}>
+      <LegalSection number={5} id={SECTIONS[4].id} title={SECTIONS[4].label}
+        summary="Stored on secured servers, with access limited to staff who need it."
+      >
         <p>
           Your information is stored on secured servers. Access to your electricity bill, contact details, and quote
           history is restricted to Solar Pixel staff who need it to process your quote or installation.
         </p>
       </LegalSection>
 
-      <LegalSection number={6} id={SECTIONS[5].id} title={SECTIONS[5].label}>
+      <LegalSection number={6} id={SECTIONS[5].id} title={SECTIONS[5].label}
+        summary="Ask to access, correct or delete your information at any time."
+      >
         <p>
           You can ask us to access, correct, or delete the personal information we hold about you at any time by
           contacting us using the details in our footer below.

@@ -483,7 +483,8 @@ body {
   padding: 0.25rem 0.25rem 0.5rem;
 }
 .legal-prose > p:first-child,
-.legal-prose section > div > p:first-child {
+.legal-prose section > div > p:first-child,
+.legal-prose details > div > p:first-child {
   margin-top: 0;
 }
 .legal-prose ul {

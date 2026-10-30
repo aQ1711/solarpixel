@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Clock, FileText } from "lucide-react";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
+import { LegalExpandToggle } from "@/components/legal/LegalExpandToggle";
 
 /**
  * Shared shell for the three static trust/legal pages (About, Privacy
@@ -87,7 +88,10 @@ export function LegalPageShell({
           {toc && toc.length > 0 && (
             <div className="mx-auto max-w-3xl px-3 pt-3 sm:px-5">
               <nav aria-label="Sections" className="rounded-2xl border border-[#D5DFEC] bg-[#EDF2F8] p-4 sm:p-5">
-                <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5A6472]">On this page</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5A6472]">On this page</p>
+                  <LegalExpandToggle />
+                </div>
                 <ol className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
                   {toc.map((item, i) => (
                     <li key={item.id}>
@@ -118,41 +122,4 @@ export function LegalPageShell({
   );
 }
 
-/**
- * One numbered section within a "prose" legal page (2026-09-05) — same
- * orange circular-badge + title language as the calculator's own STEP
- * 1/2/3 headers (StepHeader in app/HomePageContent.tsx), so a legal page
- * reads as the same product instead of a plain word-processor export.
- * `number` is a visual badge only, not part of the heading text anymore
- * — Terms' old headings were literally "1. Instant Quotations Are
- * Estimates" as one string; splitting the number out here changes only
- * how it renders, not the wording. `id` is what LegalPageShell's `toc`
- * links jump to; `scroll-mt-28` keeps the sticky-adjacent heading clear
- * of the fixed header on landing from a TOC link.
- */
-export function LegalSection({
-  number,
-  id,
-  title,
-  children,
-}: {
-  number: number;
-  id: string;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section
-      id={id}
-      className="mt-3 scroll-mt-28 rounded-2xl border border-[#D5DFEC] bg-white p-4 shadow-sm shadow-[#1E3550]/5 sm:p-6"
-    >
-      <div className="flex items-center gap-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#1E3550] text-sm font-bold text-white">
-          {number}
-        </span>
-        <h2 className="text-lg font-bold tracking-tight text-stone-900">{title}</h2>
-      </div>
-      <div className="mt-3 sm:pl-11">{children}</div>
-    </section>
-  );
-}
+export { LegalSection } from "@/components/legal/LegalSection";
