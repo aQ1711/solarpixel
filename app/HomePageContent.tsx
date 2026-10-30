@@ -1340,7 +1340,18 @@ const STRUCTURE_ICON_BY_CODE: Record<string, React.ComponentType<{ className?: s
 // (bg-white / bg-stone-50) on the block itself — see CalculatorCard.
 // ============================================================================
 
-function StepHeader({ step, title, icon: Icon }: { step: number; title: string; icon?: React.ComponentType<{ className?: string }> }) {
+function StepHeader({
+  step,
+  title,
+  icon: Icon,
+  hideNumber,
+}: {
+  step: number;
+  title: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  /** No number badge: Industrial skips steps 1 and 2 on desktop, so a lone "3" would read as broken. */
+  hideNumber?: boolean;
+}) {
   return (
     <div className="mb-3 flex items-center gap-2.5">
       {/* hidden on mobile (2026-09-22, "make it professional") — Steps 1
@@ -1351,7 +1362,7 @@ function StepHeader({ step, title, icon: Icon }: { step: number; title: string; 
           "3" with no 1 or 2 before it reads as broken, not as a step
           sequence. lg:flex brings it back once 1 and 2 are visible
           alongside it and the numbering means something again. */}
-      <span className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-full bg-orange-700 text-[11px] font-bold text-white lg:flex">
+      <span className={`hidden h-6 w-6 shrink-0 items-center justify-center rounded-full bg-orange-700 text-[11px] font-bold text-white ${hideNumber ? "" : "lg:flex"}`}>
         {step}
       </span>
       <p className="flex min-w-0 items-center gap-1.5 text-xs font-bold tracking-wide text-slate-800 uppercase">
@@ -2818,7 +2829,10 @@ function CalculatorCard() {
                 existing separate Energy Profile / Property & System
                 cards just below, completely untouched. */}
             {masterService === "COMPLETE_SOLAR" && (
-              <div className="lg:hidden">
+              // Industrial uses this same card on desktop too (its bill,
+              // connection type and engineer button), instead of the generic
+              // Energy Profile / Property & System steps below.
+              <div className={sector === "INDUSTRIAL" ? "" : "lg:hidden"}>
                 <div
                   className={`rounded-[22px] p-4 sm:p-5 ${
                     sector === "INDUSTRIAL" ? "bg-[#1B2E47]" : "bg-gradient-to-b from-[#2F4D70] to-[#1E3550] shadow-[0_24px_50px_-26px_rgba(30,53,80,0.7)]"
@@ -3457,7 +3471,7 @@ function CalculatorCard() {
                 folded in here too — same conceptual step as before.
                 bg-white (vs. Step 2/3's bg-stone-50) breaks up the "wall
                 of identical cards" look (Part 2) — see StepHeader. */}
-            <div ref={energyProfileRef} className="hidden rounded-2xl border border-slate-200 bg-white p-4 lg:block">
+            <div ref={energyProfileRef} className={`hidden rounded-2xl border border-slate-200 bg-white p-4 ${sector === "INDUSTRIAL" ? "" : "lg:block"}`}>
               <StepHeader step={1} title="Energy Profile" />
               <div className="mb-3">
                 <SizingModeToggle sizeMode={sizeMode} onChange={setSizeMode} />
@@ -3734,7 +3748,7 @@ function CalculatorCard() {
                 the Quote screen in a later pass). Same `sector`/
                 `serviceType` state either way — nothing here changes
                 what actually prices, only where it's picked. */}
-            <div className="hidden @container rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:block">
+            <div className={`hidden @container rounded-2xl border border-slate-200 bg-slate-50 p-4 ${sector === "INDUSTRIAL" ? "" : "lg:block"}`}>
               <StepHeader step={2} title="Property & System" />
               <fieldset>
                 <legend className="mb-2 text-sm font-semibold text-slate-700">Property Type</legend>
@@ -3844,7 +3858,7 @@ function CalculatorCard() {
                 left column. bg-white (alternating back from Step 2's
                 bg-slate-50) — see StepHeader/Part 2. */}
             <div ref={configurationRef} className="@container rounded-2xl border border-slate-200 bg-white p-3 max-lg:border-[#D5DFEC] max-lg:bg-[#EDF2F8] sm:p-4">
-              <StepHeader step={3} title="Equipment Configurator" />
+              <StepHeader step={3} title="Equipment Configurator" hideNumber={sector === "INDUSTRIAL"} />
               <PathToggle path={customizationPath} onChange={handleCustomizationPathChange} />
 
               {/* animate-fade-up (2026-09-22, "make it professional and
