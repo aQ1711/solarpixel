@@ -124,37 +124,35 @@ export default function AboutPage() {
       {/* ---- Hero — same dark-gradient language as the quotation/report
           hero elsewhere in this app, so "About" reads as the same
           product, not a bolted-on static page. ---- */}
-      <div
-        className="relative overflow-hidden px-5 py-16 text-white sm:py-24"
-        style={{ background: "linear-gradient(155deg, #0F172A 0%, #0B1220 60%, #0B3B30 150%)" }}
-      >
+      <div className="px-3 pt-3 sm:px-5">
+      <div className="relative mx-auto max-w-6xl overflow-hidden rounded-[22px] bg-gradient-to-b from-[#2F4D70] to-[#1E3550] px-5 py-12 text-white shadow-[0_24px_50px_-26px_rgba(30,53,80,0.7)] sm:py-20">
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-emerald-400/15 blur-[120px]"
+          className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-orange-400/20 blur-[120px]"
         />
-        <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-orange-400/10 blur-[120px]" />
         <div className="relative mx-auto max-w-3xl text-center">
-          <p className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Our Mission</p>
+          <p className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-orange-300">Our Mission</p>
           <h1 className="mt-4 text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl">
             Solar, priced and engineered <span className="text-orange-400">honestly.</span>
           </h1>
-          <p className="mx-auto mt-5 max-w-xl text-base text-white/70 sm:text-lg">
+          <p className="mx-auto mt-5 max-w-xl text-base text-[#C9D5E4] sm:text-lg">
             Solar Pixel installs Hybrid (Battery) and On Grid solar systems for homes and businesses across Lahore
             and Punjab. We size and price every system from real, live market data, not a rough estimate, and we aim
             to have a new system live in as little as 48 hours.
           </p>
         </div>
       </div>
+      </div>
 
       {/* ---- Three pillars ---- */}
-      <div className="mx-auto max-w-6xl px-5 py-14 sm:py-20">
-        <div className="grid gap-5 sm:grid-cols-3">
+      <div className="mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-8">
+        <div className="grid gap-3 sm:grid-cols-3 sm:gap-5">
           {PILLARS.map(({ icon: Icon, title, body }) => (
             <div
               key={title}
-              className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm shadow-stone-200/60 transition-shadow duration-200 hover:shadow-md"
+              className="rounded-2xl border border-[#D5DFEC] bg-[#EDF2F8] p-5 transition-shadow duration-200 hover:shadow-md hover:shadow-[#1E3550]/10 sm:p-6"
             >
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-50">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white">
                 <Icon className="h-5 w-5 text-orange-700" />
               </div>
               <h2 className="mt-4 text-lg font-bold text-stone-900">{title}</h2>
@@ -173,22 +171,19 @@ export default function AboutPage() {
             promised date this page has no authority to commit to. Same
             dark-gradient hero language as above, so it reads as a real,
             forward-looking product announcement, not an afterthought. */}
-        <div
-          className="relative mt-6 overflow-hidden rounded-3xl px-6 py-10 text-white shadow-lg sm:px-10 sm:py-14"
-          style={{ background: "linear-gradient(155deg, #0F172A 0%, #0B1220 60%, #0B3B30 150%)" }}
-        >
-          <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 h-72 w-72 rounded-full bg-emerald-400/15 blur-[110px]" />
+        <div className="relative mt-3 overflow-hidden rounded-[22px] bg-gradient-to-b from-[#2F4D70] to-[#1E3550] px-5 py-10 text-white shadow-[0_24px_50px_-26px_rgba(30,53,80,0.7)] sm:mt-5 sm:px-10 sm:py-14">
+          <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 h-72 w-72 rounded-full bg-orange-400/20 blur-[110px]" />
           <div className="relative mx-auto max-w-2xl text-center">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 font-mono text-[10.5px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-300/30 bg-orange-300/10 px-3 py-1 font-mono text-[10.5px] font-semibold uppercase tracking-[0.14em] text-orange-300">
               <Zap className="h-3 w-3" /> Coming Soon
             </span>
             <h2 className="mt-4 text-2xl font-extrabold tracking-tight sm:text-3xl">Real Time Control Over Your Own Energy</h2>
-            <p className="mt-4 text-sm leading-relaxed text-white/70 sm:text-base">
+            <p className="mt-4 text-sm leading-relaxed text-[#C9D5E4] sm:text-base">
               Our team is building an intelligent energy management solution that puts you in control of every watt
               moving in and out of your home, in real time. See exactly what your system is generating, storing, and
               drawing from the grid, and manage your own electricity bill yourself, on your own terms.
             </p>
-            <div className="mt-6 flex items-center justify-center gap-2 text-xs font-medium text-white/50">
+            <div className="mt-6 flex items-center justify-center gap-2 text-xs font-medium text-[#8FA0B4]">
               <Gauge className="h-3.5 w-3.5" />
               In development. Launching soon.
             </div>
@@ -200,14 +195,14 @@ export default function AboutPage() {
           comment above for content sourcing. <details>/<summary> keeps
           every answer in the DOM (and crawlable) even collapsed, no
           client component needed for the open/close interaction. ---- */}
-      <div className="border-t border-stone-200 bg-stone-50 px-5 py-14 sm:py-20">
+      <div className="px-3 py-8 sm:px-5 sm:py-16">
         <div className="mx-auto max-w-2xl">
           <h2 className="text-center text-2xl font-bold tracking-tight text-stone-900 sm:text-3xl">
             Frequently Asked Questions
           </h2>
-          <div className="mt-8 space-y-3">
+          <div className="mt-6 space-y-2.5 sm:mt-8">
             {FAQS.map(({ q, a }) => (
-              <details key={q} className="group rounded-2xl border border-stone-200 bg-white px-5 py-4 open:shadow-sm">
+              <details key={q} className="group rounded-2xl border border-[#D5DFEC] bg-white px-4 py-3.5 open:border-[#1E3550]/30 open:shadow-sm sm:px-5 sm:py-4">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-stone-900 marker:content-none">
                   {q}
                   <ChevronDown className="h-4 w-4 shrink-0 text-stone-400 transition-transform duration-200 group-open:rotate-180" />
@@ -220,10 +215,10 @@ export default function AboutPage() {
       </div>
 
       {/* ---- Talk to Us ---- */}
-      <div className="border-t border-stone-200 bg-white px-5 py-14 sm:py-16">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-2xl font-bold tracking-tight text-stone-900">Talk to Us</h2>
-          <p className="mx-auto mt-2 max-w-md text-sm text-stone-600">
+      <div className="px-3 pb-6 sm:px-5 sm:pb-10">
+        <div className="mx-auto max-w-6xl rounded-[22px] bg-gradient-to-b from-[#2F4D70] to-[#1E3550] px-5 py-10 text-center shadow-[0_24px_50px_-26px_rgba(30,53,80,0.7)] sm:py-12">
+          <h2 className="text-2xl font-bold tracking-tight text-white">Talk to Us</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm text-[#C9D5E4]">
             Have a question before you get a quote? Reach us on WhatsApp or email, or use the calculator to get an
             instant, no obligation estimate.
           </p>
@@ -238,7 +233,7 @@ export default function AboutPage() {
             </a>
             <a
               href="mailto:solarpixelpk@gmail.com"
-              className="flex min-h-11 items-center gap-2 rounded-full border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-700 transition-colors duration-200 hover:border-stone-400 hover:text-stone-900"
+              className="flex min-h-11 items-center gap-2 rounded-full border border-white/25 bg-white/10 px-5 text-sm font-semibold text-white transition-colors duration-200 hover:bg-white/20"
             >
               <Mail className="h-4 w-4" /> Email Us
             </a>
