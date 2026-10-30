@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, Menu } from "lucide-react";
 import { AccessGate } from "@/components/internal/AccessGate";
 import { internalFetch, type ApiJson } from "@/lib/internal/access";
 import { AdminAuthProvider } from "@/components/admin/AdminAuthContext";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
+import { BrandMark } from "@/components/BrandMark";
 import { ADMIN_NAV_ITEMS, firstAllowedNavItem, type AdminViewer } from "@/components/admin/adminNav";
 
 /**
@@ -45,6 +46,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 function AdminShell({ onUnauthorized, children }: { onUnauthorized: (reason?: string) => void; children: React.ReactNode }) {
   const [viewer, setViewer] = useState<AdminViewer | null>(null);
   const [resolving, setResolving] = useState(true);
+  // Phone-only slide-in nav (see AdminSidebar's doc comment).
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -106,8 +109,29 @@ function AdminShell({ onUnauthorized, children }: { onUnauthorized: (reason?: st
   return (
     <AdminAuthProvider value={{ viewer, onUnauthorized }}>
       <div className="flex min-h-dvh bg-stone-50 print:block print:bg-white">
-        <AdminSidebar viewer={viewer} onLogout={handleLogout} />
+        <AdminSidebar
+          viewer={viewer}
+          onLogout={handleLogout}
+          mobileOpen={mobileNavOpen}
+          onMobileClose={() => setMobileNavOpen(false)}
+        />
         <div className="min-w-0 flex-1">
+          {/* Phone top bar: the sidebar is a drawer below lg, so this is
+              the way to reach it and also tells you which page you're on. */}
+          <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-stone-200 bg-white/95 px-4 py-2.5 backdrop-blur lg:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open menu"
+              aria-expanded={mobileNavOpen}
+              aria-controls="admin-nav"
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-stone-700 transition hover:bg-stone-100"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <BrandMark className="h-5 w-5 shrink-0" gradientId="solarPixelMarkGradientTopBar" />
+            <span className="truncate text-sm font-semibold text-stone-900">{matchedNavItem?.label ?? "Admin"}</span>
+          </div>
           {pathAllowed === false ? (
             // Deliberately NOT `children` for even one render — see the
             // route guard effect's doc comment above for the real 401

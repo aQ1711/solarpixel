@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import {
   Search,
   Loader2,
@@ -100,6 +101,15 @@ function MakerSurveyApp({ onUnauthorized }: { onUnauthorized: () => void }) {
           <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
             Load a quote, take exact measurements on-site, submit for Checker approval.
           </p>
+          <nav className="mt-3 flex gap-2 text-xs font-medium">
+            <span className="rounded-full bg-[var(--color-amber)] px-3 py-1.5 text-[var(--color-amber-ink)]">Site Survey</span>
+            <Link
+              href="/maker/projects"
+              className="rounded-full border border-[var(--color-border)] px-3 py-1.5 text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)]"
+            >
+              Site Projects
+            </Link>
+          </nav>
         </header>
 
         {engineersError && (
