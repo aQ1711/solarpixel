@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { MessageCircle } from "lucide-react";
 import { getDb } from "@/lib/db/client";
 import { BrandMark } from "@/components/BrandMark";
+import { SiteHeader } from "@/components/SiteHeader";
 import { PrintButton } from "./PrintButton";
 
 /**
@@ -163,15 +164,15 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
   const waHref = `https://wa.me/${WHATSAPP_BUSINESS_NUMBER}?text=${encodeURIComponent(waMessage)}`;
 
   return (
-    <main className="min-h-dvh bg-stone-50 px-4 py-10 print:bg-white print:py-0 sm:px-6">
+    <div className="min-h-dvh bg-stone-50 print:bg-white">
+    {/* Same glass bar as every other public page. Screen only: the
+        printed/saved quotation carries its own branding below. */}
+    <div className="sticky top-0 z-30 print:hidden">
+      <SiteHeader />
+    </div>
+    <main className="px-4 pb-10 pt-5 print:py-0 sm:px-6">
       <div className="mx-auto max-w-2xl">
-        <div className="mb-6 flex items-center justify-between print:hidden">
-          <span className="flex items-center gap-2 text-lg font-semibold tracking-tight text-stone-900">
-            {/* Real Solar Pixel brand mark (2026-08-29) — same one the
-                storefront Header uses, see components/BrandMark.tsx. */}
-            <BrandMark className="h-7 w-7 shrink-0" />
-            Solar Pixel
-          </span>
+        <div className="mb-4 flex items-center justify-end print:hidden">
           <PrintButton />
         </div>
 
@@ -300,5 +301,6 @@ export default async function QuotePage({ params }: { params: Promise<{ quoteId:
         </a>
       </div>
     </main>
+    </div>
   );
 }

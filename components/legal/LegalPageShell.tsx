@@ -53,7 +53,11 @@ export function LegalPageShell({
 }) {
   return (
     <main className="min-h-dvh bg-stone-50">
-      <SiteHeader />
+      {/* Sticky so content scrolls under the glass bar, same as the
+          homepage (which sticks it together with the price ticker). */}
+      <div className="sticky top-0 z-30 print:hidden">
+        <SiteHeader />
+      </div>
 
       {variant === "landing" ? (
         children
