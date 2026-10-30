@@ -3856,7 +3856,7 @@ function CalculatorCard() {
                 above for why that matters inside the dashboard's narrower
                 left column. bg-white (alternating back from Step 2's
                 bg-slate-50) — see StepHeader/Part 2. */}
-            <div ref={configurationRef} className="@container rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
+            <div ref={configurationRef} className="@container rounded-2xl border border-slate-200 bg-white p-3 max-lg:border-[#D5DFEC] max-lg:bg-[#EDF2F8] sm:p-4">
               <StepHeader step={3} title="Equipment Configurator" />
               <PathToggle path={customizationPath} onChange={handleCustomizationPathChange} />
 
@@ -4765,7 +4765,7 @@ function CalculatorCard() {
               behind it a few pixels on scroll; 128px clears it with
               room to spare. Matches the identical wrapper below. */}
           <div id="contact-and-submit" className="lg:sticky lg:top-32 lg:z-30 lg:self-start">
-            <div className="rounded-2xl border border-orange-200 bg-white p-5 shadow-lg shadow-orange-100/60">
+            <div className="rounded-2xl border border-orange-200 bg-white p-5 shadow-lg shadow-orange-100/60 max-lg:border-[#D5DFEC] max-lg:bg-[#F5F8FC] max-lg:shadow-[#1E3550]/10">
               <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700">
                 {/* Activity (2026-08-29) — was Sparkles, same icon
                     "Solar Pixel Recommended" used, which read as
@@ -5395,7 +5395,7 @@ function CalculatorCard() {
               setMasterService("EV_CHARGER");
               requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(evChargerRef)));
             }}
-            className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-center transition-colors duration-200 hover:border-orange-300"
+            className="flex flex-col items-center gap-2 rounded-2xl border border-[#D5DFEC] bg-[#EDF2F8] p-4 text-center transition-colors duration-200 hover:border-orange-300"
           >
             <EVChargerIcon className="h-6 w-6 text-orange-600" />
             <span className="text-[11px] font-semibold leading-tight text-slate-900">EV Charger</span>
@@ -5407,7 +5407,7 @@ function CalculatorCard() {
                 setMasterService("SYSTEM_UPGRADES");
                 requestAnimationFrame(() => requestAnimationFrame(() => scrollToStep(panelWashingRef)));
               }}
-              className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-center transition-colors duration-200 hover:border-orange-300"
+              className="flex flex-col items-center gap-2 rounded-2xl border border-[#D5DFEC] bg-[#EDF2F8] p-4 text-center transition-colors duration-200 hover:border-orange-300"
             >
               <WaterDropIcon className="h-6 w-6 text-orange-600" />
               <span className="text-[11px] font-semibold leading-tight text-slate-900">Washing & Service</span>
@@ -5420,7 +5420,7 @@ function CalculatorCard() {
               chooseSector("COMMERCIAL");
               requestAnimationFrame(() => requestAnimationFrame(scrollToCalculator));
             }}
-            className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-center transition-colors duration-200 hover:border-orange-300"
+            className="flex flex-col items-center gap-2 rounded-2xl border border-[#D5DFEC] bg-[#EDF2F8] p-4 text-center transition-colors duration-200 hover:border-orange-300"
           >
             <SectorIllustration sector="COMMERCIAL" className="h-6 w-8" />
             <span className="text-[11px] font-semibold leading-tight text-slate-900">Commercial & Industrial</span>
