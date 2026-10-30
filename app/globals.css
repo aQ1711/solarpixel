@@ -457,6 +457,9 @@ body {
    paragraph inside each LegalSection's own content div both sit right
    under something that already carries its own bottom spacing (the
    intro band, or LegalSection's mt-3) — without this they'd double up. */
+.legal-prose > p:first-child {
+  padding: 0.25rem 0.25rem 0.5rem;
+}
 .legal-prose > p:first-child,
 .legal-prose section > div > p:first-child {
   margin-top: 0;
@@ -470,6 +473,9 @@ body {
 .legal-prose li {
   margin-top: 0.35rem;
   line-height: 1.6;
+}
+.legal-prose li::marker {
+  color: #d9743f;
 }
 .legal-prose strong {
   color: var(--color-stone-900, #1c1917);

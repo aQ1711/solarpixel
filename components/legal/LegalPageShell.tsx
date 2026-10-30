@@ -59,14 +59,21 @@ export function LegalPageShell({
         children
       ) : (
         <>
-          <div className="dot-grid border-b border-stone-200 bg-white">
-            <div className="mx-auto max-w-3xl px-5 py-12 sm:py-16">
-              <p className="flex items-center gap-1.5 font-mono text-xs font-semibold uppercase tracking-[0.14em] text-orange-700">
+          {/* Navy intro card, the same gradient + radius as the homepage's
+              estimator card, so a legal page reads as part of the same
+              product instead of a separate document template. */}
+          <div className="px-3 pt-3 sm:px-5">
+            <div className="relative mx-auto max-w-3xl overflow-hidden rounded-[22px] bg-gradient-to-b from-[#2F4D70] to-[#1E3550] px-5 py-8 shadow-[0_24px_50px_-26px_rgba(30,53,80,0.7)] sm:px-8 sm:py-12">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-orange-400/20 blur-3xl"
+              />
+              <p className="relative flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-orange-300">
                 <FileText className="h-3.5 w-3.5" /> Legal
               </p>
-              <h1 className="mt-3 text-3xl font-bold tracking-tight text-stone-900 sm:text-4xl">{title}</h1>
+              <h1 className="relative mt-3 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl">{title}</h1>
               {updatedLabel && (
-                <span className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs font-medium text-stone-500">
+                <span className="relative mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-[#C9D5E4]">
                   <Clock className="h-3 w-3" /> {updatedLabel}
                 </span>
               )}
@@ -74,17 +81,19 @@ export function LegalPageShell({
           </div>
 
           {toc && toc.length > 0 && (
-            <div className="mx-auto max-w-3xl px-5 pt-8 sm:pt-10">
-              <nav aria-label="Sections" className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm shadow-stone-200/50">
-                <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">On this page</p>
-                <ol className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            <div className="mx-auto max-w-3xl px-3 pt-3 sm:px-5">
+              <nav aria-label="Sections" className="rounded-2xl border border-[#D5DFEC] bg-[#EDF2F8] p-4 sm:p-5">
+                <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5A6472]">On this page</p>
+                <ol className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
                   {toc.map((item, i) => (
                     <li key={item.id}>
                       <Link
                         href={`#${item.id}`}
-                        className="flex items-center gap-2 py-0.5 text-sm text-stone-600 transition-colors duration-200 hover:text-orange-700"
+                        className="flex min-h-9 items-center gap-2.5 text-sm font-medium text-[#1E3550] transition-colors duration-200 hover:text-orange-700"
                       >
-                        <span className="font-mono text-xs text-stone-400">{i + 1}.</span>
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#1E3550]/10 font-mono text-[11px] font-semibold text-[#1E3550]">
+                          {i + 1}
+                        </span>
                         {item.label}
                       </Link>
                     </li>
@@ -94,7 +103,7 @@ export function LegalPageShell({
             </div>
           )}
 
-          <article className="mx-auto max-w-3xl px-5 py-10 sm:py-12">
+          <article className="mx-auto max-w-3xl px-3 pb-10 pt-4 sm:px-5 sm:pb-12">
             <div className="legal-prose">{children}</div>
           </article>
         </>
@@ -129,14 +138,17 @@ export function LegalSection({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="scroll-mt-28 [&:not(:first-child)]:mt-10">
+    <section
+      id={id}
+      className="mt-3 scroll-mt-28 rounded-2xl border border-[#D5DFEC] bg-white p-4 shadow-sm shadow-[#1E3550]/5 sm:p-6"
+    >
       <div className="flex items-center gap-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-700 text-sm font-bold text-white">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#1E3550] text-sm font-bold text-white">
           {number}
         </span>
         <h2 className="text-lg font-bold tracking-tight text-stone-900">{title}</h2>
       </div>
-      <div className="mt-3 pl-11">{children}</div>
+      <div className="mt-3 sm:pl-11">{children}</div>
     </section>
   );
 }
