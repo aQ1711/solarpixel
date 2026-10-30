@@ -1038,7 +1038,7 @@ function Hero() {
     // sticky for the live-summary card inside it (the exact trap the
     // globals.css body comment documents); clip crops paint without
     // creating one.
-    <section className="dot-grid relative overflow-x-clip px-5 pb-4 pt-3 sm:pt-5 md:pb-3 print:p-0">
+    <section className="dot-grid relative overflow-x-clip px-2.5 pb-2 pt-1 sm:px-5 sm:pb-4 sm:pt-5 md:pb-3 print:p-0">
       {/* Ambient glow, purely decorative — two soft, low-opacity washes
           instead of one saturated blob, for a calmer first impression. */}
       <div
@@ -1090,15 +1090,15 @@ function Hero() {
         <h1 className="text-balance text-[1.85rem] font-bold leading-[1.15] tracking-tight text-stone-900 sm:text-5xl sm:leading-[1.1]">
           Solar. <span className="text-orange-700">Priced Instantly.</span>
         </h1>
-        <p className="mx-auto mt-1.5 max-w-xs text-balance text-xs text-stone-400 lg:hidden">
-          Slide in your monthly bill and see the exact system and price. No sales calls to get a number.
+        <p className="mx-auto mt-1 max-w-xs text-balance text-xs text-stone-500 lg:hidden">
+          Slide in your monthly bill to see your system and price.
         </p>
         <p className="mx-auto mt-1.5 hidden max-w-sm text-balance text-sm text-stone-400 lg:block">
           Live engineering. Zero hidden fees.
         </p>
       </div>
 
-      <div id="calculator" className="relative mx-auto mt-4 w-full scroll-mt-24 sm:mt-4 md:mt-3 print:mt-0 print:max-w-none">
+      <div id="calculator" className="relative mx-auto mt-2.5 w-full scroll-mt-24 sm:mt-4 md:mt-3 print:mt-0 print:max-w-none">
         {/* useSearchParams() (for the report-step/back-button sync — see
             CalculatorCard) requires a Suspense boundary so the rest of
             this static page isn't forced fully dynamic. */}
@@ -2797,7 +2797,7 @@ function CalculatorCard() {
       // form so the fixed bar never covers the very fields "Get Quotation"
       // scrolls the user to (Part 3). lg: cancels it out entirely since
       // the bar itself is lg:hidden.
-      className={`animate-fade-up mx-auto mb-8 w-full max-w-6xl rounded-3xl border border-slate-200 bg-white/80 p-6 shadow-xl backdrop-blur-xl md:p-8 print:hidden ${
+      className={`animate-fade-up mx-auto mb-4 w-full max-w-6xl md:mb-8 md:rounded-3xl md:border md:border-slate-200 md:bg-white/80 md:p-8 md:shadow-xl md:backdrop-blur-xl print:hidden ${
         masterService === "COMPLETE_SOLAR" ? "pb-14 lg:pb-8" : ""
       }`}
     >
@@ -2845,9 +2845,9 @@ function CalculatorCard() {
 
       {masterService === "COMPLETE_SOLAR" ? (
         // ============ Tesla-style split dashboard ============
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px] lg:items-start">
+        <div className="mt-1 grid grid-cols-1 gap-4 md:mt-6 md:gap-6 lg:grid-cols-[1fr_360px] lg:items-start">
           {/* ---- LEFT COLUMN: inputs ---- */}
-          <div className="space-y-5">
+          <div className="space-y-3 md:space-y-5">
             {/* Mobile Home Tab — LOCKED SPEC (2026-09-03, design kit
                 handoff at /Users/tempuser/Downloads/solarpixel-design-kit/
                 BUILD_SPEC.md). Dark "hero" instant-estimator card
@@ -2860,7 +2860,7 @@ function CalculatorCard() {
             {masterService === "COMPLETE_SOLAR" && (
               <div className="lg:hidden">
                 <div
-                  className={`rounded-[22px] p-5 ${
+                  className={`rounded-[22px] p-4 sm:p-5 ${
                     sector === "INDUSTRIAL" ? "bg-[#1B2E47]" : "bg-gradient-to-b from-[#2F4D70] to-[#1E3550] shadow-[0_24px_50px_-26px_rgba(30,53,80,0.7)]"
                   }`}
                 >
@@ -2910,7 +2910,7 @@ function CalculatorCard() {
                       active instead of crowding the tabs. Now shared
                       (shows for Industrial too, same reason as the
                       segmented control above). */}
-                  <p className="mt-2 text-center text-[11px] font-medium text-[#8FA0B4]">{SECTOR_MICROCOPY[sector]}</p>
+                  <p className="mt-1 text-center text-[11px] font-medium text-[#8FA0B4]">{SECTOR_MICROCOPY[sector]}</p>
                   {/* Auto-route notice (2026-09-04 feedback: "we should
                       ask user or inform user" whenever the bill amount
                       auto-switches their sector) — set by the debounced
@@ -5386,7 +5386,7 @@ function CalculatorCard() {
           vs. the Enterprise card, swapped on `sector`), so that one
           scrolls back to the top of #calculator instead — exactly where
           the dark card now lives as the first element below Hero. */}
-      <div className="mt-6 lg:hidden">
+      <div className="mt-4 lg:hidden">
         <p className="font-mono text-[10.5px] font-semibold uppercase tracking-widest text-orange-700">More We Do</p>
         <div className={`mt-3 grid gap-2.5 ${PANEL_WASHING_SERVICE_VISIBLE ? "grid-cols-3" : "grid-cols-2"}`}>
           <button
@@ -5432,7 +5432,7 @@ function CalculatorCard() {
           from the sticky Mobile-Only Floating Bottom Bar (that one's
           persistent/quick-access while scrolling; this is the one-time
           closing CTA at the end of the page, matching Main.html). */}
-      <div className="mt-7 rounded-3xl bg-gradient-to-b from-[#2F4D70] to-[#1E3550] p-6 lg:hidden">
+      <div className="mt-4 rounded-3xl bg-gradient-to-b from-[#2F4D70] to-[#1E3550] p-5 lg:hidden">
         <p className="text-xl font-extrabold tracking-tight text-white">Ready to cut your bill?</p>
         <div className="mt-3.5 flex gap-2.5">
           <button
@@ -5536,7 +5536,7 @@ function PathToggle({ path, onChange }: { path: CustomizationPath; onChange: (pa
       </div>
       {path === "RECOMMENDED" && (
         <p className="mt-2 text-center text-xs text-brand-navy">
-          Want to select your own inverter, panels, or batteries? Tap <span className="font-semibold">Build Your Own</span> above.
+          Prefer your own brands? Tap <span className="font-semibold">Build Your Own</span>.
         </p>
       )}
     </div>
@@ -6567,10 +6567,10 @@ function SizingModeToggle({ sizeMode, onChange, dark }: { sizeMode: boolean; onC
       className={`flex gap-1 rounded-xl p-1 ${dark ? "border border-white/10 bg-white/[0.06]" : "bg-slate-100"}`}
     >
       <button type="button" aria-pressed={!sizeMode} onClick={() => onChange(false)} className={option(!sizeMode)}>
-        I know my bill
+        Monthly bill
       </button>
       <button type="button" aria-pressed={sizeMode} onClick={() => onChange(true)} className={option(sizeMode)}>
-        I know the system size
+        System size
       </button>
     </div>
   );
