@@ -540,6 +540,8 @@ const LOCKED_SERVICE_TYPE_BY_SECTOR: Partial<Record<Sector, ServiceType>> = {
 // handling — LOCKED_SERVICE_TYPE_BY_SECTOR above already forces On-Grid
 // the instant sector becomes "INDUSTRIAL", for free.
 const INDUSTRIAL_SECTOR_THRESHOLD_PKR = 250_000;
+// Top of the Industrial bill slider. Typing a larger bill still works.
+const INDUSTRIAL_SLIDER_MAX_PKR = 5_000_000;
 
 // Manual inverter "clubbing" override's UI-side ceiling — kept in sync
 // with lib/db/admin.ts's MAX_INVERTER_UNITS and the matching Zod
@@ -2918,9 +2920,12 @@ function CalculatorCard() {
                         </div>
                       ) : (
                       <div className="mt-4">
-                        <label htmlFor="industrialBillAmount" className="mb-1.5 block text-xs font-semibold text-[#D4AF37]">
-                          Average Monthly Bill (PKR)
-                        </label>
+                        <div className="mb-1.5 flex items-center justify-between">
+                          <label htmlFor="industrialBillAmount" className="block text-xs font-semibold text-[#D4AF37]">
+                            Average Monthly Bill (PKR)
+                          </label>
+                          <span className="font-mono text-[10px] text-[#5E6E82]">type or drag</span>
+                        </div>
                         <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-3 focus-within:border-[#D4AF37] focus-within:ring-2 focus-within:ring-[#D4AF37]/25">
                           <span className="font-mono text-sm font-semibold text-[#E59166]">Rs</span>
                           <input
@@ -2932,7 +2937,26 @@ function CalculatorCard() {
                             placeholder="e.g. 500000"
                             className="w-full bg-transparent font-mono text-sm font-medium text-white placeholder:text-[#5E6E82] outline-none"
                           />
+                          {/* Same pixel grid as the Residential card, lit on a
+                              square-root scale so the first lac of an
+                              industrial bill still visibly moves it. */}
+                          <PixelGrid
+                            className="shrink-0"
+                            lit={
+                              resolvedBillPKR !== null && resolvedBillPKR > 0
+                                ? Math.max(1, Math.min(9, Math.round(Math.sqrt(resolvedBillPKR / INDUSTRIAL_SLIDER_MAX_PKR) * 9)))
+                                : 0
+                            }
+                          />
                         </div>
+                        <RangeSlider
+                          value={Math.min(INDUSTRIAL_SLIDER_MAX_PKR, Math.max(INDUSTRIAL_SECTOR_THRESHOLD_PKR, resolvedBillPKR ?? INDUSTRIAL_SECTOR_THRESHOLD_PKR))}
+                          min={INDUSTRIAL_SECTOR_THRESHOLD_PKR}
+                          max={INDUSTRIAL_SLIDER_MAX_PKR}
+                          step={50_000}
+                          onChange={(v) => handleBillAmountChange(String(v))}
+                          ariaLabel="Average monthly bill"
+                        />
                         {/* Lac/Crore readback — same as the hero card's
                             own field, see that one's doc comment. */}
                         {resolvedBillPKR !== null && resolvedBillPKR > 0 && (
@@ -2948,7 +2972,7 @@ function CalculatorCard() {
                             expectation for a premium-tier customer who's
                             estimating. */}
                         <p className="mt-1.5 text-[11px] leading-relaxed text-[#8FA0B4]">
-                          A rough figure is fine. Our engineer confirms exact pricing on site.
+                          A rough figure is fine. We confirm exact pricing on site.
                         </p>
                       </div>
                       )}
