@@ -4,10 +4,15 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { getDb } from "@/lib/db/client";
 import {
+  checkCustomerPaid,
+  checkJobMargin,
   computePayoutPKR,
+  MIN_JOB_MARGIN_PERCENT,
+  PAYMENT_KINDS,
   roundMoney,
   sumLinesPKR,
   type CatalogGroupDTO,
+  type CustomerPaymentDTO,
   type LinkableQuoteDTO,
   type ProjectOptionsDTO,
   type SiteProjectDTO,
@@ -102,6 +107,8 @@ export const reviewInputSchema = z.discriminatedUnion("decision", [
     decision: z.literal("APPROVE"),
     labourFeePKR: z.coerce.number().min(0, "Labour fee can't be negative").max(100_000_000),
     note: z.string().trim().max(1000).nullish(),
+    /** The Super Admin chose to go ahead although the margin check failed. */
+    confirmLowMargin: z.boolean().optional(),
     materials: z
       .array(
         z.object({
@@ -116,6 +123,7 @@ export const reviewInputSchema = z.discriminatedUnion("decision", [
     decision: z.literal("COUNTER_OFFER"),
     labourFeePKR: z.coerce.number().min(0, "Labour fee can't be negative").max(100_000_000),
     note: z.string().trim().max(1000).nullish(),
+    confirmLowMargin: z.boolean().optional(),
     materials: z
       .array(
         z.object({
@@ -148,7 +156,18 @@ export const completeInputSchema = z.object({
 
 export const paidInputSchema = z.object({
   paymentReference: z.string().trim().max(120).nullish(),
+  /** The Super Admin chose to pay out although the customer hasn't paid in full. */
+  confirmUnpaid: z.boolean().optional(),
 });
+
+export const customerPaymentSchema = z.object({
+  kind: z.enum(PAYMENT_KINDS as [string, ...string[]]),
+  amountPKR: z.coerce.number().positive("Enter an amount more than 0").max(1_000_000_000),
+  receivedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a valid date"),
+  reference: z.string().trim().max(120).nullish(),
+  note: z.string().trim().max(500).nullish(),
+});
+export type CustomerPaymentInput = z.infer<typeof customerPaymentSchema>;
 
 // ============================================================================
 // Mapping
@@ -170,7 +189,12 @@ const iso = (d: Date | null): string | null => (d === null ? null : d.toISOStrin
  *  customer price nor the customer quotation ever reaches them. */
 interface AdminExtras {
   quotedBosPKR: number | null;
+  payments: CustomerPaymentDTO[];
 }
+
+/** What the customer has paid: cancelled entries don't count. */
+const sumPaid = (payments: { amountPKR: number; voided: boolean }[]) =>
+  roundMoney(payments.filter((p) => !p.voided).reduce((sum, p) => sum + p.amountPKR, 0));
 
 function toDTO(row: ProjectRow, admin?: AdminExtras): SiteProjectDTO {
   const materials = row.materials.map((m) => ({
@@ -203,6 +227,8 @@ function toDTO(row: ProjectRow, admin?: AdminExtras): SiteProjectDTO {
     proposedLabourFeePKR: row.proposedLabourFeePKR.toNumber(),
     quotedBosPKR: admin ? admin.quotedBosPKR : null,
     customerPricePKR: admin ? num(row.customerPricePKR) : null,
+    customerPayments: admin ? admin.payments : [],
+    customerPaidPKR: admin ? sumPaid(admin.payments) : null,
     reviewNote: row.reviewNote,
     reviewedAt: iso(row.reviewedAt),
     labourFeePKR: num(row.labourFeePKR),
@@ -276,7 +302,37 @@ async function adminExtrasFor(rows: ProjectRow[]): Promise<Map<string, AdminExtr
     ? await prisma.quote.findMany({ where: { id: { in: quoteIds } }, select: { id: true, breakdownSnapshot: true } })
     : [];
   const bosByQuote = new Map(quotes.map((q) => [q.id, quotedBosFromSnapshot(q.breakdownSnapshot)]));
-  return new Map(rows.map((r) => [r.id, { quotedBosPKR: r.quoteId ? (bosByQuote.get(r.quoteId) ?? null) : null }]));
+
+  const paymentRows = rows.length
+    ? await prisma.customerPayment.findMany({
+        where: { projectId: { in: rows.map((r) => r.id) } },
+        orderBy: [{ receivedOn: "asc" }, { createdAt: "asc" }],
+      })
+    : [];
+  const paymentsByProject = new Map<string, CustomerPaymentDTO[]>();
+  for (const p of paymentRows) {
+    const list = paymentsByProject.get(p.projectId) ?? [];
+    list.push({
+      id: p.id,
+      kind: p.kind as CustomerPaymentDTO["kind"],
+      amountPKR: p.amountPKR.toNumber(),
+      receivedOn: p.receivedOn.toISOString().slice(0, 10),
+      reference: p.reference,
+      note: p.note,
+      voided: p.voidedAt !== null,
+    });
+    paymentsByProject.set(p.projectId, list);
+  }
+
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        quotedBosPKR: r.quoteId ? (bosByQuote.get(r.quoteId) ?? null) : null,
+        payments: paymentsByProject.get(r.id) ?? [],
+      },
+    ]),
+  );
 }
 
 /** `asAdmin` attaches the admin-only figures; the labour head's calls leave it
@@ -449,6 +505,40 @@ export async function updateProjectDetails(projectId: string, input: ProjectDeta
   return fetchProject(projectId, true);
 }
 
+const rupees = (n: number) => `Rs ${n.toLocaleString("en-PK", { maximumFractionDigits: 2 })}`;
+const joinNotes = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(" · ") || null;
+
+/** Before a payout is committed (approving, or sending an offer the labour head
+ *  can accept), check the job still makes money. A failed check stops the
+ *  action unless the Super Admin confirmed it; a confirmed one is written into
+ *  the project's history. Returns the history note, or null when all is well. */
+async function enforceMargin(
+  tx: Prisma.TransactionClient,
+  projectId: string,
+  payoutPKR: number,
+  confirmed: boolean,
+): Promise<string | null> {
+  const row = await tx.siteProject.findUnique({ where: { id: projectId }, select: { customerPricePKR: true } });
+  const check = checkJobMargin(row ? num(row.customerPricePKR) : null, payoutPKR);
+  if (check.level === "OK") return null;
+
+  const cost = rupees(payoutPKR);
+  const detail =
+    check.level === "NO_PRICE"
+      ? { stop: "No customer price is set, so the margin can't be checked.", note: "Margin check skipped: no customer price set" }
+      : check.level === "LOSS"
+        ? {
+            stop: `This job loses ${rupees(Math.abs(check.marginPKR ?? 0))}: the customer pays ${rupees(num(row?.customerPricePKR ?? null) ?? 0)} and the labour head costs ${cost}.`,
+            note: `Accepted a loss of ${rupees(Math.abs(check.marginPKR ?? 0))}`,
+          }
+        : {
+            stop: `The margin is ${check.marginPercent}%, below the ${MIN_JOB_MARGIN_PERCENT}% minimum.`,
+            note: `Accepted a ${check.marginPercent}% margin (minimum ${MIN_JOB_MARGIN_PERCENT}%)`,
+          };
+  if (!confirmed) throw new SiteProjectError(`${detail.stop} Confirm to go ahead anyway.`, 409);
+  return detail.note;
+}
+
 export async function reviewProject(projectId: string, input: ReviewInput): Promise<SiteProjectDTO> {
   const prisma = await getDb();
 
@@ -467,6 +557,7 @@ export async function reviewProject(projectId: string, input: ReviewInput): Prom
       const labourFee = roundMoney(input.labourFeePKR);
       const payout = computePayoutPKR(approvedTotal, labourFee);
       if (payout <= 0) throw new SiteProjectError("The payout can't be zero. Approve at least one material or add a labour fee.");
+      const marginNote = await enforceMargin(tx, projectId, payout, input.confirmLowMargin === true);
 
       const moved = await tx.siteProject.updateMany({
         where: { id: projectId, status: "SUBMITTED" },
@@ -487,7 +578,7 @@ export async function reviewProject(projectId: string, input: ReviewInput): Prom
         });
       }
       await tx.siteProjectEvent.create({
-        data: { projectId, type: "APPROVED", actorLabel: SUPER_ADMIN_LABEL, note: input.note || null },
+        data: { projectId, type: "APPROVED", actorLabel: SUPER_ADMIN_LABEL, note: joinNotes(input.note, marginNote) },
       });
       return;
     }
@@ -502,9 +593,13 @@ export async function reviewProject(projectId: string, input: ReviewInput): Prom
         input.materials.map((m) => ({ quantity: m.approvedQuantity, unitPricePKR: m.approvedUnitPricePKR })),
       );
       const labourFee = roundMoney(input.labourFeePKR);
-      if (computePayoutPKR(offerTotal, labourFee) <= 0) {
+      const offerPayout = computePayoutPKR(offerTotal, labourFee);
+      if (offerPayout <= 0) {
         throw new SiteProjectError("The offer can't be zero. Keep at least one material or add a service fee.");
       }
+      // The labour head can accept this offer on their own, which fixes the
+      // payout, so it has to pass the same margin check as an approval.
+      const marginNote = await enforceMargin(tx, projectId, offerPayout, input.confirmLowMargin === true);
       // Not frozen yet: payout stays null until the labour head accepts.
       const moved = await tx.siteProject.updateMany({
         where: { id: projectId, status: { in: ["SUBMITTED", "COUNTER_OFFERED"] } },
@@ -525,7 +620,7 @@ export async function reviewProject(projectId: string, input: ReviewInput): Prom
         });
       }
       await tx.siteProjectEvent.create({
-        data: { projectId, type: "COUNTER_OFFERED", actorLabel: SUPER_ADMIN_LABEL, note: input.note || null },
+        data: { projectId, type: "COUNTER_OFFERED", actorLabel: SUPER_ADMIN_LABEL, note: joinNotes(input.note, marginNote) },
       });
       return;
     }
@@ -559,18 +654,73 @@ export async function setCustomerPrice(projectId: string, customerPricePKR: numb
   return fetchProject(projectId, true);
 }
 
-export async function markPaid(projectId: string, paymentReference: string | null | undefined): Promise<SiteProjectDTO> {
+export async function markPaid(
+  projectId: string,
+  paymentReference: string | null | undefined,
+  confirmUnpaid = false,
+): Promise<SiteProjectDTO> {
   const prisma = await getDb();
   await prisma.$transaction(async (tx) => {
+    // Paying the labour head while the customer still owes money is risky:
+    // stop and ask unless the Super Admin has confirmed it, and record it if so.
+    const [row, paidAgg] = await Promise.all([
+      tx.siteProject.findUnique({ where: { id: projectId }, select: { customerPricePKR: true } }),
+      tx.customerPayment.aggregate({ where: { projectId, voidedAt: null }, _sum: { amountPKR: true } }),
+    ]);
+    const paid = roundMoney(paidAgg._sum.amountPKR?.toNumber() ?? 0);
+    const check = checkCustomerPaid(row ? num(row.customerPricePKR) : null, paid);
+    let unpaidNote: string | null = null;
+    if (check.level !== "OK") {
+      const stop =
+        check.level === "NO_PRICE"
+          ? "No customer price is set, so the customer's payments can't be checked."
+          : `The customer has paid ${rupees(check.paidPKR)} of ${rupees(check.owedPKR ?? 0)} (${rupees(check.outstandingPKR ?? 0)} still to come).`;
+      if (!confirmUnpaid) throw new SiteProjectError(`${stop} Confirm to pay the labour head anyway.`, 409);
+      unpaidNote =
+        check.level === "NO_PRICE"
+          ? "Paid out without a customer price to check"
+          : `Paid out while the customer still owed ${rupees(check.outstandingPKR ?? 0)}`;
+    }
+
     const moved = await tx.siteProject.updateMany({
       where: { id: projectId, status: "COMPLETED" },
       data: { status: "PAID", paidAt: new Date(), paymentReference: paymentReference || null },
     });
     if (moved.count === 0) await throwNotActionable(tx, projectId, null, "be marked paid");
     await tx.siteProjectEvent.create({
-      data: { projectId, type: "PAID", actorLabel: SUPER_ADMIN_LABEL, note: paymentReference || null },
+      data: { projectId, type: "PAID", actorLabel: SUPER_ADMIN_LABEL, note: joinNotes(paymentReference, unpaidNote) },
     });
   });
+  return fetchProject(projectId, true);
+}
+
+/** Record money received from the customer for this project. */
+export async function addCustomerPayment(projectId: string, input: CustomerPaymentInput): Promise<SiteProjectDTO> {
+  const prisma = await getDb();
+  const project = await prisma.siteProject.findUnique({ where: { id: projectId }, select: { status: true } });
+  if (!project) throw new SiteProjectError("Project not found.", 404);
+  if (project.status === "REJECTED") throw new SiteProjectError("This project was cancelled, so payments can't be added.", 409);
+  await prisma.customerPayment.create({
+    data: {
+      projectId,
+      kind: input.kind,
+      amountPKR: roundMoney(input.amountPKR),
+      receivedOn: new Date(`${input.receivedOn}T00:00:00.000Z`),
+      reference: input.reference || null,
+      note: input.note || null,
+    },
+  });
+  return fetchProject(projectId, true);
+}
+
+/** Cancel a payment entered by mistake. It stays on record but stops counting. */
+export async function voidCustomerPayment(projectId: string, paymentId: string): Promise<SiteProjectDTO> {
+  const prisma = await getDb();
+  const done = await prisma.customerPayment.updateMany({
+    where: { id: paymentId, projectId, voidedAt: null },
+    data: { voidedAt: new Date() },
+  });
+  if (done.count === 0) throw new SiteProjectError("That payment wasn't found or is already cancelled.", 404);
   return fetchProject(projectId, true);
 }
 

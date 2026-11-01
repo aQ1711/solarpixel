@@ -1184,11 +1184,35 @@ model SiteProject {
 
   materials SiteProjectMaterial[]
   events    SiteProjectEvent[]
+  payments  CustomerPayment[]
 
   @@index([labourHeadId])
   @@index([status])
   @@index([quoteId])
   @@map("site_projects")
+  @@schema("public")
+}
+
+// Money the CUSTOMER has paid Solar Pixel for a site project (survey fee,
+// advance, progress and final payments). Admin only: never sent to the labour
+// head. Used to warn before the labour head is paid out while the customer
+// still owes money.
+model CustomerPayment {
+  id         String      @id @default(cuid())
+  projectId  String
+  project    SiteProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // SURVEY_FEE | ADVANCE | PROGRESS | FINAL — plain text, checked in code.
+  kind       String
+  amountPKR  Decimal     @db.Decimal(14, 2)
+  receivedOn DateTime    @db.Date
+  reference  String?
+  note       String?
+  // Set when a mistaken entry is cancelled: it stays on record but no longer counts.
+  voidedAt   DateTime?
+  createdAt  DateTime    @default(now())
+
+  @@index([projectId])
+  @@map("customer_payments")
   @@schema("public")
 }
 
