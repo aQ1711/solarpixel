@@ -42,6 +42,21 @@ const BTN_PRIMARY =
 const BTN_GHOST =
   "flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-3 text-sm font-medium text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)] disabled:opacity-60";
 
+// A softer slate-navy than the near-black the Survey and Checker screens use
+// (closer to the storefront's navy). Set on this page only, by overriding the
+// shared tokens, so those other screens keep their darker look.
+const SOFT_DARK = {
+  colorScheme: "dark",
+  "--color-bg": "#172338",
+  "--color-surface": "#1F2E47",
+  "--color-surface-2": "#283A56",
+  "--color-border": "#364866",
+  "--color-border-strong": "#4A5D80",
+  "--color-ink": "#F1F5FB",
+  "--color-ink-muted": "#B9C5D8",
+  "--color-ink-faint": "#8F9DB5",
+} as React.CSSProperties;
+
 const LABOUR_HEAD_KEY = "solarpixel.labourHeadId";
 
 interface Engineer {
@@ -167,7 +182,7 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
   const me = engineers.find((e) => e.id === engineerId) ?? null;
 
   return (
-    <main style={{ colorScheme: "dark" }} className="min-h-dvh bg-[var(--color-bg)] px-4 py-6 sm:px-6">
+    <main style={SOFT_DARK} className="min-h-dvh bg-[var(--color-bg)] px-4 py-6 sm:px-6">
       <div className="mx-auto max-w-xl">
         <header className={view.kind === "list" ? "mb-5" : "mb-1"}>
           <div className="mb-1.5 flex items-center gap-1.5">
