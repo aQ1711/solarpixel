@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
+  Check,
   CheckCircle2,
+  ChevronRight,
   ClipboardList,
   HardHat,
   Loader2,
@@ -19,18 +21,24 @@ import { AccessGate } from "@/components/internal/AccessGate";
 import { BrandMark } from "@/components/BrandMark";
 import { EVENT_LABEL, formatDate, formatDateTime, formatPKR, StatusBadge } from "@/components/siteProjects/shared";
 import { internalFetch, type ApiJson } from "@/lib/internal/access";
-import { lineTotalPKR, sumLinesPKR, type CatalogGroupDTO, type SiteProjectDTO } from "@/lib/siteProjects/types";
+import {
+  lineTotalPKR,
+  sumLinesPKR,
+  type CatalogGroupDTO,
+  type SiteProjectDTO,
+  type SiteProjectStatus,
+} from "@/lib/siteProjects/types";
 
 // ============================================================================
 // Shared look (same tokens as the Field Engineer survey tool)
 // ============================================================================
 
-const CARD = "rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5";
+const CARD = "rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:p-5";
 const LABEL = "mb-1.5 block text-sm font-medium text-[var(--color-ink-muted)]";
 const INPUT =
-  "w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3.5 py-2.5 text-sm text-[var(--color-ink)] outline-none transition focus:border-[var(--color-amber)] focus:ring-2 focus:ring-[var(--color-amber)]/25";
+  "min-h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3.5 py-2.5 text-sm text-[var(--color-ink)] outline-none transition focus:border-[var(--color-amber)] focus:ring-2 focus:ring-[var(--color-amber)]/25";
 const BTN_PRIMARY =
-  "flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-amber)] py-3 text-sm font-semibold text-[var(--color-amber-ink)] transition hover:bg-[var(--color-amber-strong)] disabled:opacity-60";
+  "flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-amber)] py-3 text-sm font-semibold text-[var(--color-amber-ink)] transition hover:bg-[var(--color-amber-strong)] disabled:opacity-60";
 const BTN_GHOST =
   "flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-3 text-sm font-medium text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)] disabled:opacity-60";
 
@@ -61,6 +69,12 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
   const [projects, setProjects] = useState<SiteProjectDTO[] | null>(null);
   const [view, setView] = useState<View>({ kind: "list" });
   const [error, setError] = useState<string | null>(null);
+  const [changingName, setChangingName] = useState(false);
+
+  // Opening a project starts at its top, not wherever the list was scrolled to.
+  useEffect(() => {
+    if (view.kind === "detail") window.scrollTo({ top: 0 });
+  }, [view]);
 
   // Who am I: the shared maker token can't tell labour heads apart, so they
   // pick their own name once and the browser remembers it.
@@ -135,6 +149,7 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
   }, [engineerId]);
 
   function chooseEngineer(id: string) {
+    setChangingName(false);
     setEngineerId(id);
     setView({ kind: "list" });
     try {
@@ -149,29 +164,33 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
   }
 
   const selected = view.kind === "detail" ? projects?.find((p) => p.id === view.id) ?? null : null;
+  const me = engineers.find((e) => e.id === engineerId) ?? null;
 
   return (
     <main style={{ colorScheme: "dark" }} className="min-h-dvh bg-[var(--color-bg)] px-4 py-6 sm:px-6">
       <div className="mx-auto max-w-xl">
-        <header className="mb-5">
+        <header className={view.kind === "list" ? "mb-5" : "mb-1"}>
           <div className="mb-1.5 flex items-center gap-1.5">
             <BrandMark className="h-4 w-4 shrink-0" />
             <p className="text-xs font-medium text-[var(--color-neon)]">Solar Pixel · Labour Head</p>
           </div>
-          <h1 className="mt-0.5 text-xl font-bold text-[var(--color-ink)]">Site Projects</h1>
-          <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
-            Open your project, enter the materials you need with their prices, and send them for approval. Start the site
-            once it is approved, and get paid when it ends.
-          </p>
-          <nav className="mt-3 flex gap-2 text-xs font-medium">
-            <span className="rounded-full bg-[var(--color-amber)] px-3 py-1.5 text-[var(--color-amber-ink)]">Site Projects</span>
-            <Link
-              href="/maker/survey"
-              className="rounded-full border border-[var(--color-border)] px-3 py-1.5 text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)]"
-            >
-              Site Survey
-            </Link>
-          </nav>
+          {view.kind === "list" && (
+            <>
+              <h1 className="mt-0.5 text-xl font-bold text-[var(--color-ink)]">Site Projects</h1>
+              <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
+                Send a quotation for each site, start once prices are agreed, and get paid when it ends.
+              </p>
+              <nav className="mt-3 flex gap-2 text-xs font-medium">
+                <span className="rounded-full bg-[var(--color-amber)] px-3 py-1.5 text-[var(--color-amber-ink)]">Site Projects</span>
+                <Link
+                  href="/maker/survey"
+                  className="rounded-full border border-[var(--color-border)] px-3 py-1.5 text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)]"
+                >
+                  Site Survey
+                </Link>
+              </nav>
+            </>
+          )}
         </header>
 
         {error && (
@@ -180,24 +199,59 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
           </p>
         )}
 
-        <div className={`${CARD} mb-4`}>
-          <label htmlFor="labourHead" className={LABEL}>
-            Who are you?
-          </label>
-          <select id="labourHead" value={engineerId} onChange={(e) => chooseEngineer(e.target.value)} className={INPUT}>
-            <option value="">Select your name…</option>
-            {engineers.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name}
-              </option>
-            ))}
-          </select>
-          {engineers.length === 0 && !error && (
-            <p className="mt-2 text-xs text-[var(--color-ink-faint)]">
-              No labour heads are set up yet. Ask the admin to add you under Team.
-            </p>
-          )}
-        </div>
+        {me && !changingName ? (
+          view.kind === "list" && (
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span
+                  aria-hidden
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-amber)] text-sm font-bold text-[var(--color-amber-ink)]"
+                >
+                  {me.name.trim().charAt(0).toUpperCase()}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[11px] text-[var(--color-ink-faint)]">Projects for</p>
+                  <p className="truncate text-sm font-semibold text-[var(--color-ink)]">{me.name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChangingName(true)}
+                className="flex min-h-11 items-center px-2 text-xs font-medium text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)]"
+              >
+                Change
+              </button>
+            </div>
+          )
+        ) : (
+          <div className={`${CARD} mb-4`}>
+            <label htmlFor="labourHead" className={LABEL}>
+              Who are you?
+            </label>
+            <select id="labourHead" value={engineerId} onChange={(e) => chooseEngineer(e.target.value)} className={INPUT}>
+              <option value="">Select your name…</option>
+              {engineers.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                </option>
+              ))}
+            </select>
+            {engineers.length === 0 && !error && (
+              <p className="mt-2 text-xs text-[var(--color-ink-faint)]">
+                No labour heads are set up yet. Ask the admin to add you under Team.
+              </p>
+            )}
+            {changingName && (
+              <button
+                type="button"
+                onClick={() => setChangingName(false)}
+                className="mt-2 flex min-h-11 items-center text-xs font-medium text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        )}
 
         {engineerId && view.kind === "list" && <ProjectList projects={projects} onOpen={(id) => setView({ kind: "detail", id })} />}
 
@@ -220,60 +274,118 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
 // List
 // ============================================================================
 
-function ProjectList({ projects, onOpen }: { projects: SiteProjectDTO[] | null; onOpen: (id: string) => void }) {
+/** Where each status sits for the labour head: their move, the admin's move, or finished. */
+const YOUR_TURN: SiteProjectStatus[] = ["ASSIGNED", "REVISION_REQUESTED", "COUNTER_OFFERED", "APPROVED", "IN_PROGRESS"];
+const WITH_ADMIN: SiteProjectStatus[] = ["SUBMITTED", "COMPLETED"];
+
+function nextStep(p: SiteProjectDTO): { text: string; tone: string } {
+  const muted = "text-[var(--color-ink-muted)]";
+  switch (p.status) {
+    case "ASSIGNED":
+      return { text: "Send your quotation", tone: "text-indigo-300" };
+    case "REVISION_REQUESTED":
+      return { text: "Fix your quotation", tone: "text-orange-300" };
+    case "COUNTER_OFFERED":
+      return { text: "The admin sent an offer. Answer it", tone: "text-teal-300" };
+    case "APPROVED":
+      return { text: "Prices agreed. Start the site", tone: "text-emerald-300" };
+    case "IN_PROGRESS":
+      return { text: "Site running. End it when done", tone: "text-sky-300" };
+    case "SUBMITTED":
+      return { text: "The admin is checking your quotation", tone: muted };
+    case "COMPLETED":
+      return { text: "Payout is being processed", tone: muted };
+    case "PAID":
+      return { text: "Paid", tone: muted };
+    case "REJECTED":
+      return { text: "Cancelled", tone: muted };
+  }
+}
+
+function ProjectCard({ p, onOpen }: { p: SiteProjectDTO; onOpen: (id: string) => void }) {
+  const step = nextStep(p);
+  const urgent = YOUR_TURN.includes(p.status);
+  const amount = p.payoutPKR ?? p.proposedMaterialsTotalPKR + p.proposedLabourFeePKR;
   return (
-    <div className="space-y-3">
-      {projects === null && (
-        <div className="flex items-center justify-center gap-2 py-10 text-sm text-[var(--color-ink-muted)]">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading your projects…
+    <button
+      type="button"
+      onClick={() => onOpen(p.id)}
+      className={`${CARD} flex w-full items-center gap-3 text-left transition active:scale-[0.99] hover:border-[var(--color-border-strong)] ${
+        urgent ? "!border-[var(--color-amber)]/35" : ""
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-base font-semibold text-[var(--color-ink)]">{p.clientName}</p>
+        <p className="mt-0.5 truncate text-xs text-[var(--color-ink-faint)]">
+          {p.projectNumber} · {p.city}
+          {p.systemSizeKw !== null ? ` · ${p.systemSizeKw} kW` : ""}
+        </p>
+        <div className="mt-2.5 flex items-baseline justify-between gap-3">
+          <p className={`text-sm font-semibold ${step.tone}`}>{step.text}</p>
+          {amount > 0 && p.status !== "REJECTED" && (
+            <p className="shrink-0 text-right text-xs tabular-nums text-[var(--color-ink-muted)]">
+              {p.payoutPKR !== null ? "Payout " : "Quoted "}
+              <span className="font-semibold text-[var(--color-ink)]">{formatPKR(amount)}</span>
+            </p>
+          )}
         </div>
-      )}
+      </div>
+      <ChevronRight aria-hidden className="h-5 w-5 shrink-0 text-[var(--color-ink-faint)]" />
+    </button>
+  );
+}
 
-      {projects?.length === 0 && (
-        <div className={`${CARD} text-center`}>
-          <ClipboardList className="mx-auto h-8 w-8 text-[var(--color-ink-faint)]" />
-          <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
-            No projects have been assigned to you yet. When the admin adds one, it will show up here.
-          </p>
-        </div>
-      )}
-
-      {projects?.map((p) => (
-        <button
-          key={p.id}
-          type="button"
-          onClick={() => onOpen(p.id)}
-          className={`${CARD} block w-full text-left transition hover:border-[var(--color-border-strong)] ${
-            p.status === "ASSIGNED" ? "!border-indigo-400/40" : ""
-          }`}
-        >
-          <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
-            <div className="min-w-[9rem] flex-1">
-              <p className="truncate text-sm font-semibold text-[var(--color-ink)]">{p.clientName}</p>
-              <p className="mt-0.5 truncate text-xs text-[var(--color-ink-faint)]">
-                {p.projectNumber} · {p.city}
-              </p>
-            </div>
-            <StatusBadge status={p.status} dark />
+function ProjectList({ projects, onOpen }: { projects: SiteProjectDTO[] | null; onOpen: (id: string) => void }) {
+  if (projects === null) {
+    return (
+      <div className="space-y-3" aria-busy="true" aria-label="Loading your projects">
+        {[0, 1].map((i) => (
+          <div key={i} className={`${CARD} animate-pulse`}>
+            <div className="h-4 w-2/3 rounded bg-[var(--color-surface-2)]" />
+            <div className="mt-2 h-3 w-1/2 rounded bg-[var(--color-surface-2)]" />
+            <div className="mt-4 h-3 w-3/4 rounded bg-[var(--color-surface-2)]" />
           </div>
-          <p className="mt-3 text-xs text-[var(--color-ink-muted)]">
-            {p.status === "ASSIGNED" ? (
-              <span className="font-semibold text-indigo-300">Tap to send your quotation</span>
-            ) : p.status === "REVISION_REQUESTED" ? (
-              <span className="font-semibold text-orange-300">Tap to fix your quotation</span>
-            ) : p.status === "COUNTER_OFFERED" ? (
-              <span className="font-semibold text-teal-300">The admin sent you an offer. Tap to answer</span>
-            ) : p.status === "REJECTED" ? (
-              <>This project was cancelled</>
-            ) : p.payoutPKR !== null ? (
-              <>
-                Your payout <span className="font-semibold text-[var(--color-neon)]">{formatPKR(p.payoutPKR)}</span>
-              </>
-            ) : (
-              <>Materials proposed {formatPKR(p.proposedMaterialsTotalPKR)}</>
-            )}
-          </p>
-        </button>
+        ))}
+      </div>
+    );
+  }
+
+  if (projects.length === 0) {
+    return (
+      <div className={`${CARD} text-center`}>
+        <ClipboardList className="mx-auto h-8 w-8 text-[var(--color-ink-faint)]" />
+        <p className="mt-2 text-sm font-medium text-[var(--color-ink)]">No projects yet</p>
+        <p className="mt-1 text-sm text-[var(--color-ink-muted)]">When the admin assigns you one, it shows up here.</p>
+      </div>
+    );
+  }
+
+  const groups = [
+    { key: "turn", title: "Your turn", accent: true, items: projects.filter((p) => YOUR_TURN.includes(p.status)) },
+    { key: "admin", title: "With the admin", accent: false, items: projects.filter((p) => WITH_ADMIN.includes(p.status)) },
+    { key: "done", title: "Finished", accent: false, items: projects.filter((p) => p.status === "PAID" || p.status === "REJECTED") },
+  ].filter((g) => g.items.length > 0);
+
+  return (
+    <div className="space-y-5">
+      {groups.map((g) => (
+        <section key={g.key} aria-label={g.title}>
+          <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-faint)]">
+            {g.title}
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] leading-none ${
+                g.accent ? "bg-[var(--color-amber)] text-[var(--color-amber-ink)]" : "bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]"
+              }`}
+            >
+              {g.items.length}
+            </span>
+          </h2>
+          <div className="space-y-2.5">
+            {g.items.map((p) => (
+              <ProjectCard key={p.id} p={p} onOpen={onOpen} />
+            ))}
+          </div>
+        </section>
       ))}
     </div>
   );
@@ -329,9 +441,11 @@ function ProjectDetail({
 
   return (
     <div className="space-y-4">
-      <button type="button" onClick={onBack} className="flex min-h-11 items-center gap-1.5 text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
-        <ArrowLeft className="h-4 w-4" /> All projects
-      </button>
+      <div className="sticky top-0 z-20 -mx-4 bg-[var(--color-bg)]/90 px-4 backdrop-blur sm:-mx-6 sm:px-6">
+        <button type="button" onClick={onBack} className="flex min-h-11 items-center gap-1.5 text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
+          <ArrowLeft className="h-4 w-4" /> All projects
+        </button>
+      </div>
 
       <div className={CARD}>
         <div className="flex items-start justify-between gap-3">
@@ -355,6 +469,7 @@ function ProjectDetail({
           {project.quote && <Fact label="Customer quote" value={project.quote.quoteNumber} />}
         </dl>
         {project.scopeNotes && <p className="mt-3 whitespace-pre-line text-sm text-[var(--color-ink-muted)]">{project.scopeNotes}</p>}
+        <Stepper status={project.status} />
       </div>
 
       {/* What happens next, depending on where the project is */}
@@ -521,6 +636,61 @@ function ProjectDetail({
 
       <Timeline project={project} />
     </div>
+  );
+}
+
+const STEPS = ["Quotation", "Agreed", "On site", "Paid"] as const;
+
+/** Four real stages in order. Quotation covers everything until prices are agreed. */
+function stepIndex(status: SiteProjectStatus): number | null {
+  switch (status) {
+    case "ASSIGNED":
+    case "REVISION_REQUESTED":
+    case "SUBMITTED":
+    case "COUNTER_OFFERED":
+      return 0;
+    case "APPROVED":
+      return 1;
+    case "IN_PROGRESS":
+      return 2;
+    case "COMPLETED":
+      return 3;
+    case "PAID":
+      return 4;
+    case "REJECTED":
+      return null;
+  }
+}
+
+function Stepper({ status }: { status: SiteProjectStatus }) {
+  const idx = stepIndex(status);
+  if (idx === null) return null;
+  return (
+    <ol aria-label="Project progress" className="mt-4 flex items-start border-t border-[var(--color-border)] pt-4">
+      {STEPS.map((label, i) => {
+        const done = i < idx;
+        const current = i === idx;
+        return (
+          <li key={label} className="flex flex-1 items-start last:flex-none" aria-current={current ? "step" : undefined}>
+            <span className="flex w-14 flex-col items-center gap-1">
+              <span
+                className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${
+                  done
+                    ? "bg-[var(--color-neon)] text-black"
+                    : current
+                      ? "bg-[var(--color-amber)] text-[var(--color-amber-ink)]"
+                      : "border border-[var(--color-border-strong)] text-[var(--color-ink-faint)]"
+                }`}
+              >
+                {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
+              </span>
+              <span className={`text-[11px] ${current ? "font-semibold text-[var(--color-ink)]" : "text-[var(--color-ink-faint)]"}`}>{label}</span>
+            </span>
+            {i < STEPS.length - 1 && <span className={`mt-3 h-px flex-1 ${done ? "bg-[var(--color-neon-dim)]" : "bg-[var(--color-border)]"}`} />}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -788,7 +958,18 @@ function MaterialsForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // A line is ready when it has an item, a quantity and a price (the same
+  // rules the server enforces). Problems only show once they press Send.
+  const [showIssues, setShowIssues] = useState(false);
+  function lineIssue(r: MaterialRow): string | null {
+    if (r.name.trim() === "") return "Choose an item";
+    if (!(Number(r.quantity) > 0)) return "Enter a quantity";
+    if (!(Number(r.unitPrice) > 0)) return "Enter the price";
+    return null;
+  }
+
   function updateRow(key: number, patch: Partial<MaterialRow>) {
+    setError(null);
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
 
@@ -799,8 +980,13 @@ function MaterialsForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (rows.some((r) => r.name.trim() === "")) {
-      return setError("Choose an item for every line, or use Custom item and type its name.");
+    const issues = rows.map(lineIssue);
+    const firstBad = issues.findIndex((x) => x !== null);
+    if (firstBad !== -1) {
+      setShowIssues(true);
+      setError(`Item ${firstBad + 1}: ${issues[firstBad]}.`);
+      document.getElementById(`row-${rows[firstBad].key}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
     }
     setBusy(true);
     setError(null);
@@ -837,76 +1023,91 @@ function MaterialsForm({
       <p className="flex items-center gap-1.5 text-sm font-semibold text-[var(--color-ink)]">
         <HardHat className="h-4 w-4 text-[var(--color-amber)]" /> Your quotation
       </p>
+      <p className="-mt-1 text-xs text-[var(--color-ink-muted)]">
+        Add each item you will buy with your price, then your own service fee.
+      </p>
 
-      {rows.map((r, i) => (
-        <div key={r.key} className="space-y-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
-          <div className="flex items-center gap-2">
-            <div className="min-w-0 flex-1 space-y-2">
-              <select
-                aria-label={`Item ${i + 1}`}
-                value={r.custom ? CUSTOM_VALUE : r.itemKey}
-                onChange={(e) => pickItem(r.key, e.target.value)}
-                className={INPUT}
-              >
-                <option value="">Choose an item…</option>
-                {catalog.map((g) => (
-                  <optgroup key={g.group} label={g.label}>
-                    {g.items.map((it) => (
-                      <option key={`${g.group}::${it.code}`} value={`${g.group}::${it.code}`}>
-                        {it.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-                <option value={CUSTOM_VALUE}>Custom item (type your own)</option>
-              </select>
-              {!r.custom && r.itemKey && <p className="px-1 text-xs text-[var(--color-ink-muted)]">{r.name}</p>}
-              {r.custom && (
-                <input
-                  aria-label={`Custom item ${i + 1} name`}
-                  value={r.name}
-                  onChange={(e) => updateRow(r.key, { name: e.target.value })}
-                  placeholder="Item name"
-                  className={INPUT}
-                />
+      {rows.map((r, i) => {
+        const issue = showIssues ? lineIssue(r) : null;
+        return (
+          <div
+            key={r.key}
+            id={`row-${r.key}`}
+            className={`scroll-mt-20 space-y-2 rounded-2xl border bg-[var(--color-surface-2)] p-3 ${
+              issue ? "border-red-400/60" : "border-[var(--color-border)]"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-faint)]">Item {i + 1}</p>
+              {rows.length > 1 && (
+                <button
+                  type="button"
+                  aria-label={`Remove item ${i + 1}`}
+                  onClick={() => setRows((prev) => prev.filter((x) => x.key !== r.key))}
+                  className="-mr-2 flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition hover:text-red-400"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               )}
             </div>
-            {rows.length > 1 && (
-              <button
-                type="button"
-                aria-label={`Remove material ${i + 1}`}
-                onClick={() => setRows((prev) => prev.filter((x) => x.key !== r.key))}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition hover:text-red-400"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+            <select
+              aria-label={`Item ${i + 1}`}
+              value={r.custom ? CUSTOM_VALUE : r.itemKey}
+              onChange={(e) => pickItem(r.key, e.target.value)}
+              className={INPUT}
+            >
+              <option value="">Choose an item…</option>
+              {catalog.map((g) => (
+                <optgroup key={g.group} label={g.label}>
+                  {g.items.map((it) => (
+                    <option key={`${g.group}::${it.code}`} value={`${g.group}::${it.code}`}>
+                      {it.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+              <option value={CUSTOM_VALUE}>Custom item (type your own)</option>
+            </select>
+            {r.custom && (
+              <input
+                aria-label={`Custom item ${i + 1} name`}
+                value={r.name}
+                onChange={(e) => updateRow(r.key, { name: e.target.value })}
+                placeholder="Item name"
+                className={INPUT}
+              />
             )}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div>
+                <label htmlFor={`qty-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
+                  Quantity
+                </label>
+                <input id={`qty-${r.key}`} inputMode="decimal" value={r.quantity} onChange={(e) => updateRow(r.key, { quantity: digitsOnly(e.target.value) })} className={INPUT} />
+              </div>
+              <div>
+                <label htmlFor={`unit-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
+                  Unit
+                </label>
+                <input id={`unit-${r.key}`} list="unit-options" value={r.unit} onChange={(e) => updateRow(r.key, { unit: e.target.value })} className={INPUT} />
+              </div>
+              <div className="col-span-2 sm:col-span-1">
+                <label htmlFor={`price-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
+                  Price / unit (Rs)
+                </label>
+                <input id={`price-${r.key}`} inputMode="decimal" value={r.unitPrice} onChange={(e) => updateRow(r.key, { unitPrice: digitsOnly(e.target.value) })} className={INPUT} />
+              </div>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 text-xs">
+              <p className={issue ? "font-medium text-red-400" : "text-transparent"} role={issue ? "alert" : undefined}>
+                {issue ?? "."}
+              </p>
+              <p className="tabular-nums text-[var(--color-ink-muted)]">
+                Line total <span className="font-semibold text-[var(--color-ink)]">{formatPKR(lineTotalPKR(Number(r.quantity) || 0, Number(r.unitPrice) || 0))}</span>
+              </p>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <div>
-              <label htmlFor={`qty-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
-                Quantity
-              </label>
-              <input id={`qty-${r.key}`} inputMode="decimal" value={r.quantity} onChange={(e) => updateRow(r.key, { quantity: digitsOnly(e.target.value) })} className={INPUT} />
-            </div>
-            <div>
-              <label htmlFor={`unit-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
-                Unit
-              </label>
-              <input id={`unit-${r.key}`} list="unit-options" value={r.unit} onChange={(e) => updateRow(r.key, { unit: e.target.value })} className={INPUT} />
-            </div>
-            <div className="col-span-2 sm:col-span-1">
-              <label htmlFor={`price-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
-                Price / unit (Rs)
-              </label>
-              <input id={`price-${r.key}`} inputMode="decimal" value={r.unitPrice} onChange={(e) => updateRow(r.key, { unitPrice: digitsOnly(e.target.value) })} className={INPUT} />
-            </div>
-          </div>
-          <p className="text-right text-xs tabular-nums text-[var(--color-ink-muted)]">
-            Line total {formatPKR(lineTotalPKR(Number(r.quantity) || 0, Number(r.unitPrice) || 0))}
-          </p>
-        </div>
-      ))}
+        );
+      })}
       <datalist id="unit-options">
         {UNIT_SUGGESTIONS.map((u) => (
           <option key={u} value={u} />
@@ -943,27 +1144,30 @@ function MaterialsForm({
         <input id="service-fee" inputMode="decimal" value={fee} onChange={(e) => setFee(digitsOnly(e.target.value))} className={INPUT} />
       </div>
 
-      <div className="space-y-1 border-t border-[var(--color-border)] pt-3">
-        <div className="flex items-baseline justify-between text-sm text-[var(--color-ink-muted)]">
-          <span>Materials</span>
-          <span className="tabular-nums">{formatPKR(total)}</span>
-        </div>
-        <div className="flex items-baseline justify-between">
-          <span className="text-sm text-[var(--color-ink-muted)]">Quotation total</span>
-          <span className="text-lg font-bold tabular-nums text-[var(--color-ink)]">{formatPKR(total + (Number(fee) || 0))}</span>
+      {/* Stays at the bottom of the screen while they fill in the lines, so
+          the running total and the Send button are never a long scroll away. */}
+      <div className="sticky bottom-3 z-10 -mx-1 rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-bg)]/90 p-3 shadow-xl backdrop-blur">
+        {error && (
+          <p role="alert" className="mb-2 rounded-xl border border-red-500/30 bg-red-500/10 p-2.5 text-sm text-red-400">
+            {error}
+          </p>
+        )}
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] text-[var(--color-ink-muted)]">
+              Quotation total · {rows.length} {rows.length === 1 ? "item" : "items"}
+            </p>
+            <p className="text-lg font-bold tabular-nums leading-tight text-[var(--color-ink)]">{formatPKR(total + (Number(fee) || 0))}</p>
+            <p className="text-[11px] tabular-nums text-[var(--color-ink-faint)]">
+              Materials {formatPKR(total)} + fee {formatPKR(Number(fee) || 0)}
+            </p>
+          </div>
+          <button type="submit" disabled={busy} className={`${BTN_PRIMARY} !w-auto shrink-0 px-5`}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            {project.status === "REVISION_REQUESTED" ? "Resubmit" : "Send"}
+          </button>
         </div>
       </div>
-
-      {error && (
-        <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
-          {error}
-        </p>
-      )}
-
-      <button type="submit" disabled={busy} className={BTN_PRIMARY}>
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-        {project.status === "REVISION_REQUESTED" ? "Resubmit quotation" : "Send quotation"}
-      </button>
     </form>
   );
 }
