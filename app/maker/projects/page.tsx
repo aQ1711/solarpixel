@@ -4,22 +4,40 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
-  Check,
+  ArrowLeftRight,
+  Banknote,
+  Calendar,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   ClipboardList,
+  Clock,
+  FileText,
+  Handshake,
   HardHat,
+  Hash,
+  History,
+  Hourglass,
   Loader2,
   MapPin,
+  Pencil,
   Play,
   Plus,
+  Ruler,
+  Send,
   Square,
   Trash2,
+  User,
+  Users,
   Wallet,
+  Wrench,
+  X,
+  Zap,
+  type LucideIcon,
 } from "lucide-react";
 import { AccessGate } from "@/components/internal/AccessGate";
 import { BrandMark } from "@/components/BrandMark";
-import { EVENT_LABEL, formatDate, formatDateTime, formatPKR, StatusBadge } from "@/components/siteProjects/shared";
+import { EVENT_LABEL, formatDate, formatDateTime, formatPKR } from "@/components/siteProjects/shared";
 import { internalFetch, type ApiJson } from "@/lib/internal/access";
 import {
   lineTotalPKR,
@@ -189,27 +207,18 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
   return (
     <main style={LIGHT_THEME} className="min-h-dvh bg-[var(--color-bg)] px-4 py-6 sm:px-6">
       <div className="mx-auto max-w-xl">
-        <header className={view.kind === "list" ? "mb-5" : "mb-1"}>
-          <div className="mb-1.5 flex items-center gap-1.5">
-            <BrandMark className="h-4 w-4 shrink-0" />
-            <p className="text-xs font-medium text-[var(--color-neon)]">Solar Pixel · Labour Head</p>
+        <header className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <BrandMark className="h-6 w-6 shrink-0" />
+            <h1 className="truncate text-lg font-bold text-[var(--color-ink)]">Site Projects</h1>
           </div>
           {view.kind === "list" && (
-            <>
-              <h1 className="mt-0.5 text-xl font-bold text-[var(--color-ink)]">Site Projects</h1>
-              <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
-                Send a quotation for each site, start once prices are agreed, and get paid when it ends.
-              </p>
-              <nav className="mt-3 flex gap-2 text-xs font-medium">
-                <span className="rounded-full bg-[var(--color-amber)] px-3 py-1.5 text-[var(--color-amber-ink)]">Site Projects</span>
-                <Link
-                  href="/maker/survey"
-                  className="rounded-full border border-[var(--color-border)] px-3 py-1.5 text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)]"
-                >
-                  Site Survey
-                </Link>
-              </nav>
-            </>
+            <Link
+              href="/maker/survey"
+              className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 text-sm font-medium text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)]"
+            >
+              <ClipboardList className="h-4 w-4" /> Survey
+            </Link>
           )}
         </header>
 
@@ -221,25 +230,17 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
 
         {me && !changingName ? (
           view.kind === "list" && (
-            <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span
-                  aria-hidden
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-amber)] text-sm font-bold text-[var(--color-amber-ink)]"
-                >
-                  {me.name.trim().charAt(0).toUpperCase()}
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[11px] text-[var(--color-ink-faint)]">Projects for</p>
-                  <p className="truncate text-sm font-semibold text-[var(--color-ink)]">{me.name}</p>
-                </div>
-              </div>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="flex min-w-0 items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
+                <User aria-hidden className="h-5 w-5 shrink-0 text-[var(--color-amber)]" />
+                <span className="truncate">{me.name}</span>
+              </p>
               <button
                 type="button"
                 onClick={() => setChangingName(true)}
-                className="flex min-h-11 items-center px-2 text-xs font-medium text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)]"
+                className="flex min-h-11 items-center gap-1.5 px-2 text-sm font-medium text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)]"
               >
-                Change
+                <ArrowLeftRight className="h-4 w-4" /> Change
               </button>
             </div>
           )
@@ -294,58 +295,76 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
 // List
 // ============================================================================
 
-/** Where each status sits for the labour head: their move, the admin's move, or finished. */
-const YOUR_TURN: SiteProjectStatus[] = ["ASSIGNED", "REVISION_REQUESTED", "COUNTER_OFFERED", "APPROVED", "IN_PROGRESS"];
-const WITH_ADMIN: SiteProjectStatus[] = ["SUBMITTED", "COMPLETED"];
+/** One picture and two or three words per state, so the list reads at a glance. */
+interface StateView {
+  icon: LucideIcon;
+  label: string;
+  /** The labour head has to do something now. */
+  action: boolean;
+}
 
-function nextStep(p: SiteProjectDTO): { text: string; tone: string } {
-  const muted = "text-[var(--color-ink-muted)]";
-  switch (p.status) {
+function stateView(status: SiteProjectStatus): StateView {
+  switch (status) {
     case "ASSIGNED":
-      return { text: "Send your quotation", tone: "text-indigo-700" };
+      return { icon: FileText, label: "Send quotation", action: true };
     case "REVISION_REQUESTED":
-      return { text: "Fix your quotation", tone: "text-orange-700" };
+      return { icon: Pencil, label: "Fix quotation", action: true };
     case "COUNTER_OFFERED":
-      return { text: "The admin sent an offer. Answer it", tone: "text-teal-700" };
+      return { icon: Handshake, label: "Offer for you", action: true };
     case "APPROVED":
-      return { text: "Prices agreed. Start the site", tone: "text-emerald-700" };
+      return { icon: Play, label: "Start site", action: true };
     case "IN_PROGRESS":
-      return { text: "Site running. End it when done", tone: "text-sky-700" };
+      return { icon: HardHat, label: "Site running", action: true };
     case "SUBMITTED":
-      return { text: "The admin is checking your quotation", tone: muted };
+      return { icon: Hourglass, label: "Waiting", action: false };
     case "COMPLETED":
-      return { text: "Payout is being processed", tone: muted };
+      return { icon: Wallet, label: "Payment coming", action: false };
     case "PAID":
-      return { text: "Paid", tone: muted };
+      return { icon: CheckCircle2, label: "Paid", action: false };
     case "REJECTED":
-      return { text: "Cancelled", tone: muted };
+      return { icon: X, label: "Cancelled", action: false };
   }
 }
 
+/** Orange when it is the labour head's turn, green once paid, quiet otherwise. */
+function StateTile({ status }: { status: SiteProjectStatus }) {
+  const { icon: Icon, action } = stateView(status);
+  const tone = action
+    ? "bg-[var(--color-amber)] text-white"
+    : status === "PAID"
+      ? "bg-emerald-100 text-emerald-700"
+      : "bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]";
+  return (
+    <span aria-hidden className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${tone}`}>
+      <Icon className="h-6 w-6" />
+    </span>
+  );
+}
+
 function ProjectCard({ p, onOpen }: { p: SiteProjectDTO; onOpen: (id: string) => void }) {
-  const step = nextStep(p);
-  const urgent = YOUR_TURN.includes(p.status);
+  const sv = stateView(p.status);
   const amount = p.payoutPKR ?? p.proposedMaterialsTotalPKR + p.proposedLabourFeePKR;
   return (
     <button
       type="button"
       onClick={() => onOpen(p.id)}
-      className={`${CARD} flex w-full items-center gap-3 text-left transition active:scale-[0.99] hover:border-[var(--color-border-strong)] ${
-        urgent ? "!border-[var(--color-amber)]/35" : ""
+      className={`${CARD} flex w-full items-center gap-3.5 text-left transition active:scale-[0.99] hover:border-[var(--color-border-strong)] ${
+        sv.action ? "!border-[var(--color-amber)]/45" : ""
       }`}
     >
+      <StateTile status={p.status} />
       <div className="min-w-0 flex-1">
         <p className="line-clamp-2 text-base font-semibold leading-snug text-[var(--color-ink)]">{p.clientName}</p>
-        <p className="mt-0.5 truncate text-xs text-[var(--color-ink-faint)]">
-          {p.projectNumber} · {p.city}
-          {p.systemSizeKw !== null ? ` · ${p.systemSizeKw} kW` : ""}
+        <p className="mt-0.5 flex items-center gap-1 text-sm text-[var(--color-ink-faint)]">
+          <MapPin aria-hidden className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{p.city}</span>
         </p>
-        <div className="mt-2.5 flex items-baseline justify-between gap-3">
-          <p className={`text-sm font-semibold ${step.tone}`}>{step.text}</p>
+        <div className="mt-1.5 flex items-baseline justify-between gap-3">
+          <p className={`text-sm font-semibold ${sv.action ? "text-[var(--color-amber-strong)]" : "text-[var(--color-ink-muted)]"}`}>{sv.label}</p>
           {amount > 0 && p.status !== "REJECTED" && (
-            <p className="shrink-0 text-right text-xs tabular-nums text-[var(--color-ink-muted)]">
-              {p.payoutPKR !== null ? "Payout " : "Quoted "}
-              <span className="font-semibold text-[var(--color-ink)]">{formatPKR(amount)}</span>
+            <p className="flex shrink-0 items-center gap-1 text-sm font-semibold tabular-nums text-[var(--color-ink)]">
+              <Banknote aria-hidden className="h-4 w-4 text-[var(--color-ink-faint)]" />
+              {formatPKR(amount)}
             </p>
           )}
         </div>
@@ -375,37 +394,17 @@ function ProjectList({ projects, onOpen }: { projects: SiteProjectDTO[] | null; 
       <div className={`${CARD} text-center`}>
         <ClipboardList className="mx-auto h-8 w-8 text-[var(--color-ink-faint)]" />
         <p className="mt-2 text-sm font-medium text-[var(--color-ink)]">No projects yet</p>
-        <p className="mt-1 text-sm text-[var(--color-ink-muted)]">When the admin assigns you one, it shows up here.</p>
       </div>
     );
   }
 
-  const groups = [
-    { key: "turn", title: "Your turn", accent: true, items: projects.filter((p) => YOUR_TURN.includes(p.status)) },
-    { key: "admin", title: "With the admin", accent: false, items: projects.filter((p) => WITH_ADMIN.includes(p.status)) },
-    { key: "done", title: "Finished", accent: false, items: projects.filter((p) => p.status === "PAID" || p.status === "REJECTED") },
-  ].filter((g) => g.items.length > 0);
+  // Projects waiting on the labour head come first.
+  const ordered = [...projects].sort((a, b) => Number(stateView(b.status).action) - Number(stateView(a.status).action));
 
   return (
-    <div className="space-y-5">
-      {groups.map((g) => (
-        <section key={g.key} aria-label={g.title}>
-          <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-faint)]">
-            {g.title}
-            <span
-              className={`rounded-full px-2 py-0.5 text-[11px] leading-none ${
-                g.accent ? "bg-[var(--color-amber)] text-[var(--color-amber-ink)]" : "bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]"
-              }`}
-            >
-              {g.items.length}
-            </span>
-          </h2>
-          <div className="space-y-2.5">
-            {g.items.map((p) => (
-              <ProjectCard key={p.id} p={p} onOpen={onOpen} />
-            ))}
-          </div>
-        </section>
+    <div className="space-y-3">
+      {ordered.map((p) => (
+        <ProjectCard key={p.id} p={p} onOpen={onOpen} />
       ))}
     </div>
   );
@@ -462,51 +461,38 @@ function ProjectDetail({
   return (
     <div className="space-y-4">
       <div className="sticky top-0 z-20 -mx-4 bg-[var(--color-bg)]/90 px-4 backdrop-blur sm:-mx-6 sm:px-6">
-        <button type="button" onClick={onBack} className="flex min-h-11 items-center gap-1.5 text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
-          <ArrowLeft className="h-4 w-4" /> All projects
+        <button type="button" onClick={onBack} className="flex min-h-11 items-center gap-1.5 text-sm font-medium text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
+          <ArrowLeft className="h-5 w-5" /> Back
         </button>
       </div>
 
       <div className={CARD}>
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3.5">
+          <StateTile status={project.status} />
           <div className="min-w-0">
-            <p className="text-xs text-[var(--color-ink-faint)]">{project.projectNumber}</p>
-            <h2 className="mt-0.5 text-lg font-semibold text-[var(--color-ink)]">{project.clientName}</h2>
+            <h2 className="text-lg font-bold leading-snug text-[var(--color-ink)]">{project.clientName}</h2>
+            <p className="text-sm font-semibold text-[var(--color-ink-muted)]">{stateView(project.status).label}</p>
           </div>
-          <StatusBadge status={project.status} />
         </div>
-        <p className="mt-2 flex items-start gap-1.5 text-sm text-[var(--color-ink-muted)]">
-          <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <p className="mt-3 flex items-start gap-1.5 text-sm text-[var(--color-ink-muted)]">
+          <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
             {project.siteAddress}, {project.city}
           </span>
         </p>
-        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          {project.systemSizeKw !== null && <Fact label="System size" value={`${project.systemSizeKw} kW`} />}
-          {project.plannedStartDate && <Fact label="Planned start" value={formatDate(project.plannedStartDate)} />}
-          {project.crewSize !== null && <Fact label="Crew" value={`${project.crewSize} people`} />}
-          {project.estimatedDays !== null && <Fact label="Estimated" value={`${project.estimatedDays} days`} />}
-          {project.quote && <Fact label="Customer quote" value={project.quote.quoteNumber} />}
-        </dl>
+        <ul className="mt-3 flex flex-wrap gap-2">
+          {project.systemSizeKw !== null && <Chip icon={Zap} text={`${project.systemSizeKw} kW`} />}
+          {project.plannedStartDate && <Chip icon={Calendar} text={formatDate(project.plannedStartDate)} />}
+          {project.crewSize !== null && <Chip icon={Users} text={String(project.crewSize)} />}
+          {project.estimatedDays !== null && <Chip icon={Clock} text={`${project.estimatedDays} days`} />}
+        </ul>
         {project.scopeNotes && <p className="mt-3 whitespace-pre-line text-sm text-[var(--color-ink-muted)]">{project.scopeNotes}</p>}
-        <Stepper status={project.status} />
+        <p className="mt-3 text-xs text-[var(--color-ink-faint)]">{project.projectNumber}</p>
       </div>
 
       {/* What happens next, depending on where the project is */}
-      {project.status === "ASSIGNED" && (
-        <Callout tone="indigo" title="Your turn: send your quotation">
-          Add everything you will buy for this site with your price for each, plus your own service fee. The admin approves it or sends you an offer before you start.
-        </Callout>
-      )}
-
-      {project.status === "SUBMITTED" && (
-        <Callout tone="amber" title="Waiting for approval">
-          The admin is checking your quotation. You can start the site once the prices are agreed.
-        </Callout>
-      )}
-
       {project.status === "REVISION_REQUESTED" && (
-        <Callout tone="orange" title="Changes requested">
+        <Callout tone="orange" icon={Pencil} title="Fix your quotation">
           {project.reviewNote}
         </Callout>
       )}
@@ -516,7 +502,7 @@ function ProjectDetail({
       )}
 
       {project.status === "REJECTED" && (
-        <Callout tone="red" title="Project cancelled">
+        <Callout tone="red" icon={X} title="Cancelled">
           {project.reviewNote}
         </Callout>
       )}
@@ -532,12 +518,12 @@ function ProjectDetail({
           </p>
           <p className="mt-1 text-2xl font-bold text-[var(--color-neon)]">{formatPKR(project.payoutPKR)}</p>
           <p className="mt-1 text-xs text-[var(--color-ink-muted)]">
-            Agreed materials {formatPKR(approvedTotal ?? 0)} + your service fee {formatPKR(project.labourFeePKR ?? 0)}
+            Materials {formatPKR(approvedTotal ?? 0)} + your fee {formatPKR(project.labourFeePKR ?? 0)}
           </p>
           <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
-            {project.status === "APPROVED" && "Released after you end the site."}
-            {project.status === "IN_PROGRESS" && "Released after you end the site."}
-            {project.status === "COMPLETED" && "The site has ended. Your payout is being processed."}
+            {project.status === "APPROVED" && "Paid after the site ends."}
+            {project.status === "IN_PROGRESS" && "Paid after the site ends."}
+            {project.status === "COMPLETED" && "Payment coming."}
             {project.status === "PAID" && (
               <>
                 Paid {project.paidAt ? formatDateTime(project.paidAt) : ""}
@@ -550,11 +536,12 @@ function ProjectDetail({
 
       {project.status === "APPROVED" && (
         <div className={CARD}>
-          <p className="text-sm font-semibold text-[var(--color-ink)]">Ready to start</p>
-          <p className="mt-1 text-sm text-[var(--color-ink-muted)]">Tap start when your crew begins work on site.</p>
+          <p className="flex items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
+            <Play className="h-5 w-5 text-[var(--color-amber)]" /> Ready to start
+          </p>
           {!confirmStart ? (
             <button type="button" onClick={() => setConfirmStart(true)} className={`${BTN_PRIMARY} mt-3`}>
-              <Play className="h-4 w-4" /> Start site
+              <Play className="h-5 w-5" /> Start site
             </button>
           ) : (
             <div className="mt-3 flex gap-2">
@@ -562,7 +549,7 @@ function ProjectDetail({
                 Not yet
               </button>
               <button type="button" onClick={() => siteAction({ action: "START" })} disabled={busy} className={BTN_PRIMARY}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Yes, start now
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Start
               </button>
             </div>
           )}
@@ -577,22 +564,23 @@ function ProjectDetail({
             void siteAction({ action: "END", completionNotes });
           }}
         >
-          <p className="text-sm font-semibold text-[var(--color-ink)]">
-            Site in progress{project.startedAt ? ` since ${formatDateTime(project.startedAt)}` : ""}
+          <p className="flex items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
+            <HardHat className="h-5 w-5 text-[var(--color-amber)]" /> Site running
           </p>
+          {project.startedAt && <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">Since {formatDateTime(project.startedAt)}</p>}
           <label htmlFor="completionNotes" className={`${LABEL} mt-3`}>
-            Completion report
+            What was done
           </label>
           <textarea
             id="completionNotes"
             rows={4}
             value={completionNotes}
             onChange={(e) => setCompletionNotes(e.target.value)}
-            placeholder="What was installed, any leftover material, anything the admin should know…"
+            placeholder="What was done on site"
             className={INPUT}
           />
           <button type="submit" disabled={busy || !completionNotes.trim()} className={`${BTN_PRIMARY} mt-3`}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />} End site
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-5 w-5" />} End site
           </button>
         </form>
       )}
@@ -642,7 +630,7 @@ function ProjectDetail({
             })}
           </ul>
           <div className="mt-2 flex items-baseline justify-between border-t border-[var(--color-border)] pt-3 text-sm">
-            <span className="text-[var(--color-ink-muted)]">You proposed</span>
+            <span className="text-[var(--color-ink-muted)]">You asked</span>
             <span className="font-semibold tabular-nums text-[var(--color-ink)]">{formatPKR(project.proposedMaterialsTotalPKR)}</span>
           </div>
           {approvedTotal !== null && (
@@ -659,89 +647,37 @@ function ProjectDetail({
   );
 }
 
-const STEPS = ["Quotation", "Agreed", "On site", "Paid"] as const;
-
-/** Four real stages in order. Quotation covers everything until prices are agreed. */
-function stepIndex(status: SiteProjectStatus): number | null {
-  switch (status) {
-    case "ASSIGNED":
-    case "REVISION_REQUESTED":
-    case "SUBMITTED":
-    case "COUNTER_OFFERED":
-      return 0;
-    case "APPROVED":
-      return 1;
-    case "IN_PROGRESS":
-      return 2;
-    case "COMPLETED":
-      return 3;
-    case "PAID":
-      return 4;
-    case "REJECTED":
-      return null;
-  }
-}
-
-function Stepper({ status }: { status: SiteProjectStatus }) {
-  const idx = stepIndex(status);
-  if (idx === null) return null;
+function Chip({ icon: Icon, text }: { icon: LucideIcon; text: string }) {
   return (
-    <ol aria-label="Project progress" className="mt-4 flex items-start border-t border-[var(--color-border)] pt-4">
-      {STEPS.map((label, i) => {
-        const done = i < idx;
-        const current = i === idx;
-        return (
-          <li key={label} className="flex flex-1 items-start last:flex-none" aria-current={current ? "step" : undefined}>
-            <span className="flex w-14 flex-col items-center gap-1">
-              <span
-                className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${
-                  done
-                    ? "bg-[var(--color-neon)] text-white"
-                    : current
-                      ? "bg-[var(--color-amber)] text-[var(--color-amber-ink)]"
-                      : "border border-[var(--color-border-strong)] text-[var(--color-ink-faint)]"
-                }`}
-              >
-                {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
-              </span>
-              <span className={`text-[11px] ${current ? "font-semibold text-[var(--color-ink)]" : "text-[var(--color-ink-faint)]"}`}>{label}</span>
-            </span>
-            {i < STEPS.length - 1 && <span className={`mt-3 h-px flex-1 ${done ? "bg-[var(--color-neon-dim)]" : "bg-[var(--color-border)]"}`} />}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs text-[var(--color-ink-faint)]">{label}</dt>
-      <dd className="text-[var(--color-ink)]">{value}</dd>
-    </div>
+    <li className="flex items-center gap-1.5 rounded-full bg-[var(--color-surface-2)] px-3 py-1.5 text-sm font-medium text-[var(--color-ink)]">
+      <Icon aria-hidden className="h-4 w-4 text-[var(--color-amber)]" />
+      {text}
+    </li>
   );
 }
 
 function Callout({
   tone,
+  icon: Icon,
   title,
   children,
 }: {
-  tone: "indigo" | "amber" | "orange" | "red";
+  tone: "orange" | "red";
+  icon: LucideIcon;
   title: string;
   children: React.ReactNode;
 }) {
   const toneClass = {
-    indigo: "border-indigo-200 bg-indigo-50 text-indigo-900",
-    amber: "border-amber-300 bg-amber-50 text-amber-900",
     orange: "border-orange-200 bg-orange-50 text-orange-900",
     red: "border-red-200 bg-red-50 text-red-900",
   }[tone];
   return (
-    <div className={`rounded-2xl border p-4 text-sm ${toneClass}`}>
-      <p className="font-semibold">{title}</p>
-      <div className="mt-1 whitespace-pre-line">{children}</div>
+    <div className={`flex items-start gap-3 rounded-2xl border p-4 text-sm ${toneClass}`}>
+      <Icon aria-hidden className="mt-0.5 h-6 w-6 shrink-0" />
+      <div className="min-w-0">
+        <p className="text-base font-semibold">{title}</p>
+        <div className="mt-0.5 whitespace-pre-line">{children}</div>
+      </div>
     </div>
   );
 }
@@ -787,7 +723,9 @@ function OfferCard({
 
   return (
     <div className="space-y-3 rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
-      <p className="font-semibold">The admin sent you an offer</p>
+      <p className="flex items-center gap-2 text-base font-semibold">
+        <Handshake className="h-6 w-6" /> Offer for you
+      </p>
       {project.reviewNote && <p className="whitespace-pre-line">{project.reviewNote}</p>}
 
       <ul className="space-y-1.5">
@@ -816,7 +754,7 @@ function OfferCard({
         })}
         <li className="flex items-baseline justify-between gap-3">
           <span>
-            Your service fee
+            Your fee
             {project.labourFeePKR !== project.proposedLabourFeePKR && (
               <span className="block text-[11px] opacity-70">You asked {formatPKR(project.proposedLabourFeePKR)}</span>
             )}
@@ -828,7 +766,7 @@ function OfferCard({
       <div className="flex items-baseline justify-between border-t border-teal-200 pt-2">
         <span>
           Offer total
-          <span className="block text-[11px] opacity-70">Your quotation was {formatPKR(yourTotal)}</span>
+          <span className="block text-[11px] opacity-70">You asked {formatPKR(yourTotal)}</span>
         </span>
         <span className="text-xl font-bold tabular-nums">{formatPKR(offerTotal)}</span>
       </div>
@@ -836,7 +774,7 @@ function OfferCard({
       {declining && (
         <div>
           <label htmlFor="decline-note" className="mb-1 block text-[11px] opacity-80">
-            What would you like changed?
+            What should change?
           </label>
           <textarea id="decline-note" value={note} onChange={(e) => setNote(e.target.value)} rows={3} className={INPUT} />
         </div>
@@ -851,10 +789,10 @@ function OfferCard({
       {!declining ? (
         <div className="flex gap-2">
           <button type="button" onClick={() => setDeclining(true)} disabled={busy} className={BTN_GHOST}>
-            Ask for changes
+            <Pencil className="h-4 w-4" /> Change
           </button>
           <button type="button" onClick={() => respond({ decision: "ACCEPT" })} disabled={busy} className={BTN_PRIMARY}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Accept offer
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />} Accept
           </button>
         </div>
       ) : (
@@ -868,7 +806,7 @@ function OfferCard({
             disabled={busy || note.trim().length === 0}
             className={BTN_PRIMARY}
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Send and edit my quotation
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send
           </button>
         </div>
       )}
@@ -878,8 +816,12 @@ function OfferCard({
 
 function Timeline({ project }: { project: SiteProjectDTO }) {
   return (
-    <div className={CARD}>
-      <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-ink-faint)]">Timeline</p>
+    <details className={`${CARD} group`}>
+      <summary className="flex min-h-9 cursor-pointer list-none items-center gap-2 text-sm font-semibold text-[var(--color-ink)] marker:content-none">
+        <History aria-hidden className="h-5 w-5 text-[var(--color-ink-muted)]" />
+        <span className="flex-1">History</span>
+        <ChevronDown aria-hidden className="h-4 w-4 text-[var(--color-ink-faint)] transition-transform group-open:rotate-180" />
+      </summary>
       <ol className="mt-3 space-y-3">
         {project.events.map((e) => (
           <li key={e.id} className="flex gap-3 text-sm">
@@ -894,7 +836,7 @@ function Timeline({ project }: { project: SiteProjectDTO }) {
           </li>
         ))}
       </ol>
-    </div>
+    </details>
   );
 }
 
@@ -1041,10 +983,7 @@ function MaterialsForm({
   return (
     <form onSubmit={handleSubmit} className={`${CARD} space-y-3`}>
       <p className="flex items-center gap-1.5 text-sm font-semibold text-[var(--color-ink)]">
-        <HardHat className="h-4 w-4 text-[var(--color-amber)]" /> Your quotation
-      </p>
-      <p className="-mt-1 text-xs text-[var(--color-ink-muted)]">
-        Add each item you will buy with your price, then your own service fee.
+        <FileText className="h-5 w-5 text-[var(--color-amber)]" /> Your quotation
       </p>
 
       {rows.map((r, i) => {
@@ -1086,7 +1025,7 @@ function MaterialsForm({
                   ))}
                 </optgroup>
               ))}
-              <option value={CUSTOM_VALUE}>Custom item (type your own)</option>
+              <option value={CUSTOM_VALUE}>Other (type the name)</option>
             </select>
             {r.custom && (
               <input
@@ -1099,32 +1038,36 @@ function MaterialsForm({
             )}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <div>
-                <label htmlFor={`qty-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
-                  Quantity
+                <label htmlFor={`qty-${r.key}`} className="mb-1 flex items-center gap-1 text-xs font-medium text-[var(--color-ink-muted)]">
+                  <Hash aria-hidden className="h-3.5 w-3.5" /> Qty
                 </label>
                 <input id={`qty-${r.key}`} inputMode="decimal" value={r.quantity} onChange={(e) => updateRow(r.key, { quantity: digitsOnly(e.target.value) })} className={INPUT} />
               </div>
               <div>
-                <label htmlFor={`unit-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
-                  Unit
+                <label htmlFor={`unit-${r.key}`} className="mb-1 flex items-center gap-1 text-xs font-medium text-[var(--color-ink-muted)]">
+                  <Ruler aria-hidden className="h-3.5 w-3.5" /> Unit
                 </label>
                 <input id={`unit-${r.key}`} list="unit-options" value={r.unit} onChange={(e) => updateRow(r.key, { unit: e.target.value })} className={INPUT} />
               </div>
               <div className="col-span-2 sm:col-span-1">
-                <label htmlFor={`price-${r.key}`} className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
-                  Price / unit (Rs)
+                <label htmlFor={`price-${r.key}`} className="mb-1 flex items-center gap-1 text-xs font-medium text-[var(--color-ink-muted)]">
+                  <Banknote aria-hidden className="h-3.5 w-3.5" /> Rs each
                 </label>
                 <input id={`price-${r.key}`} inputMode="decimal" value={r.unitPrice} onChange={(e) => updateRow(r.key, { unitPrice: digitsOnly(e.target.value) })} className={INPUT} />
               </div>
             </div>
-            <div className="flex items-baseline justify-between gap-3 text-xs">
-              <p className={issue ? "font-medium text-red-600" : "text-transparent"} role={issue ? "alert" : undefined}>
-                {issue ?? "."}
-              </p>
-              <p className="tabular-nums text-[var(--color-ink-muted)]">
-                Line total <span className="font-semibold text-[var(--color-ink)]">{formatPKR(lineTotalPKR(Number(r.quantity) || 0, Number(r.unitPrice) || 0))}</span>
-              </p>
-            </div>
+            <p className="flex min-h-5 items-center justify-end text-sm" role={issue ? "alert" : undefined}>
+              {issue ? (
+                <span className="font-medium text-red-600">{issue}</span>
+              ) : (
+                Number(r.quantity) > 0 &&
+                Number(r.unitPrice) > 0 && (
+                  <span className="font-semibold tabular-nums text-[var(--color-ink)]">
+                    = {formatPKR(lineTotalPKR(Number(r.quantity), Number(r.unitPrice)))}
+                  </span>
+                )
+              )}
+            </p>
           </div>
         );
       })}
@@ -1143,7 +1086,7 @@ function MaterialsForm({
           }}
           className={BTN_GHOST}
         >
-          <Plus className="h-4 w-4" /> Add item
+          <Plus className="h-4 w-4" /> Item
         </button>
         <button
           type="button"
@@ -1153,13 +1096,13 @@ function MaterialsForm({
           }}
           className={BTN_GHOST}
         >
-          <Plus className="h-4 w-4" /> Custom item
+          <Pencil className="h-4 w-4" /> Other
         </button>
       </div>
 
       <div>
-        <label htmlFor="service-fee" className="mb-1 block text-[11px] text-[var(--color-ink-faint)]">
-          Your service fee (Rs): labour, survey, transport and your own charges
+        <label htmlFor="service-fee" className="mb-1 flex items-center gap-1.5 text-sm font-medium text-[var(--color-ink-muted)]">
+          <Wrench aria-hidden className="h-4 w-4" /> Your fee (Rs)
         </label>
         <input id="service-fee" inputMode="decimal" value={fee} onChange={(e) => setFee(digitsOnly(e.target.value))} className={INPUT} />
       </div>
@@ -1174,16 +1117,13 @@ function MaterialsForm({
         )}
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[11px] text-[var(--color-ink-muted)]">
-              Quotation total · {rows.length} {rows.length === 1 ? "item" : "items"}
+            <p className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-ink-muted)]">
+              <Banknote aria-hidden className="h-4 w-4" /> Total
             </p>
-            <p className="text-lg font-bold tabular-nums leading-tight text-[var(--color-ink)]">{formatPKR(total + (Number(fee) || 0))}</p>
-            <p className="text-[11px] tabular-nums text-[var(--color-ink-faint)]">
-              Materials {formatPKR(total)} + fee {formatPKR(Number(fee) || 0)}
-            </p>
+            <p className="text-xl font-bold tabular-nums leading-tight text-[var(--color-ink)]">{formatPKR(total + (Number(fee) || 0))}</p>
           </div>
-          <button type="submit" disabled={busy} className={`${BTN_PRIMARY} !w-auto shrink-0 px-5`}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          <button type="submit" disabled={busy} className={`${BTN_PRIMARY} !w-auto shrink-0 px-6`}>
+            {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             {project.status === "REVISION_REQUESTED" ? "Resubmit" : "Send"}
           </button>
         </div>
