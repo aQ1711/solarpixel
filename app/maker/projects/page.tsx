@@ -80,6 +80,7 @@ const BTN_GHOST =
 const LABOUR_HEAD_KEY = "solarpixel.labourHeadId";
 const LANG_KEY = "solarpixel.labourLang";
 const URDU_FONT_HREF = "https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;500;600;700&display=swap";
+const NASKH_FONT_HREF = "https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@500;600&display=swap";
 
 interface Engineer {
   id: string;
@@ -268,6 +269,7 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
         style={THEME}
         className={`min-h-dvh bg-[var(--color-bg)] ${lang === "ur" ? "lang-ur" : ""}`}
       >
+        <link rel="stylesheet" href={NASKH_FONT_HREF} />
         {lang === "ur" && <link rel="stylesheet" href={URDU_FONT_HREF} />}
 
         <AppBar
@@ -384,15 +386,14 @@ function AppBar({
           </>
         ) : (
           <>
-            <BrandMark className="h-8 w-8 shrink-0" />
-            {/* One line, aligned on the text baseline: stacked, the tall Urdu letters
-                always sat lower than the English name beside them. */}
-            <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
-              <p className="shrink-0 text-[15px] font-semibold leading-none text-[var(--color-ink)]">
+            <BrandMark className="h-7 w-7 shrink-0" />
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+              <p className="shrink-0 text-base font-semibold leading-none tracking-tight text-[var(--color-ink)]">
                 <span dir="ltr">Solar Pixel</span>
               </p>
-              <span aria-hidden className="h-3.5 w-px shrink-0 self-center bg-[var(--color-border-strong)]" />
-              <p className={`truncate font-medium text-[var(--color-ink-muted)] ${lang === "ur" ? "text-sm leading-[1.6]" : "text-[13px] leading-none"}`}>
+              <span aria-hidden className="h-3.5 w-px shrink-0 bg-[var(--color-border-strong)]" />
+              {/* Nastaliq letters sit low in the line, so the Urdu caption is lifted a little to look level. */}
+              <p className={`truncate text-[13px] font-medium leading-none text-[var(--color-ink-muted)] ${t === TEXT.ur ? "-translate-y-[2px]" : ""}`}>
                 {t.labourHead}
               </p>
             </div>
@@ -406,7 +407,10 @@ function AppBar({
               type="button"
               aria-pressed={lang === l}
               onClick={() => onLang(l)}
-              className={`min-h-9 rounded-full px-3 font-medium transition ${lang === l ? "bg-[#2F4D70] text-white" : "text-[var(--color-ink-muted)]"}`}
+              className={`flex h-9 min-w-[3.25rem] items-center justify-center rounded-full px-3 font-medium leading-none transition ${
+                lang === l ? "bg-[#2F4D70] text-white" : "text-[var(--color-ink-muted)]"
+              }`}
+              style={l === "ur" ? { fontFamily: '"Noto Naskh Arabic", "Noto Sans Arabic", system-ui, sans-serif' } : undefined}
             >
               {l === "ur" ? "اردو" : "EN"}
             </button>
@@ -445,52 +449,55 @@ function stateIcon(status: SiteProjectStatus): { icon: LucideIcon; action: boole
   }
 }
 
-/** Peach when it is the labour head's turn, green once paid, quiet otherwise. */
-function StateTile({ status }: { status: SiteProjectStatus }) {
-  const { icon: Icon, action } = stateIcon(status);
-  const tone = action
-    ? "bg-[#FDEBDD] text-[var(--color-amber-strong)]"
-    : status === "PAID"
-      ? "bg-emerald-50 text-emerald-700"
-      : "bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]";
+/** Orange when it is the labour head's turn, green once paid, quiet otherwise. */
+function stateTone(status: SiteProjectStatus): string {
+  if (stateIcon(status).action) return "text-[#B4531F]";
+  if (status === "PAID") return "text-emerald-700";
+  return "text-[var(--color-ink-muted)]";
+}
+
+/** The picture and the words for a state, side by side. */
+function StateLabel({ status, className = "" }: { status: SiteProjectStatus; className?: string }) {
+  const { t } = useText();
+  const { icon: Icon } = stateIcon(status);
   return (
-    <span aria-hidden className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${tone}`}>
-      <Icon className="h-5 w-5" />
+    <span className={`flex items-center gap-1.5 text-[13px] font-semibold ${stateTone(status)} ${className}`}>
+      <Icon aria-hidden className="h-4 w-4 shrink-0" />
+      {t.status[status]}
     </span>
   );
 }
 
-function ProjectCard({ p, onOpen }: { p: SiteProjectDTO; onOpen: (id: string) => void }) {
-  const { t, money } = useText();
-  const { action } = stateIcon(p.status);
+function ProjectRow({ p, onOpen }: { p: SiteProjectDTO; onOpen: (id: string) => void }) {
+  const { money } = useText();
   const amount = p.payoutPKR ?? p.proposedMaterialsTotalPKR + p.proposedLabourFeePKR;
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(p.id)}
-      className={`${CARD} flex w-full items-center gap-3.5 text-start transition hover:border-[var(--color-border-strong)] active:bg-[var(--color-surface-2)] ${
-        action ? "!border-[#F2C7A5]" : ""
-      }`}
-    >
-      <StateTile status={p.status} />
-      <div className="min-w-0 flex-1">
-        <p dir="auto" className="line-clamp-2 text-base font-semibold text-[var(--color-ink)]">{p.clientName}</p>
-        <p className="mt-0.5 flex items-center gap-1 text-sm text-[var(--color-ink-faint)]">
-          <MapPin aria-hidden className="h-3.5 w-3.5 shrink-0" />
-          <span dir="auto" className="truncate">{p.city}</span>
-        </p>
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <p className={`text-sm font-semibold ${action ? "text-[var(--color-ink)]" : "text-[var(--color-ink-muted)]"}`}>{t.status[p.status]}</p>
-          {amount > 0 && p.status !== "REJECTED" && (
-            <p className="num flex shrink-0 items-center gap-1 text-sm font-semibold tabular-nums text-[var(--color-ink)]">
-              <Banknote aria-hidden className="h-4 w-4 text-[var(--color-ink-faint)]" />
-              {money(amount)}
-            </p>
-          )}
+    <li>
+      <button
+        type="button"
+        onClick={() => onOpen(p.id)}
+        className="flex w-full items-center gap-3 px-4 py-3.5 text-start transition hover:bg-[var(--color-surface-2)] active:bg-[var(--color-surface-2)]"
+      >
+        <div className="min-w-0 flex-1">
+          <p dir="auto" className="line-clamp-2 text-[15px] font-semibold text-[var(--color-ink)]">
+            {p.clientName}
+          </p>
+          <p className="mt-0.5 flex items-center gap-1 text-[13px] text-[var(--color-ink-faint)]">
+            <MapPin aria-hidden className="h-3.5 w-3.5 shrink-0" />
+            <span dir="auto" className="truncate">
+              {p.city}
+            </span>
+          </p>
+          <div className="mt-1.5 flex items-center justify-between gap-3">
+            <StateLabel status={p.status} />
+            {amount > 0 && p.status !== "REJECTED" && (
+              <p className="num shrink-0 text-[13px] font-semibold tabular-nums text-[var(--color-ink)]">{money(amount)}</p>
+            )}
+          </div>
         </div>
-      </div>
-      <ChevronRight aria-hidden className="h-5 w-5 shrink-0 text-[var(--color-ink-faint)] rtl:rotate-180" />
-    </button>
+        <ChevronRight aria-hidden className="h-5 w-5 shrink-0 text-[var(--color-ink-faint)] rtl:rotate-180" />
+      </button>
+    </li>
   );
 }
 
@@ -524,11 +531,11 @@ function ProjectList({ projects, onOpen }: { projects: SiteProjectDTO[] | null; 
   const ordered = [...projects].sort((a, b) => Number(stateIcon(b.status).action) - Number(stateIcon(a.status).action));
 
   return (
-    <div className="space-y-3">
+    <ul className="divide-y divide-[var(--color-border)] overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_1px_2px_rgba(30,53,80,0.05)]">
       {ordered.map((p) => (
-        <ProjectCard key={p.id} p={p} onOpen={onOpen} />
+        <ProjectRow key={p.id} p={p} onOpen={onOpen} />
       ))}
-    </div>
+    </ul>
   );
 }
 
@@ -582,13 +589,10 @@ function ProjectDetail({
   return (
     <div className="space-y-4">
       <div className={CARD}>
-        <div className="flex items-center gap-3.5">
-          <StateTile status={project.status} />
-          <div className="min-w-0">
-            <h2 dir="auto" className="text-lg font-semibold text-[var(--color-ink)]">{project.clientName}</h2>
-            <p className="text-sm font-medium text-[var(--color-ink-muted)]">{t.status[project.status]}</p>
-          </div>
-        </div>
+        <h2 dir="auto" className="text-[17px] font-semibold text-[var(--color-ink)]">
+          {project.clientName}
+        </h2>
+        <StateLabel status={project.status} className="mt-1" />
         <p className="mt-3 flex items-start gap-1.5 text-sm text-[var(--color-ink-muted)]">
           <MapPin aria-hidden className="mt-1 h-4 w-4 shrink-0" />
           <span dir="auto">
@@ -651,7 +655,7 @@ function ProjectDetail({
 
       {project.status === "APPROVED" && (
         <div className={CARD}>
-          <p className="flex items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
+          <p className="flex items-center gap-2 text-[15px] font-semibold text-[var(--color-ink)]">
             <Play aria-hidden className="h-5 w-5 text-[var(--color-amber-strong)]" /> {t.readyToStart}
           </p>
           {!confirmStart ? (
@@ -679,7 +683,7 @@ function ProjectDetail({
             void siteAction({ action: "END", completionNotes });
           }}
         >
-          <p className="flex items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
+          <p className="flex items-center gap-2 text-[15px] font-semibold text-[var(--color-ink)]">
             <HardHat aria-hidden className="h-5 w-5 text-[var(--color-amber-strong)]" /> {t.siteRunning}
           </p>
           {project.startedAt && <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">{t.since(dateTime(project.startedAt))}</p>}
@@ -1097,11 +1101,11 @@ function MaterialsForm({
     }
   }
 
-  const label = "mb-1 flex items-center gap-1.5 text-sm font-medium text-[var(--color-ink-muted)]";
+  const label = "mb-1 flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-ink-muted)]";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <p className="flex items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
+      <p className="flex items-center gap-2 text-[15px] font-semibold text-[var(--color-ink)]">
         <FileText aria-hidden className="h-5 w-5 text-[var(--color-amber-strong)]" /> {t.yourQuotation}
       </p>
 
@@ -1114,7 +1118,7 @@ function MaterialsForm({
             className={`${CARD} scroll-mt-20 space-y-3 ${issue ? "!border-red-300" : ""}`}
           >
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-[var(--color-ink-muted)]">{t.item(i + 1)}</p>
+              <p className="text-[13px] font-semibold text-[var(--color-ink-muted)]">{t.item(i + 1)}</p>
               {rows.length > 1 && (
                 <button
                   type="button"
@@ -1236,7 +1240,7 @@ function MaterialsForm({
               <p className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-ink-muted)]">
                 <Banknote aria-hidden className="h-4 w-4" /> {t.total}
               </p>
-              <p className="num text-xl font-bold tabular-nums text-[var(--color-ink)]">{money(total + (Number(fee) || 0))}</p>
+              <p className="num text-lg font-bold tabular-nums text-[var(--color-ink)]">{money(total + (Number(fee) || 0))}</p>
             </div>
             <button type="submit" disabled={busy} className={`${BTN_PRIMARY} !w-auto shrink-0 px-6`}>
               {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send aria-hidden className="h-5 w-5 rtl:-scale-x-100" />}

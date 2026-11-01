@@ -512,21 +512,17 @@ body {
 
 
 
-/* Labour head page in Urdu (/maker/projects). Nastaliq is the script people
-   read in Pakistan, but its letters are tall, so lines need more height.
-   :where() keeps this at zero specificity so a component can still set its own.
-   Numbers and form fields stay in Inter so amounts read cleanly. */
+/* Labour head page in Urdu (/maker/projects). Inter comes first so English
+   words, names and numbers look exactly like the rest of the site; Inter has
+   no Urdu letters, so those fall through to Nastaliq, the script people read in
+   Pakistan. Nastaliq is tall, so lines get extra height. :where() keeps this at
+   zero specificity so a component can still set its own. */
 .lang-ur {
-  font-family: "Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", "Noto Naskh Arabic", serif;
+  font-family: "Inter", "Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", "Noto Naskh Arabic", ui-sans-serif, sans-serif;
 }
 .lang-ur :where(h1, h2, h3, p, span, label, li, summary, button, a) {
-  line-height: 2;
+  line-height: 1.8;
 }
 .lang-ur :where(input, select, textarea) {
-  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
-  line-height: 1.4;
-}
-.lang-ur .num {
-  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
   line-height: 1.4;
 }
