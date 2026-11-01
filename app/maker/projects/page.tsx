@@ -545,28 +545,60 @@ function ProjectList({ projects, onOpen }: { projects: SiteProjectDTO[] | null; 
     );
   }
 
-  // Offers first, then everything else waiting on the labour head.
-  const rank = (p: SiteProjectDTO) => (p.status === "COUNTER_OFFERED" ? 2 : stateIcon(p.status).action ? 1 : 0);
-  const ordered = [...projects].sort((a, b) => rank(b) - rank(a));
-  const offers = projects.filter((p) => p.status === "COUNTER_OFFERED").length;
+  // Grouped by what needs doing. An offer is the one thing that must never be
+  // missed, so it comes first under its own teal bar; finished work is folded away.
+  const offers = projects.filter((p) => p.status === "COUNTER_OFFERED");
+  const yourTurn = projects.filter((p) => stateIcon(p.status).action && p.status !== "COUNTER_OFFERED");
+  const withAdmin = projects.filter((p) => p.status === "SUBMITTED" || p.status === "COMPLETED");
+  const finished = projects.filter((p) => p.status === "PAID" || p.status === "REJECTED");
+
+  const heading = "mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--color-ink-muted)]";
+  const countPill = "rounded-full bg-[var(--color-surface-2)] px-2 py-0.5 text-xs font-semibold text-[var(--color-ink-muted)]";
+  const list = (items: SiteProjectDTO[]) => (
+    <ul className="space-y-3">
+      {items.map((p) => (
+        <ProjectRow key={p.id} p={p} onOpen={onOpen} />
+      ))}
+    </ul>
+  );
 
   return (
-    <>
-      {offers > 0 && (
-        <p
-          role="status"
-          className="mb-3 flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-3 text-sm font-semibold text-white shadow-sm"
-        >
-          <Handshake aria-hidden className="h-5 w-5 shrink-0" />
-          {t.offersWaiting(offers)}
-        </p>
+    <div className="space-y-5">
+      {offers.length > 0 && (
+        <section aria-label={t.offersWaiting(offers.length)}>
+          <p role="status" className="mb-3 flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-3 text-sm font-semibold text-white shadow-sm">
+            <Handshake aria-hidden className="h-5 w-5 shrink-0" />
+            {t.offersWaiting(offers.length)}
+          </p>
+          {list(offers)}
+        </section>
       )}
-      <ul className="space-y-3">
-        {ordered.map((p) => (
-          <ProjectRow key={p.id} p={p} onOpen={onOpen} />
-        ))}
-      </ul>
-    </>
+      {yourTurn.length > 0 && (
+        <section aria-label={t.groupYourTurn}>
+          <h2 className={heading}>
+            {t.groupYourTurn} <span className={countPill}>{yourTurn.length}</span>
+          </h2>
+          {list(yourTurn)}
+        </section>
+      )}
+      {withAdmin.length > 0 && (
+        <section aria-label={t.groupWithAdmin}>
+          <h2 className={heading}>
+            {t.groupWithAdmin} <span className={countPill}>{withAdmin.length}</span>
+          </h2>
+          {list(withAdmin)}
+        </section>
+      )}
+      {finished.length > 0 && (
+        <details className="group" open={offers.length + yourTurn.length + withAdmin.length === 0}>
+          <summary className={`${heading} cursor-pointer list-none marker:content-none`}>
+            {t.groupFinished} <span className={countPill}>{finished.length}</span>
+            <ChevronDown aria-hidden className="ms-auto h-4 w-4 text-[var(--color-ink-faint)] transition-transform group-open:rotate-180" />
+          </summary>
+          {list(finished)}
+        </details>
+      )}
+    </div>
   );
 }
 
