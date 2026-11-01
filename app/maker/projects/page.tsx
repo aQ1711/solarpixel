@@ -460,6 +460,16 @@ function stateTone(status: SiteProjectStatus): string {
 function StateLabel({ status, className = "" }: { status: SiteProjectStatus; className?: string }) {
   const { t } = useText();
   const { icon: Icon } = stateIcon(status);
+  // An offer from the admin is the one thing that must never be missed, so it
+  // is a solid teal pill, a colour nothing else on the page uses.
+  if (status === "COUNTER_OFFERED") {
+    return (
+      <span className={`inline-flex w-fit items-center gap-1.5 rounded-full bg-teal-600 px-3 py-1 text-[13px] font-semibold text-white ${className}`}>
+        <Icon aria-hidden className="h-4 w-4 shrink-0" />
+        {t.status[status]}
+      </span>
+    );
+  }
   return (
     <span className={`flex items-center gap-1.5 text-[13px] font-semibold ${stateTone(status)} ${className}`}>
       <Icon aria-hidden className="h-4 w-4 shrink-0" />
@@ -479,7 +489,11 @@ function ProjectRow({ p, onOpen }: { p: SiteProjectDTO; onOpen: (id: string) => 
         type="button"
         onClick={() => onOpen(p.id)}
         className={`${CARD} flex w-full items-center gap-3 text-start shadow-[0_2px_8px_-2px_rgba(30,53,80,0.10)] transition hover:border-[var(--color-border-strong)] active:bg-[var(--color-surface-2)] ${
-          action ? "!border-[#F2C7A5]" : ""
+          p.status === "COUNTER_OFFERED"
+            ? "!border-teal-500 !bg-teal-50 ring-2 ring-teal-500/30"
+            : action
+              ? "!border-[#F2C7A5]"
+              : ""
         }`}
       >
         <div className="min-w-0 flex-1">
@@ -531,15 +545,28 @@ function ProjectList({ projects, onOpen }: { projects: SiteProjectDTO[] | null; 
     );
   }
 
-  // Projects waiting on the labour head come first.
-  const ordered = [...projects].sort((a, b) => Number(stateIcon(b.status).action) - Number(stateIcon(a.status).action));
+  // Offers first, then everything else waiting on the labour head.
+  const rank = (p: SiteProjectDTO) => (p.status === "COUNTER_OFFERED" ? 2 : stateIcon(p.status).action ? 1 : 0);
+  const ordered = [...projects].sort((a, b) => rank(b) - rank(a));
+  const offers = projects.filter((p) => p.status === "COUNTER_OFFERED").length;
 
   return (
-    <ul className="space-y-3">
-      {ordered.map((p) => (
-        <ProjectRow key={p.id} p={p} onOpen={onOpen} />
-      ))}
-    </ul>
+    <>
+      {offers > 0 && (
+        <p
+          role="status"
+          className="mb-3 flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-3 text-sm font-semibold text-white shadow-sm"
+        >
+          <Handshake aria-hidden className="h-5 w-5 shrink-0" />
+          {t.offersWaiting(offers)}
+        </p>
+      )}
+      <ul className="space-y-3">
+        {ordered.map((p) => (
+          <ProjectRow key={p.id} p={p} onOpen={onOpen} />
+        ))}
+      </ul>
+    </>
   );
 }
 
