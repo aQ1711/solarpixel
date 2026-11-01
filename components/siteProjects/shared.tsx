@@ -41,7 +41,7 @@ const STATUS_TONE: Record<SiteProjectStatus, { light: string; dark: string }> = 
   APPROVED: { light: "bg-emerald-100 text-emerald-800", dark: "bg-emerald-400/15 text-emerald-300" },
   IN_PROGRESS: { light: "bg-sky-100 text-sky-800", dark: "bg-sky-400/15 text-sky-300" },
   COMPLETED: { light: "bg-violet-100 text-violet-800", dark: "bg-violet-400/15 text-violet-300" },
-  PAID: { light: "bg-stone-200 text-stone-700", dark: "bg-white/10 text-[var(--color-ink-muted)]" },
+  PAID: { light: "bg-stone-200 text-stone-700", dark: "bg-white/15 text-white/85" },
   REJECTED: { light: "bg-red-100 text-red-800", dark: "bg-red-400/15 text-red-300" },
 };
 

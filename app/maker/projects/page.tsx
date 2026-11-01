@@ -8,14 +8,20 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  FileText,
+  Handshake,
   HardHat,
+  Hourglass,
   Loader2,
   MapPin,
+  Pencil,
   Play,
   Plus,
   Square,
   Trash2,
   Wallet,
+  X,
+  type LucideIcon,
 } from "lucide-react";
 import { AccessGate } from "@/components/internal/AccessGate";
 import { BrandMark } from "@/components/BrandMark";
@@ -38,7 +44,7 @@ const LABEL = "mb-1.5 block text-sm font-medium text-[var(--color-ink-muted)]";
 const INPUT =
   "min-h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3.5 py-2.5 text-sm text-[var(--color-ink)] outline-none transition focus:border-[var(--color-amber)] focus:ring-2 focus:ring-[var(--color-amber)]/25";
 const BTN_PRIMARY =
-  "flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-amber)] py-3 text-sm font-semibold text-[var(--color-amber-ink)] transition hover:bg-[var(--color-amber-strong)] disabled:opacity-60";
+  "flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-[#D9733A] to-[var(--color-amber)] py-3 text-sm font-bold shadow-sm shadow-orange-900/25 text-[var(--color-amber-ink)] transition hover:bg-[var(--color-amber-strong)] disabled:opacity-60";
 const BTN_GHOST =
   "flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-3 text-sm font-medium text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)] disabled:opacity-60";
 
@@ -298,54 +304,68 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
 const YOUR_TURN: SiteProjectStatus[] = ["ASSIGNED", "REVISION_REQUESTED", "COUNTER_OFFERED", "APPROVED", "IN_PROGRESS"];
 const WITH_ADMIN: SiteProjectStatus[] = ["SUBMITTED", "COMPLETED"];
 
-function nextStep(p: SiteProjectDTO): { text: string; tone: string } {
-  const muted = "text-[var(--color-ink-muted)]";
-  switch (p.status) {
+interface StateStyle {
+  text: string;
+  icon: LucideIcon;
+  /** The coloured square the icon sits in. */
+  tile: string;
+  /** Card surface: a soft wash of the state colour for projects waiting on the labour head. */
+  card: string;
+  tone: string;
+}
+
+const NEUTRAL_CARD = "border-[var(--color-border)] bg-[var(--color-surface)]";
+
+function stateStyle(status: SiteProjectStatus): StateStyle {
+  switch (status) {
     case "ASSIGNED":
-      return { text: "Send your quotation", tone: "text-indigo-700" };
+      return { text: "Send your quotation", icon: FileText, tile: "bg-indigo-600 text-white", card: "border-indigo-200 bg-gradient-to-br from-white to-indigo-50", tone: "text-indigo-700" };
     case "REVISION_REQUESTED":
-      return { text: "Fix your quotation", tone: "text-orange-700" };
+      return { text: "Fix your quotation", icon: Pencil, tile: "bg-orange-600 text-white", card: "border-orange-200 bg-gradient-to-br from-white to-orange-50", tone: "text-orange-700" };
     case "COUNTER_OFFERED":
-      return { text: "The admin sent an offer. Answer it", tone: "text-teal-700" };
+      return { text: "The admin sent an offer. Answer it", icon: Handshake, tile: "bg-teal-600 text-white", card: "border-teal-200 bg-gradient-to-br from-white to-teal-50", tone: "text-teal-700" };
     case "APPROVED":
-      return { text: "Prices agreed. Start the site", tone: "text-emerald-700" };
+      return { text: "Prices agreed. Start the site", icon: Play, tile: "bg-emerald-600 text-white", card: "border-emerald-200 bg-gradient-to-br from-white to-emerald-50", tone: "text-emerald-700" };
     case "IN_PROGRESS":
-      return { text: "Site running. End it when done", tone: "text-sky-700" };
+      return { text: "Site running. End it when done", icon: HardHat, tile: "bg-sky-600 text-white", card: "border-sky-200 bg-gradient-to-br from-white to-sky-50", tone: "text-sky-700" };
     case "SUBMITTED":
-      return { text: "The admin is checking your quotation", tone: muted };
+      return { text: "The admin is checking your quotation", icon: Hourglass, tile: "bg-amber-100 text-amber-700", card: NEUTRAL_CARD, tone: "text-amber-700" };
     case "COMPLETED":
-      return { text: "Payout is being processed", tone: muted };
+      return { text: "Payout is being processed", icon: Wallet, tile: "bg-violet-100 text-violet-700", card: NEUTRAL_CARD, tone: "text-violet-700" };
     case "PAID":
-      return { text: "Paid", tone: muted };
+      return { text: "Paid", icon: CheckCircle2, tile: "bg-emerald-100 text-emerald-700", card: NEUTRAL_CARD, tone: "text-emerald-700" };
     case "REJECTED":
-      return { text: "Cancelled", tone: muted };
+      return { text: "Cancelled", icon: X, tile: "bg-red-100 text-red-700", card: NEUTRAL_CARD, tone: "text-red-700" };
   }
 }
 
 function ProjectCard({ p, onOpen }: { p: SiteProjectDTO; onOpen: (id: string) => void }) {
-  const step = nextStep(p);
-  const urgent = YOUR_TURN.includes(p.status);
+  const st = stateStyle(p.status);
+  const Icon = st.icon;
   const amount = p.payoutPKR ?? p.proposedMaterialsTotalPKR + p.proposedLabourFeePKR;
   return (
     <button
       type="button"
       onClick={() => onOpen(p.id)}
-      className={`${CARD} flex w-full items-center gap-3 text-left transition active:scale-[0.99] hover:border-[var(--color-border-strong)] ${
-        urgent ? "!border-[var(--color-amber)]/35" : ""
-      }`}
+      className={`flex w-full items-center gap-3 rounded-2xl border p-3.5 text-left shadow-sm shadow-[#1E3550]/5 transition active:scale-[0.99] hover:shadow-md ${st.card}`}
     >
+      <span aria-hidden className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${st.tile}`}>
+        <Icon className="h-6 w-6" />
+      </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-base font-semibold text-[var(--color-ink)]">{p.clientName}</p>
+        <p className="line-clamp-2 text-base font-bold leading-snug text-[var(--color-ink)]">{p.clientName}</p>
         <p className="mt-0.5 truncate text-xs text-[var(--color-ink-faint)]">
           {p.projectNumber} · {p.city}
           {p.systemSizeKw !== null ? ` · ${p.systemSizeKw} kW` : ""}
         </p>
-        <div className="mt-2.5 flex items-baseline justify-between gap-3">
-          <p className={`text-sm font-semibold ${step.tone}`}>{step.text}</p>
+        <div className="mt-2 flex items-baseline justify-between gap-3">
+          <p className={`text-[15px] font-bold leading-snug ${st.tone}`}>{st.text}</p>
           {amount > 0 && p.status !== "REJECTED" && (
-            <p className="shrink-0 text-right text-xs tabular-nums text-[var(--color-ink-muted)]">
-              {p.payoutPKR !== null ? "Payout " : "Quoted "}
-              <span className="font-semibold text-[var(--color-ink)]">{formatPKR(amount)}</span>
+            <p className="shrink-0 text-right text-[11px] text-[var(--color-ink-muted)]">
+              {p.payoutPKR !== null ? "Payout" : "Quoted"}
+              <span className={`block text-sm font-extrabold tabular-nums ${p.payoutPKR !== null ? "text-emerald-700" : "text-[var(--color-ink)]"}`}>
+                {formatPKR(amount)}
+              </span>
             </p>
           )}
         </div>
@@ -390,7 +410,7 @@ function ProjectList({ projects, onOpen }: { projects: SiteProjectDTO[] | null; 
     <div className="space-y-5">
       {groups.map((g) => (
         <section key={g.key} aria-label={g.title}>
-          <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-faint)]">
+          <h2 className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider ${g.accent ? "text-[var(--color-amber-strong)]" : "text-[var(--color-ink-faint)]"}`}>
             {g.title}
             <span
               className={`rounded-full px-2 py-0.5 text-[11px] leading-none ${
@@ -467,15 +487,15 @@ function ProjectDetail({
         </button>
       </div>
 
-      <div className={CARD}>
+      <div className="rounded-2xl bg-gradient-to-br from-[#2F4D70] to-[#1E3550] p-4 text-white shadow-lg shadow-[#1E3550]/25 sm:p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs text-[var(--color-ink-faint)]">{project.projectNumber}</p>
-            <h2 className="mt-0.5 text-lg font-semibold text-[var(--color-ink)]">{project.clientName}</h2>
+            <p className="text-xs text-white/60">{project.projectNumber}</p>
+            <h2 className="mt-0.5 text-xl font-bold">{project.clientName}</h2>
           </div>
-          <StatusBadge status={project.status} />
+          <StatusBadge status={project.status} dark />
         </div>
-        <p className="mt-2 flex items-start gap-1.5 text-sm text-[var(--color-ink-muted)]">
+        <p className="mt-2 flex items-start gap-1.5 text-sm text-white/80">
           <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             {project.siteAddress}, {project.city}
@@ -488,7 +508,7 @@ function ProjectDetail({
           {project.estimatedDays !== null && <Fact label="Estimated" value={`${project.estimatedDays} days`} />}
           {project.quote && <Fact label="Customer quote" value={project.quote.quoteNumber} />}
         </dl>
-        {project.scopeNotes && <p className="mt-3 whitespace-pre-line text-sm text-[var(--color-ink-muted)]">{project.scopeNotes}</p>}
+        {project.scopeNotes && <p className="mt-3 whitespace-pre-line text-sm text-white/80">{project.scopeNotes}</p>}
         <Stepper status={project.status} />
       </div>
 
@@ -526,15 +546,15 @@ function ProjectDetail({
       )}
 
       {project.payoutPKR !== null && project.status !== "REJECTED" && (
-        <div className={CARD}>
-          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-[var(--color-ink-faint)]">
+        <div className="rounded-2xl bg-gradient-to-br from-emerald-600 to-emerald-800 p-4 text-white shadow-lg shadow-emerald-900/20 sm:p-5">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-white/80">
             <Wallet className="h-3.5 w-3.5" /> Your payout
           </p>
-          <p className="mt-1 text-2xl font-bold text-[var(--color-neon)]">{formatPKR(project.payoutPKR)}</p>
-          <p className="mt-1 text-xs text-[var(--color-ink-muted)]">
+          <p className="mt-1 text-3xl font-extrabold tabular-nums">{formatPKR(project.payoutPKR)}</p>
+          <p className="mt-1 text-xs text-white/80">
             Agreed materials {formatPKR(approvedTotal ?? 0)} + your service fee {formatPKR(project.labourFeePKR ?? 0)}
           </p>
-          <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
+          <p className="mt-2 text-sm font-medium text-white">
             {project.status === "APPROVED" && "Released after you end the site."}
             {project.status === "IN_PROGRESS" && "Released after you end the site."}
             {project.status === "COMPLETED" && "The site has ended. Your payout is being processed."}
@@ -686,7 +706,7 @@ function Stepper({ status }: { status: SiteProjectStatus }) {
   const idx = stepIndex(status);
   if (idx === null) return null;
   return (
-    <ol aria-label="Project progress" className="mt-4 flex items-start border-t border-[var(--color-border)] pt-4">
+    <ol aria-label="Project progress" className="mt-4 flex items-start border-t border-white/15 pt-4">
       {STEPS.map((label, i) => {
         const done = i < idx;
         const current = i === idx;
@@ -696,17 +716,17 @@ function Stepper({ status }: { status: SiteProjectStatus }) {
               <span
                 className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${
                   done
-                    ? "bg-[var(--color-neon)] text-white"
+                    ? "bg-emerald-400 text-[#10233A]"
                     : current
-                      ? "bg-[var(--color-amber)] text-[var(--color-amber-ink)]"
-                      : "border border-[var(--color-border-strong)] text-[var(--color-ink-faint)]"
+                      ? "bg-orange-500 text-white ring-4 ring-orange-500/25"
+                      : "border border-white/30 text-white/60"
                 }`}
               >
                 {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
               </span>
-              <span className={`text-[11px] ${current ? "font-semibold text-[var(--color-ink)]" : "text-[var(--color-ink-faint)]"}`}>{label}</span>
+              <span className={`text-[11px] ${current ? "font-bold text-white" : "text-white/60"}`}>{label}</span>
             </span>
-            {i < STEPS.length - 1 && <span className={`mt-3 h-px flex-1 ${done ? "bg-[var(--color-neon-dim)]" : "bg-[var(--color-border)]"}`} />}
+            {i < STEPS.length - 1 && <span className={`mt-3 h-px flex-1 ${done ? "bg-emerald-400/70" : "bg-white/20"}`} />}
           </li>
         );
       })}
@@ -717,8 +737,8 @@ function Stepper({ status }: { status: SiteProjectStatus }) {
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs text-[var(--color-ink-faint)]">{label}</dt>
-      <dd className="text-[var(--color-ink)]">{value}</dd>
+      <dt className="text-xs text-white/60">{label}</dt>
+      <dd className="font-semibold text-white">{value}</dd>
     </div>
   );
 }
@@ -740,7 +760,7 @@ function Callout({
   }[tone];
   return (
     <div className={`rounded-2xl border p-4 text-sm ${toneClass}`}>
-      <p className="font-semibold">{title}</p>
+      <p className="text-[15px] font-bold">{title}</p>
       <div className="mt-1 whitespace-pre-line">{children}</div>
     </div>
   );
@@ -1177,7 +1197,7 @@ function MaterialsForm({
             <p className="text-[11px] text-[var(--color-ink-muted)]">
               Quotation total · {rows.length} {rows.length === 1 ? "item" : "items"}
             </p>
-            <p className="text-lg font-bold tabular-nums leading-tight text-[var(--color-ink)]">{formatPKR(total + (Number(fee) || 0))}</p>
+            <p className="text-xl font-extrabold tabular-nums leading-tight text-[var(--color-amber)]">{formatPKR(total + (Number(fee) || 0))}</p>
             <p className="text-[11px] tabular-nums text-[var(--color-ink-faint)]">
               Materials {formatPKR(total)} + fee {formatPKR(Number(fee) || 0)}
             </p>
