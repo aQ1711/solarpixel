@@ -371,7 +371,7 @@ function AppBar({
     // Same floating glass pill as the website's header (components/SiteHeader.tsx),
     // so the page scrolls underneath it.
     <header className="sticky top-0 z-30 px-3 pt-3">
-      <div className="mx-auto flex h-14 max-w-xl items-center gap-3 rounded-full border border-white/70 bg-white/40 ps-4 pe-2 shadow-[0_8px_32px_-8px_rgba(30,53,80,0.22),inset_0_1px_0_rgba(255,255,255,0.9),inset_0_-1px_0_rgba(255,255,255,0.35)] backdrop-blur-xl backdrop-saturate-[1.8]">
+      <div className="mx-auto flex h-14 max-w-xl items-center gap-2 rounded-full border border-white/70 bg-white/40 ps-3 pe-1.5 shadow-[0_8px_32px_-8px_rgba(30,53,80,0.22),inset_0_1px_0_rgba(255,255,255,0.9),inset_0_-1px_0_rgba(255,255,255,0.35)] backdrop-blur-xl backdrop-saturate-[1.8]">
         {detailTitle !== null ? (
           <>
             <button
@@ -387,13 +387,13 @@ function AppBar({
         ) : (
           <>
             <BrandMark className="h-7 w-7 shrink-0" />
-            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               <p className="shrink-0 text-base font-semibold leading-none tracking-tight text-[var(--color-ink)]">
                 <span dir="ltr">Solar Pixel</span>
               </p>
               <span aria-hidden className="h-3.5 w-px shrink-0 bg-[var(--color-border-strong)]" />
               {/* Nastaliq letters sit low in the line, so the Urdu caption is lifted a little to look level. */}
-              <p className={`truncate text-[13px] font-medium leading-none text-[var(--color-ink-muted)] ${t === TEXT.ur ? "-translate-y-[2px]" : ""}`}>
+              <p className={`truncate text-xs font-medium leading-none text-[var(--color-ink-muted)] ${t === TEXT.ur ? "-translate-y-[2px]" : ""}`}>
                 {t.labourHead}
               </p>
             </div>
@@ -407,7 +407,7 @@ function AppBar({
               type="button"
               aria-pressed={lang === l}
               onClick={() => onLang(l)}
-              className={`flex h-9 min-w-[3.25rem] items-center justify-center rounded-full px-3 font-medium leading-none transition ${
+              className={`flex h-9 min-w-[2.75rem] items-center justify-center rounded-full px-2.5 font-medium leading-none transition ${
                 lang === l ? "bg-[#2F4D70] text-white" : "text-[var(--color-ink-muted)]"
               }`}
               style={l === "ur" ? { fontFamily: '"Noto Naskh Arabic", "Noto Sans Arabic", system-ui, sans-serif' } : undefined}
@@ -468,27 +468,31 @@ function StateLabel({ status, className = "" }: { status: SiteProjectStatus; cla
   );
 }
 
+/** Each project is its own card, with space around it, so two projects never run together. */
 function ProjectRow({ p, onOpen }: { p: SiteProjectDTO; onOpen: (id: string) => void }) {
   const { money } = useText();
   const amount = p.payoutPKR ?? p.proposedMaterialsTotalPKR + p.proposedLabourFeePKR;
+  const action = stateIcon(p.status).action;
   return (
     <li>
       <button
         type="button"
         onClick={() => onOpen(p.id)}
-        className="flex w-full items-center gap-3 px-4 py-3.5 text-start transition hover:bg-[var(--color-surface-2)] active:bg-[var(--color-surface-2)]"
+        className={`${CARD} flex w-full items-center gap-3 text-start shadow-[0_2px_8px_-2px_rgba(30,53,80,0.10)] transition hover:border-[var(--color-border-strong)] active:bg-[var(--color-surface-2)] ${
+          action ? "!border-[#F2C7A5]" : ""
+        }`}
       >
         <div className="min-w-0 flex-1">
-          <p dir="auto" className="line-clamp-2 text-[15px] font-semibold text-[var(--color-ink)]">
+          <p className="line-clamp-2 text-[15px] font-semibold text-[var(--color-ink)]">
             {p.clientName}
           </p>
-          <p className="mt-0.5 flex items-center gap-1 text-[13px] text-[var(--color-ink-faint)]">
-            <MapPin aria-hidden className="h-3.5 w-3.5 shrink-0" />
-            <span dir="auto" className="truncate">
-              {p.city}
+          <p className="mt-1 flex items-start gap-1.5 text-[13px] text-[var(--color-ink-muted)]">
+            <MapPin aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span className="line-clamp-2">
+              {p.siteAddress}, {p.city}
             </span>
           </p>
-          <div className="mt-1.5 flex items-center justify-between gap-3">
+          <div className="mt-2 flex items-center justify-between gap-3">
             <StateLabel status={p.status} />
             {amount > 0 && p.status !== "REJECTED" && (
               <p className="num shrink-0 text-[13px] font-semibold tabular-nums text-[var(--color-ink)]">{money(amount)}</p>
@@ -531,7 +535,7 @@ function ProjectList({ projects, onOpen }: { projects: SiteProjectDTO[] | null; 
   const ordered = [...projects].sort((a, b) => Number(stateIcon(b.status).action) - Number(stateIcon(a.status).action));
 
   return (
-    <ul className="divide-y divide-[var(--color-border)] overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_1px_2px_rgba(30,53,80,0.05)]">
+    <ul className="space-y-3">
       {ordered.map((p) => (
         <ProjectRow key={p.id} p={p} onOpen={onOpen} />
       ))}
@@ -589,13 +593,13 @@ function ProjectDetail({
   return (
     <div className="space-y-4">
       <div className={CARD}>
-        <h2 dir="auto" className="text-[17px] font-semibold text-[var(--color-ink)]">
+        <h2 className="text-[17px] font-semibold text-[var(--color-ink)]">
           {project.clientName}
         </h2>
         <StateLabel status={project.status} className="mt-1" />
         <p className="mt-3 flex items-start gap-1.5 text-sm text-[var(--color-ink-muted)]">
           <MapPin aria-hidden className="mt-1 h-4 w-4 shrink-0" />
-          <span dir="auto">
+          <span>
             {project.siteAddress}, {project.city}
           </span>
         </p>
