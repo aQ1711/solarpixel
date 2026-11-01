@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import Link from "next/link";
+import { createContext, useContext, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ArrowLeft,
   ArrowLeftRight,
@@ -35,10 +34,11 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import Link from "next/link";
 import { AccessGate } from "@/components/internal/AccessGate";
 import { BrandMark } from "@/components/BrandMark";
-import { EVENT_LABEL, formatDate, formatDateTime, formatPKR } from "@/components/siteProjects/shared";
 import { internalFetch, type ApiJson } from "@/lib/internal/access";
+import { catalogEntryLabel, dateText, dateTimeText, moneyText, TEXT, type Dict, type Lang } from "@/lib/siteProjects/labourText";
 import {
   lineTotalPKR,
   sumLinesPKR,
@@ -48,39 +48,38 @@ import {
 } from "@/lib/siteProjects/types";
 
 // ============================================================================
-// Shared look (same tokens as the Field Engineer survey tool)
+// Look
 // ============================================================================
-
-const CARD = "rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:p-5";
-const LABEL = "mb-1.5 block text-sm font-medium text-[var(--color-ink-muted)]";
-const INPUT =
-  "min-h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3.5 py-2.5 text-sm text-[var(--color-ink)] outline-none transition focus:border-[var(--color-amber)] focus:ring-2 focus:ring-[var(--color-amber)]/25";
-const BTN_PRIMARY =
-  "flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-amber)] py-3 text-sm font-semibold text-[var(--color-amber-ink)] transition hover:bg-[var(--color-amber-strong)] disabled:opacity-60";
-const BTN_GHOST =
-  "flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-3 text-sm font-medium text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)] disabled:opacity-60";
 
 // Light look in the storefront's navy, blue-grey and orange, set on this page
 // only by overriding the shared tokens, so the Survey and Checker screens keep
 // their dark theme.
-const LIGHT_THEME = {
+const THEME = {
   colorScheme: "light",
-  "--color-bg": "#F8FAFD",
+  "--color-bg": "#F6F8FB",
   "--color-surface": "#FFFFFF",
   "--color-surface-2": "#F1F5FA",
-  "--color-border": "#E1E8F2",
+  "--color-border": "#E3E9F2",
   "--color-border-strong": "#CBD7E6",
-  "--color-ink": "#2A405C",
+  "--color-ink": "#233A56",
   "--color-ink-muted": "#55657F",
   "--color-ink-faint": "#66758E",
   "--color-amber": "#F2A56F",
   "--color-amber-strong": "#D4692F",
-  "--color-amber-ink": "#3A1D0B",
   "--color-neon": "#2A8559",
-  "--color-neon-dim": "#A5D6BC",
 } as React.CSSProperties;
 
+const CARD = "rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[0_1px_2px_rgba(30,53,80,0.05)]";
+const INPUT =
+  "min-h-11 w-full rounded-lg border border-[var(--color-border-strong)] bg-white px-3.5 py-2.5 text-[15px] text-[var(--color-ink)] outline-none transition focus:border-[#2F4D70] focus:ring-2 focus:ring-[#2F4D70]/15";
+const BTN_PRIMARY =
+  "flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#2F4D70] px-4 text-[15px] font-semibold text-white transition hover:bg-[#1E3550] disabled:opacity-60";
+const BTN_GHOST =
+  "flex min-h-12 items-center justify-center gap-2 rounded-lg border border-[var(--color-border-strong)] bg-white px-4 text-[15px] font-medium text-[var(--color-ink)] transition hover:bg-[var(--color-surface-2)] disabled:opacity-60";
+
 const LABOUR_HEAD_KEY = "solarpixel.labourHeadId";
+const LANG_KEY = "solarpixel.labourLang";
+const URDU_FONT_HREF = "https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;500;600;700&display=swap";
 
 interface Engineer {
   id: string;
@@ -88,6 +87,28 @@ interface Engineer {
 }
 
 type View = { kind: "list" } | { kind: "detail"; id: string };
+
+// ============================================================================
+// Language
+// ============================================================================
+
+interface TextCtx {
+  lang: Lang;
+  t: Dict;
+  money: (n: number) => string;
+  date: (iso: string) => string;
+  dateTime: (iso: string) => string;
+}
+
+const TextContext = createContext<TextCtx>({
+  lang: "en",
+  t: TEXT.en,
+  money: (n) => moneyText("en", n),
+  date: (iso) => dateText("en", iso),
+  dateTime: (iso) => dateTimeText("en", iso),
+});
+
+const useText = () => useContext(TextContext);
 
 // ============================================================================
 // Page
@@ -102,12 +123,47 @@ export default function MakerProjectsPage() {
 }
 
 function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => void }) {
+  const [lang, setLangState] = useState<Lang>("ur");
   const [engineers, setEngineers] = useState<Engineer[]>([]);
   const [engineerId, setEngineerId] = useState("");
   const [projects, setProjects] = useState<SiteProjectDTO[] | null>(null);
   const [view, setView] = useState<View>({ kind: "list" });
   const [error, setError] = useState<string | null>(null);
   const [changingName, setChangingName] = useState(false);
+
+  const ctx = useMemo<TextCtx>(
+    () => ({
+      lang,
+      t: TEXT[lang],
+      money: (n) => moneyText(lang, n),
+      date: (iso) => dateText(lang, iso),
+      dateTime: (iso) => dateTimeText(lang, iso),
+    }),
+    [lang],
+  );
+  const t = ctx.t;
+
+  // Urdu is the default for labour heads; the choice is remembered on this phone.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      try {
+        const saved = window.localStorage.getItem(LANG_KEY);
+        if (saved === "en" || saved === "ur") setLangState(saved);
+      } catch {
+        /* storage blocked: stays on the default */
+      }
+    }, 0);
+    return () => clearTimeout(id);
+  }, []);
+
+  function setLang(next: Lang) {
+    setLangState(next);
+    try {
+      window.localStorage.setItem(LANG_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  }
 
   // Opening a project starts at its top, not wherever the list was scrolled to.
   useEffect(() => {
@@ -122,7 +178,7 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
         const res = await internalFetch("MAKER", "/api/maker/engineers");
         if (res.status === 401) return onUnauthorized();
         const data = (await res.json()) as ApiJson<{ engineers?: Engineer[] }>;
-        if (!res.ok) return setError(data?.error ?? "Could not load the team list.");
+        if (!res.ok) return setError(data?.error ?? t.errTeam);
         const list = data.engineers ?? [];
         setEngineers(list);
         try {
@@ -132,7 +188,7 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
           /* storage blocked: they just pick again */
         }
       } catch {
-        setError("Network error loading the team list.");
+        setError(t.errTeamNetwork);
       }
     }, 0);
     return () => clearTimeout(id);
@@ -145,10 +201,10 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
       const res = await internalFetch("MAKER", `/api/maker/projects?engineerId=${encodeURIComponent(forEngineerId)}`);
       if (res.status === 401) return onUnauthorized();
       const data = (await res.json()) as ApiJson<{ projects?: SiteProjectDTO[] }>;
-      if (!res.ok) return setError(data?.error ?? "Could not load your projects.");
+      if (!res.ok) return setError(data?.error ?? t.errProjects);
       setProjects(data.projects ?? []);
     } catch {
-      setError("Network error. Check your connection and try again.");
+      setError(t.errNetwork);
     }
   }
 
@@ -205,89 +261,152 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
   const me = engineers.find((e) => e.id === engineerId) ?? null;
 
   return (
-    <main style={LIGHT_THEME} className="min-h-dvh bg-[var(--color-bg)] px-4 py-6 sm:px-6">
-      <div className="mx-auto max-w-xl">
-        <header className="mb-3 flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <BrandMark className="h-9 w-9 shrink-0" />
-            <h1 className="truncate text-lg font-bold text-[var(--color-ink)]">Site Projects</h1>
-          </div>
-          {view.kind === "list" && (
-            <Link
-              href="/maker/survey"
-              className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 text-sm font-medium text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)]"
-            >
-              <ClipboardList className="h-4 w-4" /> Survey
+    <TextContext.Provider value={ctx}>
+      <main
+        dir={lang === "ur" ? "rtl" : "ltr"}
+        lang={lang}
+        style={THEME}
+        className={`min-h-dvh bg-[var(--color-bg)] ${lang === "ur" ? "lang-ur" : ""}`}
+      >
+        {lang === "ur" && <link rel="stylesheet" href={URDU_FONT_HREF} />}
+
+        <AppBar
+          detailTitle={view.kind === "detail" && selected ? selected.clientName : null}
+          onBack={() => setView({ kind: "list" })}
+          lang={lang}
+          onLang={setLang}
+        />
+
+        <div className="mx-auto max-w-xl px-4 pb-10 pt-4">
+          {error && (
+            <p role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </p>
+          )}
+
+          {me && !changingName ? (
+            view.kind === "list" && (
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <p className="flex min-w-0 items-center gap-2 text-[15px] font-semibold text-[var(--color-ink)]">
+                  <User aria-hidden className="h-5 w-5 shrink-0 text-[var(--color-amber-strong)]" />
+                  <span className="truncate">{me.name}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setChangingName(true)}
+                  className="flex min-h-11 shrink-0 items-center gap-1.5 px-1 text-sm font-medium text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)]"
+                >
+                  <ArrowLeftRight aria-hidden className="h-4 w-4" /> {t.change}
+                </button>
+              </div>
+            )
+          ) : (
+            <div className={`${CARD} mb-4`}>
+              <label htmlFor="labourHead" className="mb-1.5 block text-sm font-medium text-[var(--color-ink-muted)]">
+                {t.whoAreYou}
+              </label>
+              <select id="labourHead" value={engineerId} onChange={(e) => chooseEngineer(e.target.value)} className={INPUT}>
+                <option value="">{t.selectName}</option>
+                {engineers.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </select>
+              {engineers.length === 0 && !error && <p className="mt-2 text-xs text-[var(--color-ink-faint)]">{t.noLabourHeads}</p>}
+              {changingName && (
+                <button
+                  type="button"
+                  onClick={() => setChangingName(false)}
+                  className="mt-2 flex min-h-11 items-center text-sm font-medium text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
+                >
+                  {t.cancel}
+                </button>
+              )}
+            </div>
+          )}
+
+          {engineerId && view.kind === "list" && <ProjectList projects={projects} onOpen={(id) => setView({ kind: "detail", id })} />}
+
+          {engineerId && view.kind === "list" && (
+            <Link href="/maker/survey" className={`${BTN_GHOST} mt-6`}>
+              <ClipboardList aria-hidden className="h-4 w-4" /> {t.survey}
             </Link>
           )}
-        </header>
 
-        {error && (
-          <p role="alert" className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700">
-            {error}
-          </p>
-        )}
+          {engineerId && view.kind === "detail" && selected && (
+            <ProjectDetail
+              key={selected.id}
+              project={selected}
+              engineerId={engineerId}
+              onUnauthorized={onUnauthorized}
+              onChanged={upsertProject}
+            />
+          )}
+        </div>
+      </main>
+    </TextContext.Provider>
+  );
+}
 
-        {me && !changingName ? (
-          view.kind === "list" && (
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="flex min-w-0 items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
-                <User aria-hidden className="h-5 w-5 shrink-0 text-[var(--color-amber-strong)]" />
-                <span className="truncate">{me.name}</span>
-              </p>
-              <button
-                type="button"
-                onClick={() => setChangingName(true)}
-                className="flex min-h-11 items-center gap-1.5 px-2 text-sm font-medium text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)]"
-              >
-                <ArrowLeftRight className="h-4 w-4" /> Change
-              </button>
-            </div>
-          )
+// ============================================================================
+// Top bar
+// ============================================================================
+
+function AppBar({
+  detailTitle,
+  onBack,
+  lang,
+  onLang,
+}: {
+  detailTitle: string | null;
+  onBack: () => void;
+  lang: Lang;
+  onLang: (l: Lang) => void;
+}) {
+  const { t } = useText();
+  return (
+    <header className="sticky top-0 z-30 border-b border-[var(--color-border)] bg-white/95 backdrop-blur">
+      <div className="mx-auto flex h-14 max-w-xl items-center gap-3 px-4">
+        {detailTitle !== null ? (
+          <>
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label={t.back}
+              className="-ms-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--color-ink)] transition hover:bg-[var(--color-surface-2)]"
+            >
+              <ArrowLeft aria-hidden className="h-5 w-5 rtl:rotate-180" />
+            </button>
+            <p dir="auto" className="min-w-0 flex-1 truncate text-base font-semibold text-[var(--color-ink)]">{detailTitle}</p>
+          </>
         ) : (
-          <div className={`${CARD} mb-4`}>
-            <label htmlFor="labourHead" className={LABEL}>
-              Who are you?
-            </label>
-            <select id="labourHead" value={engineerId} onChange={(e) => chooseEngineer(e.target.value)} className={INPUT}>
-              <option value="">Select your name…</option>
-              {engineers.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-            </select>
-            {engineers.length === 0 && !error && (
-              <p className="mt-2 text-xs text-[var(--color-ink-faint)]">
-                No labour heads are set up yet. Ask the admin to add you under Team.
+          <>
+            <BrandMark className="h-8 w-8 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[15px] font-semibold text-[var(--color-ink)]">
+                <span dir="ltr">Solar Pixel</span>
               </p>
-            )}
-            {changingName && (
-              <button
-                type="button"
-                onClick={() => setChangingName(false)}
-                className="mt-2 flex min-h-11 items-center text-xs font-medium text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
-              >
-                Cancel
-              </button>
-            )}
-          </div>
+              <p className="truncate text-xs text-[var(--color-ink-muted)]">{t.labourHead}</p>
+            </div>
+          </>
         )}
 
-        {engineerId && view.kind === "list" && <ProjectList projects={projects} onOpen={(id) => setView({ kind: "detail", id })} />}
-
-        {engineerId && view.kind === "detail" && selected && (
-          <ProjectDetail
-            key={selected.id}
-            project={selected}
-            engineerId={engineerId}
-            onUnauthorized={onUnauthorized}
-            onBack={() => setView({ kind: "list" })}
-            onChanged={upsertProject}
-          />
-        )}
+        <div role="group" aria-label="Language" className="flex shrink-0 rounded-full border border-[var(--color-border-strong)] bg-white p-0.5 text-sm">
+          {(["ur", "en"] as const).map((l) => (
+            <button
+              key={l}
+              type="button"
+              aria-pressed={lang === l}
+              onClick={() => onLang(l)}
+              className={`min-h-9 rounded-full px-3 font-medium transition ${lang === l ? "bg-[#2F4D70] text-white" : "text-[var(--color-ink-muted)]"}`}
+            >
+              {l === "ur" ? "اردو" : "EN"}
+            </button>
+          ))}
+        </div>
       </div>
-    </main>
+    </header>
   );
 }
 
@@ -295,89 +414,85 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
 // List
 // ============================================================================
 
-/** One picture and two or three words per state, so the list reads at a glance. */
-interface StateView {
-  icon: LucideIcon;
-  label: string;
-  /** The labour head has to do something now. */
-  action: boolean;
-}
-
-function stateView(status: SiteProjectStatus): StateView {
+/** One picture per state, so the list reads at a glance. */
+function stateIcon(status: SiteProjectStatus): { icon: LucideIcon; action: boolean } {
   switch (status) {
     case "ASSIGNED":
-      return { icon: FileText, label: "Send quotation", action: true };
+      return { icon: FileText, action: true };
     case "REVISION_REQUESTED":
-      return { icon: Pencil, label: "Fix quotation", action: true };
+      return { icon: Pencil, action: true };
     case "COUNTER_OFFERED":
-      return { icon: Handshake, label: "Offer for you", action: true };
+      return { icon: Handshake, action: true };
     case "APPROVED":
-      return { icon: Play, label: "Start site", action: true };
+      return { icon: Play, action: true };
     case "IN_PROGRESS":
-      return { icon: HardHat, label: "Site running", action: true };
+      return { icon: HardHat, action: true };
     case "SUBMITTED":
-      return { icon: Hourglass, label: "Waiting", action: false };
+      return { icon: Hourglass, action: false };
     case "COMPLETED":
-      return { icon: Wallet, label: "Payment coming", action: false };
+      return { icon: Wallet, action: false };
     case "PAID":
-      return { icon: CheckCircle2, label: "Paid", action: false };
+      return { icon: CheckCircle2, action: false };
     case "REJECTED":
-      return { icon: X, label: "Cancelled", action: false };
+      return { icon: X, action: false };
   }
 }
 
-/** Orange when it is the labour head's turn, green once paid, quiet otherwise. */
+/** Peach when it is the labour head's turn, green once paid, quiet otherwise. */
 function StateTile({ status }: { status: SiteProjectStatus }) {
-  const { icon: Icon, action } = stateView(status);
+  const { icon: Icon, action } = stateIcon(status);
   const tone = action
     ? "bg-[#FDEBDD] text-[var(--color-amber-strong)]"
     : status === "PAID"
-      ? "bg-emerald-100 text-emerald-700"
+      ? "bg-emerald-50 text-emerald-700"
       : "bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]";
   return (
-    <span aria-hidden className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone}`}>
+    <span aria-hidden className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${tone}`}>
       <Icon className="h-5 w-5" />
     </span>
   );
 }
 
 function ProjectCard({ p, onOpen }: { p: SiteProjectDTO; onOpen: (id: string) => void }) {
-  const sv = stateView(p.status);
+  const { t, money } = useText();
+  const { action } = stateIcon(p.status);
   const amount = p.payoutPKR ?? p.proposedMaterialsTotalPKR + p.proposedLabourFeePKR;
   return (
     <button
       type="button"
       onClick={() => onOpen(p.id)}
-      className={`${CARD} flex w-full items-center gap-3.5 text-left transition active:scale-[0.99] hover:border-[var(--color-border-strong)] ${
-        sv.action ? "!border-[#F5CFB1]" : ""
+      className={`${CARD} flex w-full items-center gap-3.5 text-start transition hover:border-[var(--color-border-strong)] active:bg-[var(--color-surface-2)] ${
+        action ? "!border-[#F2C7A5]" : ""
       }`}
     >
       <StateTile status={p.status} />
       <div className="min-w-0 flex-1">
-        <p className="line-clamp-2 text-base font-semibold leading-snug text-[var(--color-ink)]">{p.clientName}</p>
+        <p dir="auto" className="line-clamp-2 text-base font-semibold text-[var(--color-ink)]">{p.clientName}</p>
         <p className="mt-0.5 flex items-center gap-1 text-sm text-[var(--color-ink-faint)]">
           <MapPin aria-hidden className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{p.city}</span>
+          <span dir="auto" className="truncate">{p.city}</span>
         </p>
-        <div className="mt-1.5 flex items-baseline justify-between gap-3">
-          <p className={`text-sm font-semibold ${sv.action ? "text-[var(--color-ink)]" : "text-[var(--color-ink-muted)]"}`}>{sv.label}</p>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <p className={`text-sm font-semibold ${action ? "text-[var(--color-ink)]" : "text-[var(--color-ink-muted)]"}`}>{t.status[p.status]}</p>
           {amount > 0 && p.status !== "REJECTED" && (
-            <p className="flex shrink-0 items-center gap-1 text-sm font-semibold tabular-nums text-[var(--color-ink)]">
+            <p className="num flex shrink-0 items-center gap-1 text-sm font-semibold tabular-nums text-[var(--color-ink)]">
               <Banknote aria-hidden className="h-4 w-4 text-[var(--color-ink-faint)]" />
-              {formatPKR(amount)}
+              {money(amount)}
             </p>
           )}
         </div>
       </div>
-      <ChevronRight aria-hidden className="h-5 w-5 shrink-0 text-[var(--color-ink-faint)]" />
+      <ChevronRight aria-hidden className="h-5 w-5 shrink-0 text-[var(--color-ink-faint)] rtl:rotate-180" />
     </button>
   );
 }
 
 function ProjectList({ projects, onOpen }: { projects: SiteProjectDTO[] | null; onOpen: (id: string) => void }) {
+  const { t } = useText();
+
   if (projects === null) {
     return (
-      <div className="space-y-3" aria-busy="true" aria-label="Loading your projects">
+      <div className="space-y-3" aria-busy="true" aria-label={t.loadingProjects}>
         {[0, 1].map((i) => (
           <div key={i} className={`${CARD} animate-pulse`}>
             <div className="h-4 w-2/3 rounded bg-[var(--color-surface-2)]" />
@@ -393,13 +508,13 @@ function ProjectList({ projects, onOpen }: { projects: SiteProjectDTO[] | null; 
     return (
       <div className={`${CARD} text-center`}>
         <ClipboardList className="mx-auto h-8 w-8 text-[var(--color-ink-faint)]" />
-        <p className="mt-2 text-sm font-medium text-[var(--color-ink)]">No projects yet</p>
+        <p className="mt-2 text-sm font-medium text-[var(--color-ink)]">{t.noProjects}</p>
       </div>
     );
   }
 
   // Projects waiting on the labour head come first.
-  const ordered = [...projects].sort((a, b) => Number(stateView(b.status).action) - Number(stateView(a.status).action));
+  const ordered = [...projects].sort((a, b) => Number(stateIcon(b.status).action) - Number(stateIcon(a.status).action));
 
   return (
     <div className="space-y-3">
@@ -418,15 +533,14 @@ function ProjectDetail({
   project,
   engineerId,
   onUnauthorized,
-  onBack,
   onChanged,
 }: {
   project: SiteProjectDTO;
   engineerId: string;
   onUnauthorized: (reason?: string) => void;
-  onBack: () => void;
   onChanged: (p: SiteProjectDTO) => void;
 }) {
+  const { t, money, date, dateTime } = useText();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmStart, setConfirmStart] = useState(false);
@@ -443,11 +557,11 @@ function ProjectDetail({
       });
       if (res.status === 401) return onUnauthorized();
       const data = (await res.json()) as ApiJson<{ project?: SiteProjectDTO }>;
-      if (!res.ok || !data.project) return setError(data?.error ?? "Could not update the site.");
+      if (!res.ok || !data.project) return setError(data?.error ?? t.errSite);
       onChanged(data.project);
       setConfirmStart(false);
     } catch {
-      setError("Network error. Check your connection and try again.");
+      setError(t.errNetwork);
     } finally {
       setBusy(false);
     }
@@ -460,39 +574,34 @@ function ProjectDetail({
 
   return (
     <div className="space-y-4">
-      <div className="sticky top-0 z-20 -mx-4 bg-[var(--color-bg)]/90 px-4 backdrop-blur sm:-mx-6 sm:px-6">
-        <button type="button" onClick={onBack} className="flex min-h-11 items-center gap-1.5 text-sm font-medium text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
-          <ArrowLeft className="h-5 w-5" /> Back
-        </button>
-      </div>
-
       <div className={CARD}>
         <div className="flex items-center gap-3.5">
           <StateTile status={project.status} />
           <div className="min-w-0">
-            <h2 className="text-lg font-bold leading-snug text-[var(--color-ink)]">{project.clientName}</h2>
-            <p className="text-sm font-semibold text-[var(--color-ink-muted)]">{stateView(project.status).label}</p>
+            <h2 dir="auto" className="text-lg font-semibold text-[var(--color-ink)]">{project.clientName}</h2>
+            <p className="text-sm font-medium text-[var(--color-ink-muted)]">{t.status[project.status]}</p>
           </div>
         </div>
         <p className="mt-3 flex items-start gap-1.5 text-sm text-[var(--color-ink-muted)]">
-          <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
+          <MapPin aria-hidden className="mt-1 h-4 w-4 shrink-0" />
+          <span dir="auto">
             {project.siteAddress}, {project.city}
           </span>
         </p>
-        <ul className="mt-3 flex flex-wrap gap-2">
-          {project.systemSizeKw !== null && <Chip icon={Zap} text={`${project.systemSizeKw} kW`} />}
-          {project.plannedStartDate && <Chip icon={Calendar} text={formatDate(project.plannedStartDate)} />}
-          {project.crewSize !== null && <Chip icon={Users} text={String(project.crewSize)} />}
-          {project.estimatedDays !== null && <Chip icon={Clock} text={`${project.estimatedDays} days`} />}
+        <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-[var(--color-ink)]">
+          {project.systemSizeKw !== null && <Meta icon={Zap} text={<span dir="ltr">{project.systemSizeKw} kW</span>} />}
+          {project.plannedStartDate && <Meta icon={Calendar} text={date(project.plannedStartDate)} />}
+          {project.crewSize !== null && <Meta icon={Users} text={String(project.crewSize)} />}
+          {project.estimatedDays !== null && <Meta icon={Clock} text={t.days(project.estimatedDays)} />}
         </ul>
-        {project.scopeNotes && <p className="mt-3 whitespace-pre-line text-sm text-[var(--color-ink-muted)]">{project.scopeNotes}</p>}
-        <p className="mt-3 text-xs text-[var(--color-ink-faint)]">{project.projectNumber}</p>
+        {project.scopeNotes && <p dir="auto" className="mt-3 whitespace-pre-line text-sm text-[var(--color-ink-muted)]">{project.scopeNotes}</p>}
+        <p className="num mt-3 text-xs text-[var(--color-ink-faint)]" dir="ltr">
+          {project.projectNumber}
+        </p>
       </div>
 
-      {/* What happens next, depending on where the project is */}
       {project.status === "REVISION_REQUESTED" && (
-        <Callout tone="orange" icon={Pencil} title="Fix your quotation">
+        <Callout tone="orange" icon={Pencil} title={t.fixQuotation}>
           {project.reviewNote}
         </Callout>
       )}
@@ -502,34 +611,33 @@ function ProjectDetail({
       )}
 
       {project.status === "REJECTED" && (
-        <Callout tone="red" icon={X} title="Cancelled">
+        <Callout tone="red" icon={X} title={t.cancelled}>
           {project.reviewNote}
         </Callout>
       )}
 
       {editingMaterials && (
-        <MaterialsForm project={project} engineerId={engineerId} onUnauthorized={onUnauthorized} onSubmitted={onChanged} />
+        <>
+          <MaterialsForm project={project} engineerId={engineerId} onUnauthorized={onUnauthorized} onSubmitted={onChanged} />
+          {/* room so the docked total bar never covers the last field */}
+          <div aria-hidden className="h-28" />
+        </>
       )}
 
       {project.payoutPKR !== null && project.status !== "REJECTED" && (
         <div className={CARD}>
-          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-[var(--color-ink-faint)]">
-            <Wallet className="h-3.5 w-3.5" /> Your payout
+          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--color-ink-muted)]">
+            <Wallet aria-hidden className="h-4 w-4" /> {t.payout}
           </p>
-          <p className="mt-1 text-2xl font-bold text-[var(--color-neon)]">{formatPKR(project.payoutPKR)}</p>
-          <p className="mt-1 text-xs text-[var(--color-ink-muted)]">
-            Materials {formatPKR(approvedTotal ?? 0)} + your fee {formatPKR(project.labourFeePKR ?? 0)}
+          <p className="num mt-1 text-2xl font-bold tabular-nums text-[var(--color-neon)]">{money(project.payoutPKR)}</p>
+          <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
+            {t.payoutBreakdown(money(approvedTotal ?? 0), money(project.labourFeePKR ?? 0))}
           </p>
-          <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
-            {project.status === "APPROVED" && "Paid after the site ends."}
-            {project.status === "IN_PROGRESS" && "Paid after the site ends."}
-            {project.status === "COMPLETED" && "Payment coming."}
-            {project.status === "PAID" && (
-              <>
-                Paid {project.paidAt ? formatDateTime(project.paidAt) : ""}
-                {project.paymentReference ? ` · Ref ${project.paymentReference}` : ""}
-              </>
-            )}
+          <p className="mt-2 text-sm font-medium text-[var(--color-ink)]">
+            {project.status === "APPROVED" && t.paidAfter}
+            {project.status === "IN_PROGRESS" && t.paidAfter}
+            {project.status === "COMPLETED" && t.paymentComing}
+            {project.status === "PAID" && t.paidOn(project.paidAt ? dateTime(project.paidAt) : "", project.paymentReference)}
           </p>
         </div>
       )}
@@ -537,19 +645,19 @@ function ProjectDetail({
       {project.status === "APPROVED" && (
         <div className={CARD}>
           <p className="flex items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
-            <Play className="h-5 w-5 text-[var(--color-amber-strong)]" /> Ready to start
+            <Play aria-hidden className="h-5 w-5 text-[var(--color-amber-strong)]" /> {t.readyToStart}
           </p>
           {!confirmStart ? (
             <button type="button" onClick={() => setConfirmStart(true)} className={`${BTN_PRIMARY} mt-3`}>
-              <Play className="h-5 w-5" /> Start site
+              <Play aria-hidden className="h-5 w-5" /> {t.startSite}
             </button>
           ) : (
             <div className="mt-3 flex gap-2">
               <button type="button" onClick={() => setConfirmStart(false)} disabled={busy} className={BTN_GHOST}>
-                Not yet
+                {t.notYet}
               </button>
               <button type="button" onClick={() => siteAction({ action: "START" })} disabled={busy} className={BTN_PRIMARY}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Start
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play aria-hidden className="h-4 w-4" />} {t.start}
               </button>
             </div>
           )}
@@ -565,44 +673,45 @@ function ProjectDetail({
           }}
         >
           <p className="flex items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
-            <HardHat className="h-5 w-5 text-[var(--color-amber-strong)]" /> Site running
+            <HardHat aria-hidden className="h-5 w-5 text-[var(--color-amber-strong)]" /> {t.siteRunning}
           </p>
-          {project.startedAt && <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">Since {formatDateTime(project.startedAt)}</p>}
-          <label htmlFor="completionNotes" className={`${LABEL} mt-3`}>
-            What was done
+          {project.startedAt && <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">{t.since(dateTime(project.startedAt))}</p>}
+          <label htmlFor="completionNotes" className="mb-1.5 mt-3 block text-sm font-medium text-[var(--color-ink-muted)]">
+            {t.whatWasDone}
           </label>
           <textarea
             id="completionNotes"
             rows={4}
             value={completionNotes}
             onChange={(e) => setCompletionNotes(e.target.value)}
-            placeholder="What was done on site"
+            placeholder={t.whatWasDonePlaceholder}
             className={INPUT}
           />
           <button type="submit" disabled={busy || !completionNotes.trim()} className={`${BTN_PRIMARY} mt-3`}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-5 w-5" />} End site
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square aria-hidden className="h-5 w-5" />} {t.endSite}
           </button>
         </form>
       )}
 
       {project.status === "COMPLETED" && project.completionNotes && (
         <div className={CARD}>
-          <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-ink-faint)]">
-            Your completion report{project.completedAt ? ` · ${formatDateTime(project.completedAt)}` : ""}
+          <p className="text-sm font-medium text-[var(--color-ink-muted)]">
+            {t.whatWasDone}
+            {project.completedAt ? ` · ${dateTime(project.completedAt)}` : ""}
           </p>
-          <p className="mt-1 whitespace-pre-line text-sm text-[var(--color-ink-muted)]">{project.completionNotes}</p>
+          <p className="mt-1 whitespace-pre-line text-sm text-[var(--color-ink)]">{project.completionNotes}</p>
         </div>
       )}
 
       {error && (
-        <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700">
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </p>
       )}
 
       {!editingMaterials && project.status !== "COUNTER_OFFERED" && project.materials.length > 0 && (
         <div className={CARD}>
-          <p className="text-xs font-medium uppercase tracking-wider text-[var(--color-ink-faint)]">Materials</p>
+          <p className="text-sm font-medium text-[var(--color-ink-muted)]">{t.materials}</p>
           <ul className="mt-2 divide-y divide-[var(--color-border)]">
             {project.materials.map((m) => {
               const changed =
@@ -612,17 +721,21 @@ function ProjectDetail({
                 <li key={m.id} className="py-2.5 text-sm">
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="text-[var(--color-ink)]">{m.name}</span>
-                    <span className="shrink-0 tabular-nums text-[var(--color-ink-muted)]">
-                      {formatPKR(lineTotalPKR(m.quantity, m.proposedUnitPricePKR))}
+                    <span className="num shrink-0 tabular-nums text-[var(--color-ink)]">
+                      {money(lineTotalPKR(m.quantity, m.proposedUnitPricePKR))}
                     </span>
                   </div>
-                  <p className="text-xs text-[var(--color-ink-faint)]">
-                    {m.quantity} {m.unit} × {formatPKR(m.proposedUnitPricePKR)}
+                  <p className="num text-xs text-[var(--color-ink-faint)]">
+                    {m.quantity} {m.unit} × {money(m.proposedUnitPricePKR)}
                   </p>
                   {changed && (
-                    <p className="mt-0.5 text-xs text-[var(--color-neon)]">
-                      Approved: {m.approvedQuantity} {m.unit} × {formatPKR(m.approvedUnitPricePKR ?? 0)} ={" "}
-                      {formatPKR(lineTotalPKR(m.approvedQuantity ?? 0, m.approvedUnitPricePKR ?? 0))}
+                    <p className="num mt-0.5 text-xs text-[var(--color-neon)]">
+                      {t.approvedLine(
+                        String(m.approvedQuantity),
+                        m.unit,
+                        money(m.approvedUnitPricePKR ?? 0),
+                        money(lineTotalPKR(m.approvedQuantity ?? 0, m.approvedUnitPricePKR ?? 0)),
+                      )}
                     </p>
                   )}
                 </li>
@@ -630,13 +743,13 @@ function ProjectDetail({
             })}
           </ul>
           <div className="mt-2 flex items-baseline justify-between border-t border-[var(--color-border)] pt-3 text-sm">
-            <span className="text-[var(--color-ink-muted)]">You asked</span>
-            <span className="font-semibold tabular-nums text-[var(--color-ink)]">{formatPKR(project.proposedMaterialsTotalPKR)}</span>
+            <span className="text-[var(--color-ink-muted)]">{t.youAsked}</span>
+            <span className="num font-semibold tabular-nums text-[var(--color-ink)]">{money(project.proposedMaterialsTotalPKR)}</span>
           </div>
           {approvedTotal !== null && (
             <div className="mt-1 flex items-baseline justify-between text-sm">
-              <span className="text-[var(--color-ink-muted)]">Approved</span>
-              <span className="font-semibold tabular-nums text-[var(--color-neon)]">{formatPKR(approvedTotal)}</span>
+              <span className="text-[var(--color-ink-muted)]">{t.approved}</span>
+              <span className="num font-semibold tabular-nums text-[var(--color-neon)]">{money(approvedTotal)}</span>
             </div>
           )}
         </div>
@@ -647,11 +760,11 @@ function ProjectDetail({
   );
 }
 
-function Chip({ icon: Icon, text }: { icon: LucideIcon; text: string }) {
+function Meta({ icon: Icon, text }: { icon: LucideIcon; text: React.ReactNode }) {
   return (
-    <li className="flex items-center gap-1.5 rounded-full bg-[var(--color-surface-2)] px-3 py-1.5 text-sm font-medium text-[var(--color-ink)]">
-      <Icon aria-hidden className="h-4 w-4 text-[var(--color-amber-strong)]" />
-      {text}
+    <li className="flex items-center gap-1.5">
+      <Icon aria-hidden className="h-4 w-4 shrink-0 text-[var(--color-amber-strong)]" />
+      <span>{text}</span>
     </li>
   );
 }
@@ -672,8 +785,8 @@ function Callout({
     red: "border-red-200 bg-red-50 text-red-900",
   }[tone];
   return (
-    <div className={`flex items-start gap-3 rounded-2xl border p-4 text-sm ${toneClass}`}>
-      <Icon aria-hidden className="mt-0.5 h-6 w-6 shrink-0" />
+    <div className={`flex items-start gap-3 rounded-xl border p-4 text-sm ${toneClass}`}>
+      <Icon aria-hidden className="mt-0.5 h-5 w-5 shrink-0" />
       <div className="min-w-0">
         <p className="text-base font-semibold">{title}</p>
         <div className="mt-0.5 whitespace-pre-line">{children}</div>
@@ -693,6 +806,7 @@ function OfferCard({
   onUnauthorized: (reason?: string) => void;
   onChanged: (p: SiteProjectDTO) => void;
 }) {
+  const { t, money } = useText();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [declining, setDeclining] = useState(false);
@@ -709,10 +823,10 @@ function OfferCard({
       });
       if (res.status === 401) return onUnauthorized();
       const data = (await res.json()) as ApiJson<{ project?: SiteProjectDTO }>;
-      if (!res.ok || !data.project) return setError(data?.error ?? "Could not send your answer.");
+      if (!res.ok || !data.project) return setError(data?.error ?? t.errAnswer);
       onChanged(data.project);
     } catch {
-      setError("Network error. Check your connection and try again.");
+      setError(t.errNetwork);
     } finally {
       setBusy(false);
     }
@@ -722,66 +836,59 @@ function OfferCard({
   const yourTotal = project.proposedMaterialsTotalPKR + project.proposedLabourFeePKR;
 
   return (
-    <div className="space-y-3 rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
+    <div className="space-y-3 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
       <p className="flex items-center gap-2 text-base font-semibold">
-        <Handshake className="h-6 w-6" /> Offer for you
+        <Handshake aria-hidden className="h-5 w-5" /> {t.offerForYou}
       </p>
       {project.reviewNote && <p className="whitespace-pre-line">{project.reviewNote}</p>}
 
-      <ul className="space-y-1.5">
+      <ul className="space-y-2">
         {project.materials.map((m) => {
           const changed = m.approvedQuantity !== m.quantity || m.approvedUnitPricePKR !== m.proposedUnitPricePKR;
           return (
             <li key={m.id} className="flex items-baseline justify-between gap-3">
               <span className="min-w-0">
                 {m.name}
-                <span className="block text-[11px] opacity-70">
-                  {changed ? (
-                    <>
-                      You asked {m.quantity} {m.unit} × {formatPKR(m.proposedUnitPricePKR)}. Offer: {m.approvedQuantity} {m.unit} ×{" "}
-                      {formatPKR(m.approvedUnitPricePKR ?? 0)}
-                    </>
-                  ) : (
-                    <>
-                      {m.quantity} {m.unit} × {formatPKR(m.proposedUnitPricePKR)}
-                    </>
-                  )}
+                <span className="num block text-xs opacity-75">
+                  {changed
+                    ? t.askedLine(String(m.quantity), m.unit, money(m.proposedUnitPricePKR), String(m.approvedQuantity), money(m.approvedUnitPricePKR ?? 0))
+                    : `${m.quantity} ${m.unit} × ${money(m.proposedUnitPricePKR)}`}
                 </span>
               </span>
-              <span className="shrink-0 tabular-nums">{formatPKR(lineTotalPKR(m.approvedQuantity ?? 0, m.approvedUnitPricePKR ?? 0))}</span>
+              <span className="num shrink-0 tabular-nums">{money(lineTotalPKR(m.approvedQuantity ?? 0, m.approvedUnitPricePKR ?? 0))}</span>
             </li>
           );
         })}
         <li className="flex items-baseline justify-between gap-3">
           <span>
-            Your fee
+            {t.yourFee}
             {project.labourFeePKR !== project.proposedLabourFeePKR && (
-              <span className="block text-[11px] opacity-70">You asked {formatPKR(project.proposedLabourFeePKR)}</span>
+              <span className="num block text-xs opacity-75">{t.youAskedAmount(money(project.proposedLabourFeePKR))}</span>
             )}
           </span>
-          <span className="shrink-0 tabular-nums">{formatPKR(project.labourFeePKR ?? 0)}</span>
+          <span className="num shrink-0 tabular-nums">{money(project.labourFeePKR ?? 0)}</span>
         </li>
       </ul>
 
       <div className="flex items-baseline justify-between border-t border-teal-200 pt-2">
         <span>
-          Offer total
-          <span className="block text-[11px] opacity-70">You asked {formatPKR(yourTotal)}</span>
+          {t.offerTotal}
+          <span className="num block text-xs opacity-75">{t.youAskedAmount(money(yourTotal))}</span>
         </span>
-        <span className="text-xl font-bold tabular-nums">{formatPKR(offerTotal)}</span>
+        <span className="num text-xl font-bold tabular-nums">{money(offerTotal)}</span>
       </div>
 
       {declining && (
         <div>
-          <label htmlFor="decline-note" className="mb-1 block text-[11px] opacity-80">
-            What should change?
+          <label htmlFor="decline-note" className="mb-1 block text-sm">
+            {t.whatShouldChange}
           </label>
           <textarea id="decline-note" value={note} onChange={(e) => setNote(e.target.value)} rows={3} className={INPUT} />
         </div>
       )}
 
       {error && (
-        <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-700">
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
           {error}
         </p>
       )}
@@ -789,16 +896,16 @@ function OfferCard({
       {!declining ? (
         <div className="flex gap-2">
           <button type="button" onClick={() => setDeclining(true)} disabled={busy} className={BTN_GHOST}>
-            <Pencil className="h-4 w-4" /> Change
+            <Pencil aria-hidden className="h-4 w-4" /> {t.changeButton}
           </button>
           <button type="button" onClick={() => respond({ decision: "ACCEPT" })} disabled={busy} className={BTN_PRIMARY}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />} Accept
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 aria-hidden className="h-5 w-5" />} {t.accept}
           </button>
         </div>
       ) : (
         <div className="flex gap-2">
           <button type="button" onClick={() => setDeclining(false)} disabled={busy} className={BTN_GHOST}>
-            Back
+            {t.back}
           </button>
           <button
             type="button"
@@ -806,7 +913,7 @@ function OfferCard({
             disabled={busy || note.trim().length === 0}
             className={BTN_PRIMARY}
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send aria-hidden className="h-4 w-4 rtl:-scale-x-100" />} {t.send}
           </button>
         </div>
       )}
@@ -815,21 +922,22 @@ function OfferCard({
 }
 
 function Timeline({ project }: { project: SiteProjectDTO }) {
+  const { t, dateTime } = useText();
   return (
     <details className={`${CARD} group`}>
       <summary className="flex min-h-9 cursor-pointer list-none items-center gap-2 text-sm font-semibold text-[var(--color-ink)] marker:content-none">
         <History aria-hidden className="h-5 w-5 text-[var(--color-ink-muted)]" />
-        <span className="flex-1">History</span>
+        <span className="flex-1">{t.history}</span>
         <ChevronDown aria-hidden className="h-4 w-4 text-[var(--color-ink-faint)] transition-transform group-open:rotate-180" />
       </summary>
       <ol className="mt-3 space-y-3">
         {project.events.map((e) => (
           <li key={e.id} className="flex gap-3 text-sm">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-neon-dim)]" />
+            <CheckCircle2 aria-hidden className="mt-1 h-4 w-4 shrink-0 text-[var(--color-neon)]" />
             <div className="min-w-0">
-              <p className="text-[var(--color-ink)]">{EVENT_LABEL[e.type]}</p>
+              <p className="text-[var(--color-ink)]">{t.events[e.type]}</p>
               <p className="text-xs text-[var(--color-ink-faint)]">
-                {e.actorLabel} · {formatDateTime(e.createdAt)}
+                {e.actorLabel} · {dateTime(e.createdAt)}
               </p>
               {e.note && <p className="mt-0.5 whitespace-pre-line text-xs text-[var(--color-ink-muted)]">{e.note}</p>}
             </div>
@@ -872,6 +980,7 @@ function MaterialsForm({
   onUnauthorized: (reason?: string) => void;
   onSubmitted: (p: SiteProjectDTO) => void;
 }) {
+  const { t, lang, money } = useText();
   // After "changes requested" the earlier list comes back pre-filled to fix.
   const [rows, setRows] = useState<MaterialRow[]>(
     project.materials.length > 0
@@ -908,6 +1017,7 @@ function MaterialsForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The saved name is always the English one, so the admin reads one list.
   function pickItem(key: number, value: string) {
     if (value === "") return updateRow(key, { itemKey: "", custom: false, name: "" });
     if (value === CUSTOM_VALUE) return updateRow(key, { itemKey: "", custom: true, name: "" });
@@ -924,9 +1034,9 @@ function MaterialsForm({
   // rules the server enforces). Problems only show once they press Send.
   const [showIssues, setShowIssues] = useState(false);
   function lineIssue(r: MaterialRow): string | null {
-    if (r.name.trim() === "") return "Choose an item";
-    if (!(Number(r.quantity) > 0)) return "Enter a quantity";
-    if (!(Number(r.unitPrice) > 0)) return "Enter the price";
+    if (r.name.trim() === "") return t.issueChooseItem;
+    if (!(Number(r.quantity) > 0)) return t.issueQty;
+    if (!(Number(r.unitPrice) > 0)) return t.issuePrice;
     return null;
   }
 
@@ -946,7 +1056,7 @@ function MaterialsForm({
     const firstBad = issues.findIndex((x) => x !== null);
     if (firstBad !== -1) {
       setShowIssues(true);
-      setError(`Item ${firstBad + 1}: ${issues[firstBad]}.`);
+      setError(t.itemIssue(firstBad + 1, issues[firstBad] ?? ""));
       document.getElementById(`row-${rows[firstBad].key}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
@@ -971,19 +1081,21 @@ function MaterialsForm({
       });
       if (res.status === 401) return onUnauthorized();
       const data = (await res.json()) as ApiJson<{ project?: SiteProjectDTO }>;
-      if (!res.ok || !data.project) return setError(data?.error ?? "Could not send the materials.");
+      if (!res.ok || !data.project) return setError(data?.error ?? t.errSend);
       onSubmitted(data.project);
     } catch {
-      setError("Network error. Check your connection and try again.");
+      setError(t.errNetwork);
     } finally {
       setBusy(false);
     }
   }
 
+  const label = "mb-1 flex items-center gap-1.5 text-sm font-medium text-[var(--color-ink-muted)]";
+
   return (
-    <form onSubmit={handleSubmit} className={`${CARD} space-y-3`}>
-      <p className="flex items-center gap-1.5 text-sm font-semibold text-[var(--color-ink)]">
-        <FileText className="h-5 w-5 text-[var(--color-amber-strong)]" /> Your quotation
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <p className="flex items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
+        <FileText aria-hidden className="h-5 w-5 text-[var(--color-amber-strong)]" /> {t.yourQuotation}
       </p>
 
       {rows.map((r, i) => {
@@ -992,66 +1104,62 @@ function MaterialsForm({
           <div
             key={r.key}
             id={`row-${r.key}`}
-            className={`scroll-mt-20 space-y-2 rounded-2xl border bg-[var(--color-surface-2)] p-3 ${
-              issue ? "border-red-400" : "border-[var(--color-border)]"
-            }`}
+            className={`${CARD} scroll-mt-20 space-y-3 ${issue ? "!border-red-300" : ""}`}
           >
             <div className="flex items-center justify-between">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-faint)]">Item {i + 1}</p>
+              <p className="text-sm font-semibold text-[var(--color-ink-muted)]">{t.item(i + 1)}</p>
               {rows.length > 1 && (
                 <button
                   type="button"
-                  aria-label={`Remove item ${i + 1}`}
+                  aria-label={t.removeItem(i + 1)}
                   onClick={() => setRows((prev) => prev.filter((x) => x.key !== r.key))}
-                  className="-mr-2 flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition hover:text-red-600"
+                  className="-me-2 flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition hover:text-red-600"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 aria-hidden className="h-4 w-4" />
                 </button>
               )}
             </div>
             <select
-              aria-label={`Item ${i + 1}`}
+              aria-label={t.item(i + 1)}
               value={r.custom ? CUSTOM_VALUE : r.itemKey}
               onChange={(e) => pickItem(r.key, e.target.value)}
               className={INPUT}
             >
-              <option value="">Choose an item…</option>
-              {catalog.map((g) => (
-                <optgroup key={g.group} label={g.label}>
-                  {g.items.map((it) => (
-                    <option key={`${g.group}::${it.code}`} value={`${g.group}::${it.code}`}>
-                      {it.label}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-              <option value={CUSTOM_VALUE}>Other (type the name)</option>
+              <option value="">{t.chooseItem}</option>
+              {catalog.flatMap((g) =>
+                g.items.map((it) => (
+                  <option key={`${g.group}::${it.code}`} value={`${g.group}::${it.code}`}>
+                    {catalogEntryLabel(lang, g, it)}
+                  </option>
+                )),
+              )}
+              <option value={CUSTOM_VALUE}>{t.otherOption}</option>
             </select>
             {r.custom && (
               <input
-                aria-label={`Custom item ${i + 1} name`}
+                aria-label={t.itemName}
                 value={r.name}
                 onChange={(e) => updateRow(r.key, { name: e.target.value })}
-                placeholder="Item name"
+                placeholder={t.itemName}
                 className={INPUT}
               />
             )}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label htmlFor={`qty-${r.key}`} className="mb-1 flex items-center gap-1 text-xs font-medium text-[var(--color-ink-muted)]">
-                  <Hash aria-hidden className="h-3.5 w-3.5" /> Qty
+                <label htmlFor={`qty-${r.key}`} className={label}>
+                  <Hash aria-hidden className="h-4 w-4" /> {t.qty}
                 </label>
                 <input id={`qty-${r.key}`} inputMode="decimal" value={r.quantity} onChange={(e) => updateRow(r.key, { quantity: digitsOnly(e.target.value) })} className={INPUT} />
               </div>
               <div>
-                <label htmlFor={`unit-${r.key}`} className="mb-1 flex items-center gap-1 text-xs font-medium text-[var(--color-ink-muted)]">
-                  <Ruler aria-hidden className="h-3.5 w-3.5" /> Unit
+                <label htmlFor={`unit-${r.key}`} className={label}>
+                  <Ruler aria-hidden className="h-4 w-4" /> {t.unit}
                 </label>
                 <input id={`unit-${r.key}`} list="unit-options" value={r.unit} onChange={(e) => updateRow(r.key, { unit: e.target.value })} className={INPUT} />
               </div>
-              <div className="col-span-2 sm:col-span-1">
-                <label htmlFor={`price-${r.key}`} className="mb-1 flex items-center gap-1 text-xs font-medium text-[var(--color-ink-muted)]">
-                  <Banknote aria-hidden className="h-3.5 w-3.5" /> Rs each
+              <div className="col-span-2">
+                <label htmlFor={`price-${r.key}`} className={label}>
+                  <Banknote aria-hidden className="h-4 w-4" /> {t.rsEach}
                 </label>
                 <input id={`price-${r.key}`} inputMode="decimal" value={r.unitPrice} onChange={(e) => updateRow(r.key, { unitPrice: digitsOnly(e.target.value) })} className={INPUT} />
               </div>
@@ -1062,8 +1170,8 @@ function MaterialsForm({
               ) : (
                 Number(r.quantity) > 0 &&
                 Number(r.unitPrice) > 0 && (
-                  <span className="font-semibold tabular-nums text-[var(--color-ink)]">
-                    = {formatPKR(lineTotalPKR(Number(r.quantity), Number(r.unitPrice)))}
+                  <span className="num font-semibold tabular-nums text-[var(--color-ink)]">
+                    = {money(lineTotalPKR(Number(r.quantity), Number(r.unitPrice)))}
                   </span>
                 )
               )}
@@ -1077,7 +1185,7 @@ function MaterialsForm({
         ))}
       </datalist>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-3">
         <button
           type="button"
           onClick={() => {
@@ -1086,7 +1194,7 @@ function MaterialsForm({
           }}
           className={BTN_GHOST}
         >
-          <Plus className="h-4 w-4" /> Item
+          <Plus aria-hidden className="h-4 w-4" /> {t.addItem}
         </button>
         <button
           type="button"
@@ -1096,36 +1204,38 @@ function MaterialsForm({
           }}
           className={BTN_GHOST}
         >
-          <Pencil className="h-4 w-4" /> Other
+          <Pencil aria-hidden className="h-4 w-4" /> {t.addOther}
         </button>
       </div>
 
-      <div>
-        <label htmlFor="service-fee" className="mb-1 flex items-center gap-1.5 text-sm font-medium text-[var(--color-ink-muted)]">
-          <Wrench aria-hidden className="h-4 w-4" /> Your fee (Rs)
+      <div className={CARD}>
+        <label htmlFor="service-fee" className={label}>
+          <Wrench aria-hidden className="h-4 w-4" /> {t.yourFeeRs}
         </label>
         <input id="service-fee" inputMode="decimal" value={fee} onChange={(e) => setFee(digitsOnly(e.target.value))} className={INPUT} />
       </div>
 
-      {/* Stays at the bottom of the screen while they fill in the lines, so
-          the running total and the Send button are never a long scroll away. */}
-      <div className="sticky bottom-3 z-10 -mx-1 rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-bg)]/90 p-3 shadow-xl backdrop-blur">
-        {error && (
-          <p role="alert" className="mb-2 rounded-xl border border-red-500/30 bg-red-500/10 p-2.5 text-sm text-red-700">
-            {error}
-          </p>
-        )}
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-ink-muted)]">
-              <Banknote aria-hidden className="h-4 w-4" /> Total
+      {/* Docked to the bottom of the screen while they fill in the lines, so the
+          running total and the Send button are never a long scroll away. */}
+      <div className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-[var(--color-border)] bg-white/95 pt-3 backdrop-blur">
+        <div className="mx-auto max-w-xl px-4">
+          {error && (
+            <p role="alert" className="mb-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-sm text-red-700">
+              {error}
             </p>
-            <p className="text-xl font-bold tabular-nums leading-tight text-[var(--color-ink)]">{formatPKR(total + (Number(fee) || 0))}</p>
+          )}
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-ink-muted)]">
+                <Banknote aria-hidden className="h-4 w-4" /> {t.total}
+              </p>
+              <p className="num text-xl font-bold tabular-nums text-[var(--color-ink)]">{money(total + (Number(fee) || 0))}</p>
+            </div>
+            <button type="submit" disabled={busy} className={`${BTN_PRIMARY} !w-auto shrink-0 px-6`}>
+              {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send aria-hidden className="h-5 w-5 rtl:-scale-x-100" />}
+              {project.status === "REVISION_REQUESTED" ? t.resubmit : t.send}
+            </button>
           </div>
-          <button type="submit" disabled={busy} className={`${BTN_PRIMARY} !w-auto shrink-0 px-6`}>
-            {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-            {project.status === "REVISION_REQUESTED" ? "Resubmit" : "Send"}
-          </button>
         </div>
       </div>
     </form>
