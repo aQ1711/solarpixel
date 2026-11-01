@@ -65,19 +65,19 @@ const BTN_GHOST =
 // their dark theme.
 const LIGHT_THEME = {
   colorScheme: "light",
-  "--color-bg": "#F6F8FB",
+  "--color-bg": "#F8FAFD",
   "--color-surface": "#FFFFFF",
-  "--color-surface-2": "#EDF2F8",
-  "--color-border": "#D5DFEC",
-  "--color-border-strong": "#B8C7DB",
-  "--color-ink": "#1E3550",
-  "--color-ink-muted": "#51607A",
+  "--color-surface-2": "#F1F5FA",
+  "--color-border": "#E1E8F2",
+  "--color-border-strong": "#CBD7E6",
+  "--color-ink": "#2A405C",
+  "--color-ink-muted": "#55657F",
   "--color-ink-faint": "#66758E",
-  "--color-amber": "#C2571F",
-  "--color-amber-strong": "#A9470F",
-  "--color-amber-ink": "#FFFFFF",
-  "--color-neon": "#15803D",
-  "--color-neon-dim": "#7FC4A0",
+  "--color-amber": "#F2A56F",
+  "--color-amber-strong": "#D4692F",
+  "--color-amber-ink": "#3A1D0B",
+  "--color-neon": "#2A8559",
+  "--color-neon-dim": "#A5D6BC",
 } as React.CSSProperties;
 
 const LABOUR_HEAD_KEY = "solarpixel.labourHeadId";
@@ -209,7 +209,7 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
       <div className="mx-auto max-w-xl">
         <header className="mb-3 flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <BrandMark className="h-6 w-6 shrink-0" />
+            <BrandMark className="h-9 w-9 shrink-0" />
             <h1 className="truncate text-lg font-bold text-[var(--color-ink)]">Site Projects</h1>
           </div>
           {view.kind === "list" && (
@@ -232,7 +232,7 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
           view.kind === "list" && (
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="flex min-w-0 items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
-                <User aria-hidden className="h-5 w-5 shrink-0 text-[var(--color-amber)]" />
+                <User aria-hidden className="h-5 w-5 shrink-0 text-[var(--color-amber-strong)]" />
                 <span className="truncate">{me.name}</span>
               </p>
               <button
@@ -330,13 +330,13 @@ function stateView(status: SiteProjectStatus): StateView {
 function StateTile({ status }: { status: SiteProjectStatus }) {
   const { icon: Icon, action } = stateView(status);
   const tone = action
-    ? "bg-[var(--color-amber)] text-white"
+    ? "bg-[#FDEBDD] text-[var(--color-amber-strong)]"
     : status === "PAID"
       ? "bg-emerald-100 text-emerald-700"
       : "bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]";
   return (
-    <span aria-hidden className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${tone}`}>
-      <Icon className="h-6 w-6" />
+    <span aria-hidden className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone}`}>
+      <Icon className="h-5 w-5" />
     </span>
   );
 }
@@ -349,7 +349,7 @@ function ProjectCard({ p, onOpen }: { p: SiteProjectDTO; onOpen: (id: string) =>
       type="button"
       onClick={() => onOpen(p.id)}
       className={`${CARD} flex w-full items-center gap-3.5 text-left transition active:scale-[0.99] hover:border-[var(--color-border-strong)] ${
-        sv.action ? "!border-[var(--color-amber)]/45" : ""
+        sv.action ? "!border-[#F5CFB1]" : ""
       }`}
     >
       <StateTile status={p.status} />
@@ -360,7 +360,7 @@ function ProjectCard({ p, onOpen }: { p: SiteProjectDTO; onOpen: (id: string) =>
           <span className="truncate">{p.city}</span>
         </p>
         <div className="mt-1.5 flex items-baseline justify-between gap-3">
-          <p className={`text-sm font-semibold ${sv.action ? "text-[var(--color-amber-strong)]" : "text-[var(--color-ink-muted)]"}`}>{sv.label}</p>
+          <p className={`text-sm font-semibold ${sv.action ? "text-[var(--color-ink)]" : "text-[var(--color-ink-muted)]"}`}>{sv.label}</p>
           {amount > 0 && p.status !== "REJECTED" && (
             <p className="flex shrink-0 items-center gap-1 text-sm font-semibold tabular-nums text-[var(--color-ink)]">
               <Banknote aria-hidden className="h-4 w-4 text-[var(--color-ink-faint)]" />
@@ -537,7 +537,7 @@ function ProjectDetail({
       {project.status === "APPROVED" && (
         <div className={CARD}>
           <p className="flex items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
-            <Play className="h-5 w-5 text-[var(--color-amber)]" /> Ready to start
+            <Play className="h-5 w-5 text-[var(--color-amber-strong)]" /> Ready to start
           </p>
           {!confirmStart ? (
             <button type="button" onClick={() => setConfirmStart(true)} className={`${BTN_PRIMARY} mt-3`}>
@@ -565,7 +565,7 @@ function ProjectDetail({
           }}
         >
           <p className="flex items-center gap-2 text-base font-semibold text-[var(--color-ink)]">
-            <HardHat className="h-5 w-5 text-[var(--color-amber)]" /> Site running
+            <HardHat className="h-5 w-5 text-[var(--color-amber-strong)]" /> Site running
           </p>
           {project.startedAt && <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">Since {formatDateTime(project.startedAt)}</p>}
           <label htmlFor="completionNotes" className={`${LABEL} mt-3`}>
@@ -650,7 +650,7 @@ function ProjectDetail({
 function Chip({ icon: Icon, text }: { icon: LucideIcon; text: string }) {
   return (
     <li className="flex items-center gap-1.5 rounded-full bg-[var(--color-surface-2)] px-3 py-1.5 text-sm font-medium text-[var(--color-ink)]">
-      <Icon aria-hidden className="h-4 w-4 text-[var(--color-amber)]" />
+      <Icon aria-hidden className="h-4 w-4 text-[var(--color-amber-strong)]" />
       {text}
     </li>
   );
@@ -983,7 +983,7 @@ function MaterialsForm({
   return (
     <form onSubmit={handleSubmit} className={`${CARD} space-y-3`}>
       <p className="flex items-center gap-1.5 text-sm font-semibold text-[var(--color-ink)]">
-        <FileText className="h-5 w-5 text-[var(--color-amber)]" /> Your quotation
+        <FileText className="h-5 w-5 text-[var(--color-amber-strong)]" /> Your quotation
       </p>
 
       {rows.map((r, i) => {
