@@ -6,8 +6,8 @@ import type { SiteProjectEventType, SiteProjectStatus } from "@/lib/siteProjects
  * Text that comes from the admin or the server (review notes, scope notes,
  * custom item names, server error messages) is shown as written.
  *
- * Item names saved with a quotation are always the English ones, so the admin
- * sees one consistent list; Urdu is only how the picker is shown.
+ * Item (SKU) names are never translated: the picker, the saved quotation and
+ * the admin all use the catalog's English names.
  */
 
 export type Lang = "en" | "ur";
@@ -82,9 +82,6 @@ export interface Dict {
   errSite: string;
   errAnswer: string;
   errSend: string;
-  /** Urdu names for the catalog the picker shows. English uses the server's own labels. */
-  catalogGroups: Record<string, string>;
-  catalogItems: Record<string, string>;
 }
 
 const en: Dict = {
@@ -180,8 +177,6 @@ const en: Dict = {
   errSite: "Could not update the site.",
   errAnswer: "Could not send your answer.",
   errSend: "Could not send the materials.",
-  catalogGroups: {},
-  catalogItems: {},
 };
 
 const ur: Dict = {
@@ -277,26 +272,6 @@ const ur: Dict = {
   errSite: "سائٹ اپ ڈیٹ نہیں ہو سکی۔",
   errAnswer: "آپ کا جواب نہیں بھیجا جا سکا۔",
   errSend: "کوٹیشن نہیں بھیجی جا سکی۔",
-  catalogGroups: {
-    DC_CABLE: "ڈی سی کیبل",
-    AC_CABLE: "اے سی کیبل",
-    BREAKERS: "بریکر",
-    MOUNTING_STRUCTURE: "اسٹرکچر",
-    LABOR: "مزدوری",
-    SITE_WORKS: "سائٹ کا کام",
-  },
-  catalogItems: {
-    PAKISTAN_CABLES: "پاکستان کیبلز",
-    FAST_CABLES: "فاسٹ کیبلز",
-    SCHNEIDER_DB_BOX: "شنائیڈر ڈی بی باکس",
-    CHINT_STANDARD: "چنٹ اسٹینڈرڈ",
-    STANDARD_L1_L2: "L-2 اسٹینڈرڈ اسٹرکچر",
-    CUSTOM_ELEVATED: "اونچا کسٹم اسٹرکچر",
-    STANDARD_INSTALLATION: "اسٹینڈرڈ انسٹالیشن",
-    CIVIL_BLOCK: "سول بلاکس",
-    EARTHING_BORE: "ارتھنگ اور بورنگ",
-    LIGHTNING_ARRESTOR: "لائٹننگ ارسٹر",
-  },
 };
 
 export const TEXT: Record<Lang, Dict> = { en, ur };
@@ -316,10 +291,7 @@ export const dateTimeText = (lang: Lang, iso: string) =>
     ? new Date(iso).toLocaleString(LOCALE.ur, { dateStyle: "medium", timeStyle: "short", hourCycle: "h23" })
     : formatDateTime(iso, LOCALE.en);
 
-/** A picker entry reads "group · item" so two items with the same name stay apart. */
-export function catalogEntryLabel(lang: Lang, group: { group: string; label: string }, item: { code: string; label: string }): string {
-  const d = TEXT[lang];
-  const g = d.catalogGroups[group.group] ?? group.label;
-  const i = d.catalogItems[item.code] ?? item.label;
-  return `${g} · ${i}`;
+/** A picker entry reads "group · item" so two items with the same name stay apart. Always English, as in the catalog. */
+export function catalogEntryLabel(group: { label: string }, item: { label: string }): string {
+  return `${group.label} · ${item.label}`;
 }

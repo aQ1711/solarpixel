@@ -383,11 +383,16 @@ function AppBar({
         ) : (
           <>
             <BrandMark className="h-8 w-8 shrink-0" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-semibold text-[var(--color-ink)]">
+            {/* One line, aligned on the text baseline: stacked, the tall Urdu letters
+                always sat lower than the English name beside them. */}
+            <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
+              <p className="shrink-0 text-[15px] font-semibold leading-none text-[var(--color-ink)]">
                 <span dir="ltr">Solar Pixel</span>
               </p>
-              <p className="truncate text-xs text-[var(--color-ink-muted)]">{t.labourHead}</p>
+              <span aria-hidden className="h-3.5 w-px shrink-0 self-center bg-[var(--color-border-strong)]" />
+              <p className={`truncate font-medium text-[var(--color-ink-muted)] ${lang === "ur" ? "text-sm leading-[1.6]" : "text-[13px] leading-none"}`}>
+                {t.labourHead}
+              </p>
             </div>
           </>
         )}
@@ -980,7 +985,7 @@ function MaterialsForm({
   onUnauthorized: (reason?: string) => void;
   onSubmitted: (p: SiteProjectDTO) => void;
 }) {
-  const { t, lang, money } = useText();
+  const { t, money } = useText();
   // After "changes requested" the earlier list comes back pre-filled to fix.
   const [rows, setRows] = useState<MaterialRow[]>(
     project.materials.length > 0
@@ -1017,7 +1022,7 @@ function MaterialsForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The saved name is always the English one, so the admin reads one list.
+  // Item names are the catalog's English ones everywhere, so the SKU never changes.
   function pickItem(key: number, value: string) {
     if (value === "") return updateRow(key, { itemKey: "", custom: false, name: "" });
     if (value === CUSTOM_VALUE) return updateRow(key, { itemKey: "", custom: true, name: "" });
@@ -1129,7 +1134,7 @@ function MaterialsForm({
               {catalog.flatMap((g) =>
                 g.items.map((it) => (
                   <option key={`${g.group}::${it.code}`} value={`${g.group}::${it.code}`}>
-                    {catalogEntryLabel(lang, g, it)}
+                    {catalogEntryLabel(g, it)}
                   </option>
                 )),
               )}
