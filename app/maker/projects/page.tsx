@@ -42,6 +42,26 @@ const BTN_PRIMARY =
 const BTN_GHOST =
   "flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-3 text-sm font-medium text-[var(--color-ink-muted)] transition hover:text-[var(--color-ink)] disabled:opacity-60";
 
+// Light look in the storefront's navy, blue-grey and orange, set on this page
+// only by overriding the shared tokens, so the Survey and Checker screens keep
+// their dark theme.
+const LIGHT_THEME = {
+  colorScheme: "light",
+  "--color-bg": "#F6F8FB",
+  "--color-surface": "#FFFFFF",
+  "--color-surface-2": "#EDF2F8",
+  "--color-border": "#D5DFEC",
+  "--color-border-strong": "#B8C7DB",
+  "--color-ink": "#1E3550",
+  "--color-ink-muted": "#51607A",
+  "--color-ink-faint": "#66758E",
+  "--color-amber": "#C2571F",
+  "--color-amber-strong": "#A9470F",
+  "--color-amber-ink": "#FFFFFF",
+  "--color-neon": "#15803D",
+  "--color-neon-dim": "#7FC4A0",
+} as React.CSSProperties;
+
 const LABOUR_HEAD_KEY = "solarpixel.labourHeadId";
 
 interface Engineer {
@@ -167,7 +187,7 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
   const me = engineers.find((e) => e.id === engineerId) ?? null;
 
   return (
-    <main style={{ colorScheme: "dark" }} className="min-h-dvh bg-[var(--color-bg)] px-4 py-6 sm:px-6">
+    <main style={LIGHT_THEME} className="min-h-dvh bg-[var(--color-bg)] px-4 py-6 sm:px-6">
       <div className="mx-auto max-w-xl">
         <header className={view.kind === "list" ? "mb-5" : "mb-1"}>
           <div className="mb-1.5 flex items-center gap-1.5">
@@ -194,7 +214,7 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
         </header>
 
         {error && (
-          <p role="alert" className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+          <p role="alert" className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700">
             {error}
           </p>
         )}
@@ -282,15 +302,15 @@ function nextStep(p: SiteProjectDTO): { text: string; tone: string } {
   const muted = "text-[var(--color-ink-muted)]";
   switch (p.status) {
     case "ASSIGNED":
-      return { text: "Send your quotation", tone: "text-indigo-300" };
+      return { text: "Send your quotation", tone: "text-indigo-700" };
     case "REVISION_REQUESTED":
-      return { text: "Fix your quotation", tone: "text-orange-300" };
+      return { text: "Fix your quotation", tone: "text-orange-700" };
     case "COUNTER_OFFERED":
-      return { text: "The admin sent an offer. Answer it", tone: "text-teal-300" };
+      return { text: "The admin sent an offer. Answer it", tone: "text-teal-700" };
     case "APPROVED":
-      return { text: "Prices agreed. Start the site", tone: "text-emerald-300" };
+      return { text: "Prices agreed. Start the site", tone: "text-emerald-700" };
     case "IN_PROGRESS":
-      return { text: "Site running. End it when done", tone: "text-sky-300" };
+      return { text: "Site running. End it when done", tone: "text-sky-700" };
     case "SUBMITTED":
       return { text: "The admin is checking your quotation", tone: muted };
     case "COMPLETED":
@@ -453,7 +473,7 @@ function ProjectDetail({
             <p className="text-xs text-[var(--color-ink-faint)]">{project.projectNumber}</p>
             <h2 className="mt-0.5 text-lg font-semibold text-[var(--color-ink)]">{project.clientName}</h2>
           </div>
-          <StatusBadge status={project.status} dark />
+          <StatusBadge status={project.status} />
         </div>
         <p className="mt-2 flex items-start gap-1.5 text-sm text-[var(--color-ink-muted)]">
           <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -587,7 +607,7 @@ function ProjectDetail({
       )}
 
       {error && (
-        <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+        <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700">
           {error}
         </p>
       )}
@@ -676,7 +696,7 @@ function Stepper({ status }: { status: SiteProjectStatus }) {
               <span
                 className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${
                   done
-                    ? "bg-[var(--color-neon)] text-black"
+                    ? "bg-[var(--color-neon)] text-white"
                     : current
                       ? "bg-[var(--color-amber)] text-[var(--color-amber-ink)]"
                       : "border border-[var(--color-border-strong)] text-[var(--color-ink-faint)]"
@@ -713,10 +733,10 @@ function Callout({
   children: React.ReactNode;
 }) {
   const toneClass = {
-    indigo: "border-indigo-400/30 bg-indigo-400/10 text-indigo-200",
-    amber: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-    orange: "border-orange-400/30 bg-orange-400/10 text-orange-200",
-    red: "border-red-400/30 bg-red-400/10 text-red-200",
+    indigo: "border-indigo-200 bg-indigo-50 text-indigo-900",
+    amber: "border-amber-300 bg-amber-50 text-amber-900",
+    orange: "border-orange-200 bg-orange-50 text-orange-900",
+    red: "border-red-200 bg-red-50 text-red-900",
   }[tone];
   return (
     <div className={`rounded-2xl border p-4 text-sm ${toneClass}`}>
@@ -766,7 +786,7 @@ function OfferCard({
   const yourTotal = project.proposedMaterialsTotalPKR + project.proposedLabourFeePKR;
 
   return (
-    <div className="space-y-3 rounded-2xl border border-teal-400/30 bg-teal-400/10 p-4 text-sm text-teal-100">
+    <div className="space-y-3 rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
       <p className="font-semibold">The admin sent you an offer</p>
       {project.reviewNote && <p className="whitespace-pre-line">{project.reviewNote}</p>}
 
@@ -805,7 +825,7 @@ function OfferCard({
         </li>
       </ul>
 
-      <div className="flex items-baseline justify-between border-t border-teal-400/30 pt-2">
+      <div className="flex items-baseline justify-between border-t border-teal-200 pt-2">
         <span>
           Offer total
           <span className="block text-[11px] opacity-70">Your quotation was {formatPKR(yourTotal)}</span>
@@ -823,7 +843,7 @@ function OfferCard({
       )}
 
       {error && (
-        <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-300">
+        <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-700">
           {error}
         </p>
       )}
@@ -1034,7 +1054,7 @@ function MaterialsForm({
             key={r.key}
             id={`row-${r.key}`}
             className={`scroll-mt-20 space-y-2 rounded-2xl border bg-[var(--color-surface-2)] p-3 ${
-              issue ? "border-red-400/60" : "border-[var(--color-border)]"
+              issue ? "border-red-400" : "border-[var(--color-border)]"
             }`}
           >
             <div className="flex items-center justify-between">
@@ -1044,7 +1064,7 @@ function MaterialsForm({
                   type="button"
                   aria-label={`Remove item ${i + 1}`}
                   onClick={() => setRows((prev) => prev.filter((x) => x.key !== r.key))}
-                  className="-mr-2 flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition hover:text-red-400"
+                  className="-mr-2 flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition hover:text-red-600"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -1098,7 +1118,7 @@ function MaterialsForm({
               </div>
             </div>
             <div className="flex items-baseline justify-between gap-3 text-xs">
-              <p className={issue ? "font-medium text-red-400" : "text-transparent"} role={issue ? "alert" : undefined}>
+              <p className={issue ? "font-medium text-red-600" : "text-transparent"} role={issue ? "alert" : undefined}>
                 {issue ?? "."}
               </p>
               <p className="tabular-nums text-[var(--color-ink-muted)]">
@@ -1148,7 +1168,7 @@ function MaterialsForm({
           the running total and the Send button are never a long scroll away. */}
       <div className="sticky bottom-3 z-10 -mx-1 rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-bg)]/90 p-3 shadow-xl backdrop-blur">
         {error && (
-          <p role="alert" className="mb-2 rounded-xl border border-red-500/30 bg-red-500/10 p-2.5 text-sm text-red-400">
+          <p role="alert" className="mb-2 rounded-xl border border-red-500/30 bg-red-500/10 p-2.5 text-sm text-red-700">
             {error}
           </p>
         )}
