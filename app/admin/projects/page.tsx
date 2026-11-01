@@ -70,6 +70,8 @@ export default function AdminProjectsPage() {
   const [formMode, setFormMode] = useState<null | { editing: SiteProjectDTO | null }>(null);
   const [options, setOptions] = useState<ProjectOptionsDTO | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
+  // Set when the page is opened from the Checker's "Create site project" button.
+  const [newFromQuote, setNewFromQuote] = useState<string | null>(null);
 
   async function openForm(editing: SiteProjectDTO | null) {
     setFormMode({ editing });
@@ -103,6 +105,20 @@ export default function AdminProjectsPage() {
 
   useEffect(() => {
     const id = setTimeout(load, 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Arriving from the Checker with ?newFromQuote=<id>: open the new-project form
+  // for that quote, then tidy the address so a refresh doesn't reopen it.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      const quoteId = new URLSearchParams(window.location.search).get("newFromQuote");
+      if (!quoteId) return;
+      window.history.replaceState(null, "", window.location.pathname);
+      setNewFromQuote(quoteId);
+      void openForm(null);
+    }, 0);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -235,6 +251,7 @@ export default function AdminProjectsPage() {
           <ProjectForm
             key={formMode.editing?.id ?? "new"}
             editing={formMode.editing}
+            initialQuoteId={formMode.editing ? null : newFromQuote}
             options={options}
             optionsError={optionsError}
             onUnauthorized={onUnauthorized}
@@ -954,6 +971,7 @@ function CancelCard({
 
 function ProjectForm({
   editing,
+  initialQuoteId,
   options,
   optionsError,
   onUnauthorized,
@@ -961,6 +979,8 @@ function ProjectForm({
   onSaved,
 }: {
   editing: SiteProjectDTO | null;
+  /** A quote to start from (the Checker's "Create site project" button). */
+  initialQuoteId: string | null;
   options: ProjectOptionsDTO | null;
   optionsError: string | null;
   onUnauthorized: (reason?: string) => void;
@@ -992,6 +1012,24 @@ function ProjectForm({
     if (q.address) setSiteAddress(q.address);
     setSystemSizeKw(String(q.systemKw));
   }
+
+  // Started from a quote: fill the form in once the quote list has loaded, or say
+  // why it can't be (it already has a project, or it isn't approved).
+  const [startedFrom, setStartedFrom] = useState<{ ok: boolean; quoteNumber?: string } | null>(null);
+  useEffect(() => {
+    if (!initialQuoteId || editing || !options || startedFrom) return;
+    const id = setTimeout(() => {
+      const q = options.quotes.find((x) => x.id === initialQuoteId);
+      if (q) {
+        pickQuote(initialQuoteId);
+        setStartedFrom({ ok: true, quoteNumber: q.quoteNumber });
+      } else {
+        setStartedFrom({ ok: false });
+      }
+    }, 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuoteId, options]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1032,6 +1070,17 @@ function ProjectForm({
       <button type="button" onClick={onCancel} className="flex min-h-11 items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900">
         <ArrowLeft className="h-4 w-4" /> Back to projects
       </button>
+
+      {startedFrom?.ok && (
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          Filled in from quote {startedFrom.quoteNumber}. Choose the labour head and save.
+        </p>
+      )}
+      {startedFrom && !startedFrom.ok && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          That quote already has a project, or it isn&apos;t approved yet. You can still fill the form in by hand.
+        </p>
+      )}
 
       <div className={`${CARD} space-y-4`}>
         <div>
