@@ -25,6 +25,9 @@ export interface Dict {
   noProjects: string;
   /** Banner above the list while the admin has sent offers waiting for an answer. */
   offersWaiting: (n: number) => string;
+  groupYourTurn: string;
+  groupWithAdmin: string;
+  groupFinished: string;
   back: string;
   status: Record<SiteProjectStatus, string>;
   days: (n: number) => string;
@@ -98,6 +101,9 @@ const en: Dict = {
   loadingProjects: "Loading your projects",
   noProjects: "No projects yet",
   offersWaiting: (n) => (n === 1 ? "1 offer is waiting for your answer" : `${n} offers are waiting for your answer`),
+  groupYourTurn: "Your turn",
+  groupWithAdmin: "With the admin",
+  groupFinished: "Finished",
   back: "Back",
   status: {
     ASSIGNED: "Send quotation",
@@ -194,6 +200,9 @@ const ur: Dict = {
   loadingProjects: "پروجیکٹس لوڈ ہو رہے ہیں",
   noProjects: "ابھی کوئی پروجیکٹ نہیں",
   offersWaiting: (n) => (n === 1 ? "1 آفر آپ کے جواب کی منتظر ہے" : `${n} آفرز آپ کے جواب کی منتظر ہیں`),
+  groupYourTurn: "آپ کی باری",
+  groupWithAdmin: "ایڈمن کے پاس",
+  groupFinished: "مکمل شدہ",
   back: "واپس",
   status: {
     ASSIGNED: "کوٹیشن بھیجیں",
