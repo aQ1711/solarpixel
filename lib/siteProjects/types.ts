@@ -53,6 +53,30 @@ export interface SiteProjectEventDTO {
   createdAt: string;
 }
 
+export type PaymentKind = "SURVEY_FEE" | "ADVANCE" | "PROGRESS" | "FINAL";
+
+export const PAYMENT_KINDS: PaymentKind[] = ["SURVEY_FEE", "ADVANCE", "PROGRESS", "FINAL"];
+
+export const PAYMENT_KIND_LABEL: Record<PaymentKind, string> = {
+  SURVEY_FEE: "Survey fee",
+  ADVANCE: "Advance",
+  PROGRESS: "Progress payment",
+  FINAL: "Final payment",
+};
+
+/** Admin only: one payment received from the customer. */
+export interface CustomerPaymentDTO {
+  id: string;
+  kind: PaymentKind;
+  amountPKR: number;
+  /** YYYY-MM-DD */
+  receivedOn: string;
+  reference: string | null;
+  note: string | null;
+  /** Cancelled by mistake: still listed, no longer counted. */
+  voided: boolean;
+}
+
 export interface SiteProjectDTO {
   id: string;
   projectNumber: string;
@@ -90,6 +114,11 @@ export interface SiteProjectDTO {
   /** Admin only (null for the labour head): what the customer is charged,
    *  entered by the Super Admin. */
   customerPricePKR: number | null;
+
+  /** Admin only (empty for the labour head): what the customer has paid, newest last. */
+  customerPayments: CustomerPaymentDTO[];
+  /** Admin only (null for the labour head): total of the payments that count (not cancelled). */
+  customerPaidPKR: number | null;
 
   startedAt: string | null;
   completedAt: string | null;
@@ -173,4 +202,44 @@ export interface CatalogGroupDTO {
   /** Unit the line starts with when this group's item is picked. */
   defaultUnit: string;
   items: CatalogItemDTO[];
+}
+
+// ============================================================================
+// Money checks (used by the admin screen and again by the server)
+// ============================================================================
+
+/** The least margin a job should make before the Super Admin has to confirm. */
+export const MIN_JOB_MARGIN_PERCENT = 10;
+
+export interface MarginCheck {
+  level: "NO_PRICE" | "LOSS" | "LOW" | "OK";
+  /** Customer price minus what the labour head is paid; null with no price. */
+  marginPKR: number | null;
+  marginPercent: number | null;
+}
+
+/** Is this job worth doing at this payout? Compares what the customer pays
+ *  with what the labour head is paid. */
+export function checkJobMargin(customerPricePKR: number | null, payoutPKR: number): MarginCheck {
+  if (customerPricePKR === null || customerPricePKR <= 0) return { level: "NO_PRICE", marginPKR: null, marginPercent: null };
+  const marginPKR = roundMoney(customerPricePKR - payoutPKR);
+  const marginPercent = Math.round((marginPKR / customerPricePKR) * 1000) / 10;
+  if (marginPKR < 0) return { level: "LOSS", marginPKR, marginPercent };
+  if (marginPercent < MIN_JOB_MARGIN_PERCENT) return { level: "LOW", marginPKR, marginPercent };
+  return { level: "OK", marginPKR, marginPercent };
+}
+
+export interface PaymentCheck {
+  level: "NO_PRICE" | "UNPAID" | "OK";
+  owedPKR: number | null;
+  paidPKR: number;
+  /** What the customer still has to pay; null with no price. */
+  outstandingPKR: number | null;
+}
+
+/** Has the customer paid what they owe for this job? */
+export function checkCustomerPaid(customerPricePKR: number | null, paidPKR: number): PaymentCheck {
+  if (customerPricePKR === null || customerPricePKR <= 0) return { level: "NO_PRICE", owedPKR: null, paidPKR, outstandingPKR: null };
+  const outstandingPKR = roundMoney(Math.max(customerPricePKR - paidPKR, 0));
+  return { level: outstandingPKR > 0 ? "UNPAID" : "OK", owedPKR: customerPricePKR, paidPKR, outstandingPKR };
 }

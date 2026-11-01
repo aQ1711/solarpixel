@@ -12,6 +12,7 @@ import {
   RefreshCw,
   FileText,
   UserCog,
+  HardHat,
 } from "lucide-react";
 import Link from "next/link";
 import { useAdminAuth } from "@/components/admin/AdminAuthContext";
@@ -369,6 +370,15 @@ function QuoteReviewCard({
           Send Contract via WhatsApp
         </a>
         <p className="mt-2 text-center text-[11px] text-[var(--color-ink-faint)]">to {result.whatsapp.toPhone}</p>
+        {/* Next step once the customer agrees: opens the project form already filled in from this quote. */}
+        <Link
+          href={`/admin/projects?newFromQuote=${encodeURIComponent(quote.id)}`}
+          className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] py-3 text-sm font-semibold text-[var(--color-ink)] transition hover:border-[var(--color-border-strong)]"
+        >
+          <HardHat className="h-4 w-4" />
+          Create site project
+        </Link>
+        <p className="mt-1.5 text-center text-[11px] text-[var(--color-ink-faint)]">Do this once the customer agrees.</p>
       </div>
     );
   }

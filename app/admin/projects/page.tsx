@@ -12,17 +12,24 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
+  TriangleAlert,
   XCircle,
 } from "lucide-react";
 import { useAdminAuth } from "@/components/admin/AdminAuthContext";
 import { EVENT_LABEL, formatDate, formatDateTime, formatPKR, StatusBadge } from "@/components/siteProjects/shared";
 import { internalFetch, type ApiJson } from "@/lib/internal/access";
 import {
+  checkCustomerPaid,
+  checkJobMargin,
   computePayoutPKR,
   lineTotalPKR,
+  MIN_JOB_MARGIN_PERCENT,
+  PAYMENT_KINDS,
+  PAYMENT_KIND_LABEL,
   roundMoney,
   sumLinesPKR,
   SITE_PROJECT_STATUS_LABEL,
+  type PaymentKind,
   type ProjectOptionsDTO,
   type SiteProjectDTO,
   type SiteProjectStatus,
@@ -70,6 +77,8 @@ export default function AdminProjectsPage() {
   const [formMode, setFormMode] = useState<null | { editing: SiteProjectDTO | null }>(null);
   const [options, setOptions] = useState<ProjectOptionsDTO | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
+  // Set when the page is opened from the Checker's "Create site project" button.
+  const [newFromQuote, setNewFromQuote] = useState<string | null>(null);
 
   async function openForm(editing: SiteProjectDTO | null) {
     setFormMode({ editing });
@@ -103,6 +112,20 @@ export default function AdminProjectsPage() {
 
   useEffect(() => {
     const id = setTimeout(load, 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Arriving from the Checker with ?newFromQuote=<id>: open the new-project form
+  // for that quote, then tidy the address so a refresh doesn't reopen it.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      const quoteId = new URLSearchParams(window.location.search).get("newFromQuote");
+      if (!quoteId) return;
+      window.history.replaceState(null, "", window.location.pathname);
+      setNewFromQuote(quoteId);
+      void openForm(null);
+    }, 0);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -235,6 +258,7 @@ export default function AdminProjectsPage() {
           <ProjectForm
             key={formMode.editing?.id ?? "new"}
             editing={formMode.editing}
+            initialQuoteId={formMode.editing ? null : newFromQuote}
             options={options}
             optionsError={optionsError}
             onUnauthorized={onUnauthorized}
@@ -357,6 +381,10 @@ function ProjectReview({
   const [mode, setMode] = useState<null | "REQUEST_REVISION" | "REJECT">(null);
   const [reason, setReason] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
+  // Confirmations the Super Admin gives when a money check fails. The margin one
+  // is tied to the exact figures it was given for, so changing a price asks again.
+  const [ackedMarginKey, setAckedMarginKey] = useState("");
+  const [ackUnpaid, setAckUnpaid] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -369,6 +397,15 @@ function ProjectReview({
   const fee = Number(labourFee) || 0;
   const payout = computePayoutPKR(approvedTotal, fee);
   const difference = roundMoney(approvedTotal - project.proposedMaterialsTotalPKR);
+
+  // Money checks: does the job still make money at this payout, and has the
+  // customer paid what they owe before the labour head is paid out.
+  const marginCheck = checkJobMargin(project.customerPricePKR, payout);
+  const marginKey = `${marginCheck.level}|${payout}|${project.customerPricePKR}`;
+  const needsMarginAck = marginCheck.level !== "OK";
+  const marginAcked = ackedMarginKey === marginKey;
+  const paymentCheck = checkCustomerPaid(project.customerPricePKR, project.customerPaidPKR ?? 0);
+  const priceSaved = customerPrice === (project.customerPricePKR !== null ? String(project.customerPricePKR) : "");
 
   async function post(path: string, body: unknown, failMessage: string) {
     setBusy(true);
@@ -398,6 +435,7 @@ function ProjectReview({
         decision: "APPROVE",
         labourFeePKR: fee,
         note: approveNote || null,
+        confirmLowMargin: needsMarginAck && marginAcked,
         materials: project.materials.map((m) => ({
           id: m.id,
           approvedQuantity: Number(draft[m.id].qty) || 0,
@@ -414,6 +452,7 @@ function ProjectReview({
         decision: "COUNTER_OFFER",
         labourFeePKR: fee,
         note: approveNote || null,
+        confirmLowMargin: needsMarginAck && marginAcked,
         materials: project.materials.map((m) => ({
           id: m.id,
           approvedQuantity: Number(draft[m.id].qty) || 0,
@@ -594,6 +633,13 @@ function ProjectReview({
             </div>
           </dl>
 
+          <MarginGuard
+            check={marginCheck}
+            acked={marginAcked}
+            onAck={(v) => setAckedMarginKey(v ? marginKey : "")}
+            priceSaved={priceSaved}
+          />
+
           <label htmlFor="approveNote" className="mt-4 block text-xs font-medium text-stone-500">
             Note for the record (optional)
           </label>
@@ -605,7 +651,7 @@ function ProjectReview({
                 <button
                   type="button"
                   onClick={approve}
-                  disabled={busy || payout <= 0}
+                  disabled={busy || payout <= 0 || (needsMarginAck && !marginAcked)}
                   className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60 sm:w-auto"
                 >
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
@@ -615,7 +661,7 @@ function ProjectReview({
               <button
                 type="button"
                 onClick={counterOffer}
-                disabled={busy || payout <= 0}
+                disabled={busy || payout <= 0 || (needsMarginAck && !marginAcked)}
                 className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60 sm:w-auto"
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquareWarning className="h-4 w-4" />}
@@ -722,10 +768,15 @@ function ProjectReview({
                 <dt className="font-semibold text-stone-900">Your margin</dt>
                 <dd
                   className={`text-xl font-bold tabular-nums ${
-                    project.customerPricePKR - (project.payoutPKR ?? payout) >= 0 ? "text-emerald-700" : "text-red-600"
+                    { OK: "text-emerald-700", LOW: "text-amber-600", LOSS: "text-red-600", NO_PRICE: "text-stone-500" }[
+                      checkJobMargin(project.customerPricePKR, project.payoutPKR ?? payout).level
+                    ]
                   }`}
                 >
                   {formatPKR(roundMoney(project.customerPricePKR - (project.payoutPKR ?? payout)))}
+                  <span className="ml-2 text-sm font-medium">
+                    ({checkJobMargin(project.customerPricePKR, project.payoutPKR ?? payout).marginPercent}%)
+                  </span>
                 </dd>
               </div>
             ) : (
@@ -740,6 +791,10 @@ function ProjectReview({
             )}
           </dl>
         </div>
+      )}
+
+      {project.status !== "REJECTED" && (
+        <CustomerPayments project={project} onChanged={onChanged} onUnauthorized={onUnauthorized} />
       )}
 
       {project.payoutPKR !== null && project.status !== "REJECTED" && (
@@ -768,10 +823,34 @@ function ProjectReview({
             onChange={(e) => setPaymentReference(e.target.value)}
             className={`${FIELD} mt-1 max-w-sm`}
           />
+          {paymentCheck.level === "OK" ? (
+            <p className="mt-4 flex items-center gap-1.5 text-sm text-emerald-700">
+              <CheckCircle2 className="h-4 w-4" /> The customer has paid in full ({formatPKR(paymentCheck.paidPKR)}).
+            </p>
+          ) : (
+            <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="flex items-start gap-2 font-semibold">
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                {paymentCheck.level === "NO_PRICE"
+                  ? "No customer price is set, so the customer's payments can't be checked."
+                  : `The customer has paid ${formatPKR(paymentCheck.paidPKR)} of ${formatPKR(paymentCheck.owedPKR ?? 0)}. ${formatPKR(paymentCheck.outstandingPKR ?? 0)} is still to come.`}
+              </p>
+              <label className="mt-2 flex min-h-9 cursor-pointer items-center gap-2 font-medium">
+                <input type="checkbox" checked={ackUnpaid} onChange={(e) => setAckUnpaid(e.target.checked)} className="h-4 w-4" />
+                Pay the labour head anyway
+              </label>
+            </div>
+          )}
           <button
             type="button"
-            disabled={busy}
-            onClick={() => post("pay", { paymentReference: paymentReference || null }, "Could not mark this as paid.")}
+            disabled={busy || (paymentCheck.level !== "OK" && !ackUnpaid)}
+            onClick={() =>
+              post(
+                "pay",
+                { paymentReference: paymentReference || null, confirmUnpaid: paymentCheck.level !== "OK" && ackUnpaid },
+                "Could not mark this as paid.",
+              )
+            }
             className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60 sm:w-auto"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
@@ -822,6 +901,211 @@ function ProjectReview({
           ))}
         </ol>
       </div>
+    </div>
+  );
+}
+
+/** The margin check shown before approving or sending an offer. When it fails,
+ *  the Super Admin has to tick a box to go ahead. */
+function MarginGuard({
+  check,
+  acked,
+  onAck,
+  priceSaved,
+}: {
+  check: ReturnType<typeof checkJobMargin>;
+  acked: boolean;
+  onAck: (v: boolean) => void;
+  priceSaved: boolean;
+}) {
+  if (check.level === "OK") {
+    return (
+      <p className="mt-4 flex items-center gap-1.5 text-sm text-emerald-700">
+        <CheckCircle2 className="h-4 w-4" /> Margin {formatPKR(check.marginPKR ?? 0)} ({check.marginPercent}%), above the {MIN_JOB_MARGIN_PERCENT}% minimum.
+      </p>
+    );
+  }
+  const text =
+    check.level === "NO_PRICE"
+      ? "No customer price is set, so the margin can't be checked. Set it in the Margin card below, then save."
+      : check.level === "LOSS"
+        ? `This job loses ${formatPKR(Math.abs(check.marginPKR ?? 0))}. The labour head costs more than the customer pays.`
+        : `The margin is ${check.marginPercent}%, below the ${MIN_JOB_MARGIN_PERCENT}% minimum.`;
+  const tone = check.level === "LOSS" ? "border-red-300 bg-red-50 text-red-800" : "border-amber-300 bg-amber-50 text-amber-900";
+  return (
+    <div className={`mt-4 rounded-xl border p-3 text-sm ${tone}`}>
+      <p className="flex items-start gap-2 font-semibold">
+        <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+        {text}
+      </p>
+      {!priceSaved && (
+        <p className="mt-1 text-xs">You have typed a customer price that isn&apos;t saved yet. Save it so this check uses it.</p>
+      )}
+      <label className="mt-2 flex min-h-9 cursor-pointer items-center gap-2 font-medium">
+        <input type="checkbox" checked={acked} onChange={(e) => onAck(e.target.checked)} className="h-4 w-4" />
+        {check.level === "NO_PRICE" ? "Go ahead without a customer price" : check.level === "LOSS" ? "I accept this loss" : "I accept this margin"}
+      </label>
+    </div>
+  );
+}
+
+/** Money received from the customer for this project: what they owe, what has
+ *  come in, and a way to record or cancel a payment. Admin only. */
+function CustomerPayments({
+  project,
+  onChanged,
+  onUnauthorized,
+}: {
+  project: SiteProjectDTO;
+  onChanged: (p: SiteProjectDTO) => void;
+  onUnauthorized: (reason?: string) => void;
+}) {
+  const check = checkCustomerPaid(project.customerPricePKR, project.customerPaidPKR ?? 0);
+  const [kind, setKind] = useState<PaymentKind>("ADVANCE");
+  const [amount, setAmount] = useState("");
+  const [receivedOn, setReceivedOn] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reference, setReference] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function send(path: string, body: unknown, failMessage: string): Promise<boolean> {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await internalFetch("ADMIN", `/api/admin/projects/${project.id}/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      if (res.status === 401) {
+        onUnauthorized();
+        return false;
+      }
+      const data = (await res.json()) as ApiJson<{ project?: SiteProjectDTO }>;
+      if (!res.ok || !data.project) {
+        setError(data?.error ?? failMessage);
+        return false;
+      }
+      onChanged(data.project);
+      return true;
+    } catch {
+      setError("Network error. Please try again.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function add() {
+    const ok = await send("payments", { kind, amountPKR: Number(amount), receivedOn, reference: reference || null }, "Could not save the payment.");
+    if (ok) {
+      setAmount("");
+      setReference("");
+    }
+  }
+
+  const percentPaid = check.owedPKR ? Math.min(100, Math.round((check.paidPKR / check.owedPKR) * 100)) : 0;
+
+  return (
+    <div className={CARD}>
+      <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Customer payments</p>
+      <dl className="mt-3 space-y-2 text-sm">
+        <Row label="Customer pays" value={project.customerPricePKR !== null ? formatPKR(project.customerPricePKR) : "Not set"} />
+        <Row label="Received so far" value={formatPKR(check.paidPKR)} />
+        {check.outstandingPKR !== null && (
+          <div className="flex items-baseline justify-between border-t border-stone-100 pt-2">
+            <dt className="font-semibold text-stone-900">Still to come</dt>
+            <dd className={`text-lg font-bold tabular-nums ${check.outstandingPKR > 0 ? "text-amber-700" : "text-emerald-700"}`}>
+              {formatPKR(check.outstandingPKR)}
+            </dd>
+          </div>
+        )}
+      </dl>
+      {project.customerPricePKR !== null ? (
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-stone-100" role="img" aria-label={`${percentPaid}% received`}>
+          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${percentPaid}%` }} />
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-stone-500">Set what the customer pays in the Margin card so I can show what is still to come.</p>
+      )}
+
+      {project.customerPayments.length > 0 && (
+        <ul className="mt-4 divide-y divide-stone-100 text-sm">
+          {project.customerPayments.map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-3 py-2">
+              <div className={`min-w-0 ${p.voided ? "text-stone-400 line-through" : "text-stone-900"}`}>
+                <p>
+                  {PAYMENT_KIND_LABEL[p.kind]} · {formatDate(p.receivedOn)}
+                </p>
+                {p.reference && <p className="truncate text-xs text-stone-500">Ref {p.reference}</p>}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className={`tabular-nums font-medium ${p.voided ? "text-stone-400 line-through" : "text-stone-900"}`}>{formatPKR(p.amountPKR)}</span>
+                {p.voided ? (
+                  <span className="text-[11px] text-stone-400">Cancelled</span>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void send(`payments/${p.id}/void`, undefined, "Could not cancel that payment.")}
+                    className="min-h-9 rounded-lg px-2 text-xs font-medium text-stone-400 transition hover:text-red-600"
+                    aria-label={`Cancel ${PAYMENT_KIND_LABEL[p.kind]} of ${formatPKR(p.amountPKR)}`}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div>
+          <label htmlFor="payKind" className="mb-1 block text-[11px] text-stone-400">
+            Type
+          </label>
+          <select id="payKind" value={kind} onChange={(e) => setKind(e.target.value as PaymentKind)} className={FIELD}>
+            {PAYMENT_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {PAYMENT_KIND_LABEL[k]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="payAmount" className="mb-1 block text-[11px] text-stone-400">
+            Amount (Rs)
+          </label>
+          <input id="payAmount" inputMode="decimal" value={amount} onChange={(e) => setAmount(digitsOnly(e.target.value))} className={FIELD} />
+        </div>
+        <div>
+          <label htmlFor="payDate" className="mb-1 block text-[11px] text-stone-400">
+            Received on
+          </label>
+          <input id="payDate" type="date" value={receivedOn} onChange={(e) => setReceivedOn(e.target.value)} className={FIELD} />
+        </div>
+        <div>
+          <label htmlFor="payRef" className="mb-1 block text-[11px] text-stone-400">
+            Reference (optional)
+          </label>
+          <input id="payRef" value={reference} onChange={(e) => setReference(e.target.value)} className={FIELD} />
+        </div>
+      </div>
+      {error && (
+        <p role="alert" className="mt-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-sm text-red-700">
+          {error}
+        </p>
+      )}
+      <button
+        type="button"
+        disabled={busy || !(Number(amount) > 0) || !receivedOn}
+        onClick={add}
+        className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-semibold text-stone-800 transition hover:border-stone-300 disabled:opacity-50 sm:w-auto"
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+        Add payment
+      </button>
     </div>
   );
 }
@@ -954,6 +1238,7 @@ function CancelCard({
 
 function ProjectForm({
   editing,
+  initialQuoteId,
   options,
   optionsError,
   onUnauthorized,
@@ -961,6 +1246,8 @@ function ProjectForm({
   onSaved,
 }: {
   editing: SiteProjectDTO | null;
+  /** A quote to start from (the Checker's "Create site project" button). */
+  initialQuoteId: string | null;
   options: ProjectOptionsDTO | null;
   optionsError: string | null;
   onUnauthorized: (reason?: string) => void;
@@ -992,6 +1279,24 @@ function ProjectForm({
     if (q.address) setSiteAddress(q.address);
     setSystemSizeKw(String(q.systemKw));
   }
+
+  // Started from a quote: fill the form in once the quote list has loaded, or say
+  // why it can't be (it already has a project, or it isn't approved).
+  const [startedFrom, setStartedFrom] = useState<{ ok: boolean; quoteNumber?: string } | null>(null);
+  useEffect(() => {
+    if (!initialQuoteId || editing || !options || startedFrom) return;
+    const id = setTimeout(() => {
+      const q = options.quotes.find((x) => x.id === initialQuoteId);
+      if (q) {
+        pickQuote(initialQuoteId);
+        setStartedFrom({ ok: true, quoteNumber: q.quoteNumber });
+      } else {
+        setStartedFrom({ ok: false });
+      }
+    }, 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuoteId, options]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1032,6 +1337,17 @@ function ProjectForm({
       <button type="button" onClick={onCancel} className="flex min-h-11 items-center gap-1.5 text-sm text-stone-500 hover:text-stone-900">
         <ArrowLeft className="h-4 w-4" /> Back to projects
       </button>
+
+      {startedFrom?.ok && (
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          Filled in from quote {startedFrom.quoteNumber}. Choose the labour head and save.
+        </p>
+      )}
+      {startedFrom && !startedFrom.ok && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          That quote already has a project, or it isn&apos;t approved yet. You can still fill the form in by hand.
+        </p>
+      )}
 
       <div className={`${CARD} space-y-4`}>
         <div>
