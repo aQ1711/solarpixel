@@ -7,13 +7,13 @@ const pkrWhole = new Intl.NumberFormat("en-PK", { style: "currency", currency: "
 const pkrCents = new Intl.NumberFormat("en-PK", { style: "currency", currency: "PKR", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const formatPKR = (n: number) => (Number.isInteger(n) ? pkrWhole : pkrCents).format(n);
 
-export function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short" });
+export function formatDateTime(iso: string, locale = "en-PK"): string {
+  return new Date(iso).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
 }
 
-export function formatDate(isoOrYmd: string): string {
+export function formatDate(isoOrYmd: string, locale = "en-PK"): string {
   // YYYY-MM-DD parses as UTC midnight; render in UTC so it never slips a day.
-  return new Date(isoOrYmd).toLocaleDateString("en-PK", { dateStyle: "medium", timeZone: "UTC" });
+  return new Date(isoOrYmd).toLocaleDateString(locale, { dateStyle: "medium", timeZone: "UTC" });
 }
 
 export const EVENT_LABEL: Record<SiteProjectEventType, string> = {
