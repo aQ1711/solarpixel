@@ -335,7 +335,7 @@ function ProjectCard({ p, onOpen }: { p: SiteProjectDTO; onOpen: (id: string) =>
       }`}
     >
       <div className="min-w-0 flex-1">
-        <p className="truncate text-base font-semibold text-[var(--color-ink)]">{p.clientName}</p>
+        <p className="line-clamp-2 text-base font-semibold leading-snug text-[var(--color-ink)]">{p.clientName}</p>
         <p className="mt-0.5 truncate text-xs text-[var(--color-ink-faint)]">
           {p.projectNumber} · {p.city}
           {p.systemSizeKw !== null ? ` · ${p.systemSizeKw} kW` : ""}
