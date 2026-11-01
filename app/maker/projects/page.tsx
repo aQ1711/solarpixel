@@ -277,7 +277,7 @@ function ProjectsApp({ onUnauthorized }: { onUnauthorized: (reason?: string) => 
           onLang={setLang}
         />
 
-        <div className="mx-auto max-w-xl px-4 pb-10 pt-4">
+        <div className="mx-auto max-w-xl px-4 pb-10 pt-3">
           {error && (
             <p role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
@@ -366,15 +366,17 @@ function AppBar({
 }) {
   const { t } = useText();
   return (
-    <header className="sticky top-0 z-30 border-b border-[var(--color-border)] bg-white/95 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-xl items-center gap-3 px-4">
+    // Same floating glass pill as the website's header (components/SiteHeader.tsx),
+    // so the page scrolls underneath it.
+    <header className="sticky top-0 z-30 px-3 pt-3">
+      <div className="mx-auto flex h-14 max-w-xl items-center gap-3 rounded-full border border-white/70 bg-white/40 ps-4 pe-2 shadow-[0_8px_32px_-8px_rgba(30,53,80,0.22),inset_0_1px_0_rgba(255,255,255,0.9),inset_0_-1px_0_rgba(255,255,255,0.35)] backdrop-blur-xl backdrop-saturate-[1.8]">
         {detailTitle !== null ? (
           <>
             <button
               type="button"
               onClick={onBack}
               aria-label={t.back}
-              className="-ms-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--color-ink)] transition hover:bg-[var(--color-surface-2)]"
+              className="-ms-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--color-ink)] transition hover:bg-white/60"
             >
               <ArrowLeft aria-hidden className="h-5 w-5 rtl:rotate-180" />
             </button>
@@ -397,7 +399,7 @@ function AppBar({
           </>
         )}
 
-        <div role="group" aria-label="Language" className="flex shrink-0 rounded-full border border-[var(--color-border-strong)] bg-white p-0.5 text-sm">
+        <div role="group" aria-label="Language" className="flex shrink-0 rounded-full border border-white/70 bg-white/50 p-0.5 text-sm">
           {(["ur", "en"] as const).map((l) => (
             <button
               key={l}
