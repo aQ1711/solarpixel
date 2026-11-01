@@ -23,6 +23,8 @@ export interface Dict {
   cancel: string;
   loadingProjects: string;
   noProjects: string;
+  /** Banner above the list while the admin has sent offers waiting for an answer. */
+  offersWaiting: (n: number) => string;
   back: string;
   status: Record<SiteProjectStatus, string>;
   days: (n: number) => string;
@@ -95,6 +97,7 @@ const en: Dict = {
   cancel: "Cancel",
   loadingProjects: "Loading your projects",
   noProjects: "No projects yet",
+  offersWaiting: (n) => (n === 1 ? "1 offer is waiting for your answer" : `${n} offers are waiting for your answer`),
   back: "Back",
   status: {
     ASSIGNED: "Send quotation",
@@ -190,6 +193,7 @@ const ur: Dict = {
   cancel: "منسوخ کریں",
   loadingProjects: "پروجیکٹس لوڈ ہو رہے ہیں",
   noProjects: "ابھی کوئی پروجیکٹ نہیں",
+  offersWaiting: (n) => (n === 1 ? "1 آفر آپ کے جواب کی منتظر ہے" : `${n} آفرز آپ کے جواب کی منتظر ہیں`),
   back: "واپس",
   status: {
     ASSIGNED: "کوٹیشن بھیجیں",
